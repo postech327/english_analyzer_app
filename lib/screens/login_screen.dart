@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
+
+import '../config/api.dart';
+import 'analyzer_screen.dart'; // 로그인 후 이동
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -10,81 +13,93 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final TextEditingController _usernameController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-  String _loginResult = "";
+  final _id = TextEditingController();
+  final _pw = TextEditingController();
+  bool _loading = false;
+  String _msg = '';
 
   Future<void> _login() async {
-    final url = Uri.parse("http://localhost:8000/login"); // ✅ FastAPI 주소
+    setState(() {
+      _loading = true;
+      _msg = '';
+    });
 
     try {
-      final response = await http.post(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "username": _usernameController.text,
-          "password": _passwordController.text,
-        }),
-      );
+      final res = await http
+          .post(
+            ApiConfig.u(ApiConfig.login),
+            headers: const {
+              'Content-Type': 'application/json; charset=utf-8',
+            },
+            body: jsonEncode({
+              'username': _id.text.trim(),
+              'password': _pw.text.trim(),
+            }),
+          )
+          .timeout(const Duration(seconds: 25));
 
-      if (response.statusCode == 200) {
-        final result = jsonDecode(response.body);
-        setState(() {
-          _loginResult = result['message'] == 'login success'
-              ? "✅ 로그인 성공!"
-              : "❌ 로그인 실패!";
-        });
+      if (res.statusCode == 200) {
+        // 로그인 성공 → 분석 화면으로 이동
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const AnalyzerScreen()),
+        );
       } else {
-        setState(() {
-          _loginResult = "❌ 로그인 실패: ${response.body}";
-        });
+        setState(() => _msg = '❌ 로그인 실패: ${res.body}');
       }
     } catch (e) {
-      setState(() {
-        _loginResult = "❗ 네트워크 오류: $e";
-      });
+      setState(() => _msg = '네트워크 오류: $e');
+    } finally {
+      setState(() => _loading = false);
     }
+  }
+
+  @override
+  void dispose() {
+    _id.dispose();
+    _pw.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8EDF6),
-      appBar: AppBar(title: const Text("English Analyzer")),
+      appBar: AppBar(title: const Text('English Analyzer')),
       body: Padding(
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              "Login",
-              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 32),
+            const Text('Login',
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 28),
             TextField(
-              controller: _usernameController,
-              decoration: const InputDecoration(labelText: "Username"),
+              controller: _id,
+              decoration: const InputDecoration(labelText: 'Username'),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             TextField(
-              controller: _passwordController,
+              controller: _pw,
               obscureText: true,
-              decoration: const InputDecoration(labelText: "Password"),
+              decoration: const InputDecoration(labelText: 'Password'),
             ),
-            const SizedBox(height: 32),
-            Center(
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
               child: ElevatedButton(
-                onPressed: _login,
-                child: const Text("Login"),
+                onPressed: _loading ? null : _login,
+                child: _loading
+                    ? const CircularProgressIndicator()
+                    : const Text('Login'),
               ),
             ),
-            const SizedBox(height: 16),
-            if (_loginResult.isNotEmpty)
-              Center(
-                child: Text(
-                  _loginResult,
-                  style: const TextStyle(color: Colors.red),
-                ),
+            const SizedBox(height: 12),
+            if (_msg.isNotEmpty)
+              Text(
+                _msg,
+                style: const TextStyle(color: Colors.red),
               ),
           ],
         ),
