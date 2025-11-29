@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 
 import 'student_quiz_screen.dart';
+import 'student_set_list_screen.dart'; // 🔹 새로 추가: 세트 목록 화면
 
 class StudentModePage extends StatefulWidget {
   const StudentModePage({super.key});
@@ -19,6 +20,7 @@ class _StudentModePageState extends State<StudentModePage> {
     super.dispose();
   }
 
+  /// 🔹 기존 방식: problem_set_id 를 직접 입력해서 퀴즈 시작
   void _startQuiz() {
     final text = _idController.text.trim();
     if (text.isEmpty) return;
@@ -42,6 +44,16 @@ class _StudentModePageState extends State<StudentModePage> {
     );
   }
 
+  /// 🔹 새 방식: 문제 세트 목록에서 선택해서 시작
+  void _openSetList() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const StudentSetListScreen(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -58,10 +70,21 @@ class _StudentModePageState extends State<StudentModePage> {
           children: [
             const Text(
               '학생 모드: 저장된 지문 + 문제 세트를 불러와서 퀴즈를 풉니다.\n'
-              '아래에 problem_set_id 를 입력한 뒤 퀴즈 시작 버튼을 눌러 주세요.',
+              '아래에서 문제 세트를 선택하거나, problem_set_id 를 직접 입력할 수 있습니다.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
+
+            // ───── 문제 세트 목록에서 선택하기 버튼 ─────
+            ElevatedButton.icon(
+              onPressed: _openSetList,
+              icon: const Icon(Icons.list),
+              label: const Text('문제 세트 목록에서 선택하기'),
+            ),
+
+            const SizedBox(height: 24),
+
+            // ───── 기존: ID 직접 입력해서 시작하는 방식 ─────
             TextField(
               controller: _idController,
               keyboardType: TextInputType.number,
@@ -78,8 +101,9 @@ class _StudentModePageState extends State<StudentModePage> {
             ),
             const SizedBox(height: 12),
             const Text(
-              '※ 현재는 테스트용으로 ID를 직접 입력하는 방식입니다.\n'
-              ' 나중에 선생님 모드에서 저장한 ID를 자동으로 넘겨줄 수 있어요.',
+              '※ 현재는 테스트용으로 ID를 직접 입력하는 방식도 남겨 두었습니다.\n'
+              '   위의 [문제 세트 목록에서 선택하기] 버튼을 통해\n'
+              '   유형별로 정리된 세트 중 하나를 골라 풀 수 있습니다.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 11, color: Colors.grey),
             ),

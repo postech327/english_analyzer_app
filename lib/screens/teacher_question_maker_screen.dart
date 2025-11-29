@@ -1,7 +1,7 @@
 // lib/screens/teacher_question_maker_screen.dart
 import 'package:flutter/material.dart';
-import '../config/api.dart';
-import '../services/teacher_api.dart'; // 이전에 만들었던 API 서비스
+import '../services/teacher_api.dart';
+import 'teacher_problem_sets_screen.dart'; // ⬅️ 이 줄 추가
 
 /// 문제 유형 키
 enum QuestionTypeKey {
@@ -9,9 +9,9 @@ enum QuestionTypeKey {
   title, // 제목
   gist, // 요지
   summary, // 요약
-  cloze, // 빈칸
-  insertion, // 삽입
-  order, // 순서
+  cloze, // 빈칸 추론
+  insertion, // 문장 삽입
+  order, // 순서 배열
   all, // 전체(모든 유형)
 }
 
@@ -45,17 +45,17 @@ class _TeacherQuestionMakerScreenState
       case QuestionTypeKey.summary:
         return '요약';
       case QuestionTypeKey.cloze:
-        return '빈칸';
+        return '빈칸 추론';
       case QuestionTypeKey.insertion:
-        return '삽입';
+        return '문장 삽입';
       case QuestionTypeKey.order:
-        return '순서';
+        return '순서 배열';
       case QuestionTypeKey.all:
-        return '전체 (모든 유형)';
+        return '전체 (섞어서 생성)';
     }
   }
 
-  // 나중에 백엔드와 연결할 때 사용할 수 있는 key
+  // 백엔드 question_type 값 매핑
   String _typeKeyForApi(QuestionTypeKey type) {
     switch (type) {
       case QuestionTypeKey.topic:
@@ -143,6 +143,9 @@ class _TeacherQuestionMakerScreenState
       return;
     }
 
+    // 선택된 유형 → API용 문자열
+    final questionTypeForApi = _typeKeyForApi(_selectedType);
+
     setState(() => _isLoading = true);
 
     try {
@@ -153,15 +156,17 @@ class _TeacherQuestionMakerScreenState
             ? null
             : _titleController.text.trim(),
         numQuestions: _numQuestions,
-        // 나중에 사용할 수 있도록 로그만 찍어둠
-        // questionType: _typeKeyForApi(_selectedType),
+        questionType: questionTypeForApi, // 🔥 이제 유형도 함께 전송
       );
 
       // 2) 학생 모드로 이동
       if (!mounted) return;
       Navigator.of(context).pushNamed(
         '/student_quiz',
-        arguments: {'problemSetId': problemSetId},
+        arguments: {
+          'problemSetId': problemSetId,
+          'questionType': questionTypeForApi,
+        },
       );
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -195,6 +200,17 @@ class _TeacherQuestionMakerScreenState
     return Scaffold(
       appBar: AppBar(
         title: const Text('문제 제작 (선생님 모드)'),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(24),
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text(
+              '현재 유형: ${_labelForType(_selectedType)}',
+              style: theme.textTheme.labelMedium
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+          ),
+        ),
       ),
       body: Column(
         children: [
@@ -286,9 +302,25 @@ class _TeacherQuestionMakerScreenState
                     }
                   },
                 ),
+
+                // 🔹 저장된 문제 세트 목록 보기 버튼
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const TeacherProblemSetsScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.list),
+                  label: const Text('저장된 문제 세트 목록 보기'),
+                ),
               ],
             ),
           ),
+
           const SizedBox(height: 4),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),

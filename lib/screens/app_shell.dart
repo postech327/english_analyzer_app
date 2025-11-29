@@ -8,7 +8,7 @@ import 'home_screen.dart';
 import 'teacher_mode.dart';
 import 'student_mode.dart';
 import 'manage_mode.dart'; // ✅ 관리형
-import 'chat_screen.dart';
+import 'community_home.dart'; // ✅ 새로 만든 커뮤니티 화면
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -26,7 +26,7 @@ class _AppShellState extends State<AppShell> {
     const ManageModePage(), // 1: 관리형(관리자)
     const TeacherModePage(), // 2: 선생님
     const StudentModePage(), // 3: 학생
-    const ChatScreen(), // 4: 챗봇
+    const CommunityHomeScreen(), // ✅ 새 커뮤니티 화면
   ];
 
   @override
@@ -52,7 +52,11 @@ class _AppShellState extends State<AppShell> {
               icon: Icon(Icons.admin_panel_settings), label: '관리형'),
           NavigationDestination(icon: Icon(Icons.school_rounded), label: '선생님'),
           NavigationDestination(icon: Icon(Icons.person_rounded), label: '학생'),
-          NavigationDestination(icon: Icon(Icons.chat_bubble), label: '챗봇'),
+          NavigationDestination(
+            // ✅ 변경된 부분
+            icon: Icon(Icons.forum_outlined), // 말풍선 여러 개 아이콘 추천
+            label: '커뮤니티',
+          ),
         ],
       ),
     );

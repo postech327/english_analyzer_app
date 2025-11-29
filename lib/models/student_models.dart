@@ -109,3 +109,29 @@ class StudentAnswerCheckResult {
     );
   }
 }
+
+class StudentProblemSetSummary {
+  final int id;
+  final String title;
+  final String questionType;
+  final int numQuestions;
+  final DateTime createdAt;
+
+  StudentProblemSetSummary({
+    required this.id,
+    required this.title,
+    required this.questionType,
+    required this.numQuestions,
+    required this.createdAt,
+  });
+
+  factory StudentProblemSetSummary.fromJson(Map<String, dynamic> json) {
+    return StudentProblemSetSummary(
+      id: json['id'] as int,
+      title: json['title'] as String,
+      questionType: json['question_type'] as String,
+      numQuestions: json['num_questions'] as int,
+      createdAt: DateTime.parse(json['created_at'] as String),
+    );
+  }
+}

@@ -1,4 +1,3 @@
-// lib/screens/student_quiz_screen.dart
 import 'package:flutter/material.dart';
 
 import '../models/student_models.dart';
@@ -6,7 +5,7 @@ import '../services/student_api.dart';
 
 class StudentQuizScreen extends StatefulWidget {
   final int problemSetId;
-  final String? questionType; // 나중에 유형 필터용으로 사용 가능
+  final String? questionType; // 지금은 표시용/확장용, 필터에는 사용하지 않음
 
   const StudentQuizScreen({
     super.key,
@@ -27,6 +26,9 @@ class _StudentQuizScreenState extends State<StudentQuizScreen> {
   int? _selectedOptionId;
   StudentAnswerCheckResult? _lastResult;
 
+  /// 모든 문항의 채점 결과를 모아두는 리스트
+  final List<StudentAnswerCheckResult> _allResults = [];
+
   @override
   void initState() {
     super.initState();
@@ -40,32 +42,24 @@ class _StudentQuizScreenState extends State<StudentQuizScreen> {
     });
 
     try {
+      // ✅ API 에서 해당 problem_set 의 전체 문항을 받아온다
       final set = await StudentApi.fetchQuestions(
         problemSetId: widget.problemSetId,
         shuffle: true,
       );
 
-      List<StudentQuestion> filtered = set.questions;
-      if (widget.questionType != null) {
-        filtered = filtered
-            .where((q) => q.questionType == widget.questionType)
-            .toList();
-      }
+      if (!mounted) return;
 
       setState(() {
-        _set = StudentQuestionSet(
-          passageId: set.passageId,
-          passageTitle: set.passageTitle,
-          passageContent: set.passageContent,
-          problemSetId: set.problemSetId,
-          questions: filtered,
-        );
+        _set = set; // questionType 으로 재필터링하지 않고 그대로 사용
         _isLoading = false;
         _currentIndex = 0;
         _selectedOptionId = null;
         _lastResult = null;
+        _allResults.clear();
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
         _error = '문항 로드 실패: $e';
@@ -81,16 +75,38 @@ class _StudentQuizScreenState extends State<StudentQuizScreen> {
     return _set!.questions[_currentIndex];
   }
 
+  bool get _isLastQuestion {
+    if (_set == null) return true;
+    return _currentIndex >= _set!.questions.length - 1;
+  }
+
   Future<void> _submitAnswer() async {
     final q = _currentQuestion;
     if (q == null) return;
-    if (_selectedOptionId == null) return;
+    if (_selectedOptionId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('먼저 보기를 선택해 주세요.')),
+      );
+      return;
+    }
 
     try {
       final result = await StudentApi.checkAnswer(
         questionId: q.id,
         selectedOptionId: _selectedOptionId!,
       );
+
+      if (!mounted) return;
+
+      // 같은 문항의 결과가 이미 있으면 교체
+      final existingIndex = _allResults.indexWhere(
+        (r) => r.questionId == q.id,
+      );
+      if (existingIndex >= 0) {
+        _allResults[existingIndex] = result;
+      } else {
+        _allResults.add(result);
+      }
 
       setState(() {
         _lastResult = result;
@@ -104,10 +120,35 @@ class _StudentQuizScreenState extends State<StudentQuizScreen> {
         ),
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('정답 전송 실패: $e')),
       );
     }
+  }
+
+  void _goNextQuestion() {
+    if (_set == null) return;
+    if (_currentIndex >= _set!.questions.length - 1) return;
+
+    setState(() {
+      _currentIndex++;
+      _selectedOptionId = null;
+      _lastResult = null;
+    });
+  }
+
+  void _goToSummary() {
+    if (_set == null) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => StudentQuizResultScreen(
+          questionSet: _set!,
+          results: _allResults,
+        ),
+      ),
+    );
   }
 
   @override
@@ -147,10 +188,12 @@ class _StudentQuizScreenState extends State<StudentQuizScreen> {
     }
 
     final q = _currentQuestion!;
+    final total = _set!.questions.length;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 지문
+        // (1) 지문
         if (_set!.passageTitle != null) ...[
           Text(
             _set!.passageTitle!,
@@ -171,9 +214,10 @@ class _StudentQuizScreenState extends State<StudentQuizScreen> {
           ),
         ),
         const Divider(height: 24),
-        // 문제
+
+        // (2) 문제
         Text(
-          'Q${_currentIndex + 1}. (${q.questionType})',
+          'Q${_currentIndex + 1}/$total. (${q.questionType})',
           style: const TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 16,
@@ -190,13 +234,18 @@ class _StudentQuizScreenState extends State<StudentQuizScreen> {
         ],
         const SizedBox(height: 12),
 
-        // 보기
+        // (3) 보기
         Expanded(
           flex: 3,
           child: ListView(
             children: q.options.map((opt) {
+              final label = opt.label ?? '';
+              final text = opt.text ?? '';
+
               return ListTile(
-                title: Text('${opt.label ?? ''} ${opt.text}'),
+                title: Text(
+                  text.isEmpty ? label : '$label $text',
+                ),
                 leading: Radio<int>(
                   value: opt.id,
                   groupValue: _selectedOptionId,
@@ -211,7 +260,8 @@ class _StudentQuizScreenState extends State<StudentQuizScreen> {
         ),
 
         const SizedBox(height: 8),
-        // 정답 결과 (있다면)
+
+        // (4) 정답 결과 표시
         if (_lastResult != null) ...[
           Text(
             _lastResult!.correct ? '✅ 정답!' : '❌ 오답',
@@ -230,11 +280,100 @@ class _StudentQuizScreenState extends State<StudentQuizScreen> {
           const SizedBox(height: 8),
         ],
 
-        ElevatedButton(
-          onPressed: _submitAnswer,
-          child: const Text('정답 제출'),
+        // (5) 버튼들: [정답 제출]  [다음 문제 / 결과 보기]
+        Row(
+          children: [
+            Expanded(
+              child: ElevatedButton(
+                onPressed: (_selectedOptionId == null) ? null : _submitAnswer,
+                child: const Text('정답 제출'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: (_lastResult == null)
+                    ? null
+                    : (_isLastQuestion ? _goToSummary : _goNextQuestion),
+                child: Text(_isLastQuestion ? '결과 보기' : '다음 문제'),
+              ),
+            ),
+          ],
         ),
       ],
+    );
+  }
+}
+
+/// 결과 요약 화면
+class StudentQuizResultScreen extends StatelessWidget {
+  final StudentQuestionSet questionSet;
+  final List<StudentAnswerCheckResult> results;
+
+  const StudentQuizResultScreen({
+    super.key,
+    required this.questionSet,
+    required this.results,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final total = questionSet.questions.length;
+    final correctCount = results.where((r) => r.correct).length;
+
+    // questionId -> result 맵
+    final resultMap = {
+      for (final r in results) r.questionId: r,
+    };
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('결과 요약'),
+      ),
+      backgroundColor: cs.surface,
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              questionSet.passageTitle ?? '자동 생성 지문',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text('총 $total문항 중 $correctCount문항 정답'),
+            const SizedBox(height: 16),
+            const Divider(),
+            Expanded(
+              child: ListView.builder(
+                itemCount: questionSet.questions.length,
+                itemBuilder: (context, index) {
+                  final q = questionSet.questions[index];
+                  final r = resultMap[q.id];
+                  final isCorrect = r?.correct ?? false;
+
+                  return ListTile(
+                    title: Text(
+                      'Q${index + 1}. (${q.questionType})',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(isCorrect ? '정답' : '오답'),
+                    trailing: Icon(
+                      isCorrect ? Icons.check_circle : Icons.cancel,
+                      color: isCorrect ? Colors.green : Colors.red,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
