@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/community_models.dart';
 import '../services/community_api.dart';
 import 'community_editor_screen.dart';
+import 'profile_screen.dart'; // ← 추가
 
 /// 임시 로그인 유저 ID (백엔드에 미리 만들어둔 dummy user: id=1)
 const int kDummyAuthorId = 1;
@@ -183,6 +184,21 @@ class _CommunityHomeScreenState extends State<CommunityHomeScreen> {
         title: const Text('커뮤니티'),
         backgroundColor: cs.surface,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.person),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ProfileScreen(
+                    userId: kDummyAuthorId, // 임시 로그인 유저 id=1
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
       ),
       backgroundColor: cs.surface,
       body: Column(

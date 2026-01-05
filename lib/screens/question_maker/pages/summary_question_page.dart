@@ -1,21 +1,26 @@
-// lib/screens/question_maker/pages/summary_question_page.dart
 import 'package:flutter/material.dart';
+
 import 'package:english_analyzer_app/services/question_maker_service.dart';
+import 'package:english_analyzer_app/services/teacher_problem_set_service.dart';
+import 'package:english_analyzer_app/screens/teacher/teacher_problem_set_preview_screen.dart';
+import 'package:english_analyzer_app/models/teacher_models.dart';
 
 class SummaryQuestionPage extends StatefulWidget {
   const SummaryQuestionPage({super.key});
+
   @override
   State<SummaryQuestionPage> createState() => _SummaryQuestionPageState();
 }
 
 class _SummaryQuestionPageState extends State<SummaryQuestionPage> {
   final _svc = QmService();
+  final _input = TextEditingController();
 
-  final _input = TextEditingController(
-    text: 'While insect colonies follow rigid genetically programmed patterns, '
-        'humans show diverse and dynamic social behavior shaped by nurture.',
-  );
   bool _busy = false;
+
+  int? _analysisId;
+  Map<String, dynamic>? _hub;
+  bool _didInitArgs = false;
 
   int _itemCount = 3;
   List<McqItem> _items = [];
@@ -26,204 +31,149 @@ class _SummaryQuestionPageState extends State<SummaryQuestionPage> {
     super.dispose();
   }
 
-  Future<void> _generate() async {
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didInitArgs) return;
+
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map) {
+      final id = args['analysisId'];
+      _analysisId = (id is int) ? id : int.tryParse(id?.toString() ?? '');
+
+      final text = args['text']?.toString();
+      if (text != null && text.trim().isNotEmpty) {
+        _input.text = text.trim();
+      }
+
+      final hubRaw = args['hub'];
+      if (hubRaw is Map) {
+        _hub = hubRaw.map((k, v) => MapEntry(k.toString(), v));
+      }
+
+      final prefill = args['prefillItems'];
+      if (prefill is List && prefill.isNotEmpty) {
+        final list = prefill.whereType<McqItem>().toList();
+        if (list.isNotEmpty) _items = list;
+      }
+    }
+
+    _didInitArgs = true;
+    setState(() {});
+  }
+
+  String _hubValue(String key) {
+    final v = _hub?[key];
+    return (v == null) ? '' : v.toString();
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  Future<void> _generateSummary() async {
     final txt = _input.text.trim();
-    if (txt.isEmpty) return;
+    if (txt.isEmpty) {
+      _toast('지문을 먼저 입력해 주세요.');
+      return;
+    }
 
     setState(() => _busy = true);
+
     try {
-      // ✅ 요약-AB 전용 타입 호출
+      // ✅ 1) 허브 있으면: 서버 호출 없이 고정 생성 (정답=hub.summary_en)
+      final hubSummary = _hubValue('summary_en').trim();
+      if (hubSummary.isNotEmpty) {
+        final fixed = _svc.buildFixedTTGS(
+          type: 'summary',
+          passage: txt,
+          correctText: hubSummary,
+          count: _itemCount,
+          choices: 5,
+        );
+        setState(() => _items = fixed);
+        return;
+      }
+
+      // ✅ 2) 허브 없을 때만 서버 호출
       final items = await _svc.generateViaServer(
-        type: 'summary_ab',
+        type: 'summary',
         passage: txt,
         items: _itemCount,
+        extra: const {'choices': 5},
       );
       setState(() => _items = items);
     } catch (e) {
-      // 폴백: 아주 간단한 더미 한 문제
-      final dummy = McqItem(
-        stem: 'Which of the following best completes the blanks (A) and (B)?',
-        options: List.generate(5, (i) => _circled(i + 1)),
-        answerIndex: 4,
-        meta: {
-          'summary':
-              'Our visual perception is shaped by relations, which _____(A)_____ our view, unlike the _____(B)_____ camera perspective.',
-          'paired': {
-            'A': [
-              'enhances',
-              'simplifies',
-              'interrupts',
-              'reinforces',
-              'interrupts'
-            ],
-            'B': ['accurate', 'fixed', 'objective', 'neutral', 'inconsistent'],
-          },
-        },
-      );
-      setState(() => _items = [dummy, dummy, dummy].take(_itemCount).toList());
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('서버 생성 실패, 대체문항 표시: $e')),
-      );
+      final fb =
+          _svc.fallbackTTGS(type: 'summary', passage: txt, count: _itemCount);
+      setState(() => _items = fb);
+      _toast('서버 생성 실패, 대체문항 표시: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final h = Theme.of(context).textTheme;
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      children: [
-        Text('요약(summary·AB) 문제 생성',
-            style: h.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
-        const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TextField(
-                  controller: _input,
-                  minLines: 4,
-                  maxLines: 10,
-                  decoration: const InputDecoration(
-                    labelText: 'Passage',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    const Text('문항 수'),
-                    const SizedBox(width: 8),
-                    DropdownButton<int>(
-                      value: _itemCount,
-                      items: const [1, 2, 3, 4, 5]
-                          .map((e) =>
-                              DropdownMenuItem(value: e, child: Text('$e')))
-                          .toList(),
-                      onChanged: (v) => setState(() => _itemCount = v ?? 3),
-                    ),
-                    const Spacer(),
-                    FilledButton.icon(
-                      onPressed: _busy ? null : _generate,
-                      icon: _busy
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2))
-                          : const Icon(Icons.refresh),
-                      label: const Text('생성'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+  Future<void> _save() async {
+    if (_analysisId == null) {
+      _toast('analysisId가 없습니다.');
+      return;
+    }
+    if (_items.isEmpty) {
+      _toast('저장할 문항이 없습니다.');
+      return;
+    }
+
+    try {
+      final payloadItems = _items
+          .map((q) => q.toSaveJson())
+          .toList()
+          .cast<Map<String, dynamic>>();
+
+      final problemSetId = await TeacherProblemSetService.saveProblemSet(
+        analysisId: _analysisId!,
+        questionType: 'summary',
+        name: 'Summary 문제',
+        items: payloadItems,
+      );
+
+      _toast('저장 완료! (id=$problemSetId)');
+
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => TeacherProblemSetPreviewScreen(
+            problemSetId: problemSetId,
           ),
         ),
-        const SizedBox(height: 12),
-        if (_items.isEmpty)
-          const Text('아직 생성 전입니다.')
-        else
-          ..._items.map(_buildAbCard),
-      ],
-    );
+      );
+    } catch (e) {
+      _toast('저장 실패: $e');
+    }
   }
 
-  Widget _buildAbCard(McqItem q) {
-    final meta = q.meta;
-    final summary = (meta['summary'] ?? '').toString();
-    final paired = (meta['paired'] as Map?)?.cast<String, dynamic>() ?? {};
-    final List<dynamic> A = (paired['A'] as List?) ?? const [];
-    final List<dynamic> B = (paired['B'] as List?) ?? const [];
-
+  Widget _buildMcqCard(McqItem q) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(q.stem, style: const TextStyle(fontWeight: FontWeight.w700)),
+            Text(q.stem, style: const TextStyle(fontWeight: FontWeight.w800)),
             const SizedBox(height: 10),
-
-            // ⬇️ 상단 요약 박스(빈칸 A/B 포함)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.black12.withValues(alpha: 0.04),
-                borderRadius: BorderRadius.circular(8),
+            for (final opt in q.options)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(opt),
               ),
-              child: Text(summary),
-            ),
-
-            // ✅ 여기에 힌트 줄 추가 (요약 박스 아래, 보기 나오기 직전)
             const SizedBox(height: 6),
-            const Text(
-              '· Blank (A) appears in the 1st sentence, (B) in the 2nd.',
-              style: TextStyle(fontSize: 12, color: Colors.black54),
+            Text(
+              '정답: ${_circled(q.answerIndex + 1)}',
+              style: const TextStyle(fontWeight: FontWeight.w800),
             ),
-            const SizedBox(height: 8),
-
-            const SizedBox(height: 12),
-
-            // ⬇️ (A) (B) 제목
-            const Row(
-              children: [
-                Expanded(
-                    child: Text('(A)',
-                        style: TextStyle(fontWeight: FontWeight.w700))),
-                SizedBox(width: 16),
-                Expanded(
-                    child: Text('(B)',
-                        style: TextStyle(fontWeight: FontWeight.w700))),
-              ],
-            ),
-            const SizedBox(height: 6),
-
-            // ⬇️ 좌/우 5행 표기
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    children: List.generate(
-                      A.length,
-                      (i) => Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text('${_circled(i + 1)} ${A[i]}'),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    children: List.generate(
-                      B.length,
-                      (i) => Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text('${_circled(i + 1)} ${B[i]}'),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 8),
-            Text('정답: ${q.answerIndex + 1}번'),
           ],
         ),
       ),
@@ -231,4 +181,114 @@ class _SummaryQuestionPageState extends State<SummaryQuestionPage> {
   }
 
   String _circled(int i) => String.fromCharCode(0x2460 + (i - 1));
+
+  @override
+  Widget build(BuildContext context) {
+    final hubSummary = _hubValue('summary_en').trim();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('요약 문제 (ID: ${_analysisId ?? "-"})'),
+        actions: [
+          IconButton(
+            tooltip: '저장',
+            onPressed: _busy ? null : _save,
+            icon: const Icon(Icons.save_outlined),
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: ListView(
+          children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('연결된 분석 ID: ${_analysisId ?? "-"}'),
+                    const SizedBox(height: 4),
+                    Text(
+                      hubSummary.isNotEmpty
+                          ? '허브 연결: 있음 (정답을 hub.summary_en로 고정)'
+                          : '허브 연결: 없음',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Passage',
+                        style: TextStyle(fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _input,
+                      maxLines: 8,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        hintText: '지문을 입력하세요',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Text('문항 수'),
+                const SizedBox(width: 10),
+                DropdownButton<int>(
+                  value: _itemCount,
+                  items: const [
+                    DropdownMenuItem(value: 1, child: Text('1')),
+                    DropdownMenuItem(value: 2, child: Text('2')),
+                    DropdownMenuItem(value: 3, child: Text('3')),
+                    DropdownMenuItem(value: 5, child: Text('5')),
+                  ],
+                  onChanged: _busy
+                      ? null
+                      : (v) {
+                          if (v == null) return;
+                          setState(() => _itemCount = v);
+                        },
+                ),
+                const Spacer(),
+                FilledButton.icon(
+                  onPressed: _busy ? null : _generateSummary,
+                  icon: _busy
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.auto_fix_high),
+                  label: const Text('생성'),
+                ),
+                const SizedBox(width: 10),
+                OutlinedButton.icon(
+                  onPressed: _busy ? null : _save,
+                  icon: const Icon(Icons.save_outlined),
+                  label: const Text('저장'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            if (_items.isEmpty)
+              const Text('문항이 없습니다. 상단의 “생성” 버튼을 눌러 주세요.')
+            else
+              ..._items.map(_buildMcqCard),
+          ],
+        ),
+      ),
+    );
+  }
 }

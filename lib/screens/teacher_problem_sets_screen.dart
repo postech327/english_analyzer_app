@@ -144,7 +144,6 @@ class _TeacherProblemSetsScreenState extends State<TeacherProblemSetsScreen> {
               MaterialPageRoute(
                 builder: (_) => StudentQuizScreen(
                   problemSetId: item.id,
-                  questionType: item.questionType,
                 ),
               ),
             );

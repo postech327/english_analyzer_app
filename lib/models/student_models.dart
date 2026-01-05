@@ -1,137 +1,133 @@
-// lib/models/student_models.dart
-
-class StudentOption {
-  final int id;
-  final String? label;
-  final String text;
-
-  StudentOption({
-    required this.id,
-    this.label,
-    required this.text,
-  });
-
-  factory StudentOption.fromJson(Map<String, dynamic> json) {
-    return StudentOption(
-      id: json['id'] as int,
-      label: json['label'] as String?,
-      text: json['text'] as String,
-    );
-  }
-}
-
-class StudentQuestion {
-  final int id;
-  final String questionType;
-  final String stem;
-  final String? extraInfo;
-  final int? orderIndex;
-  final List<StudentOption> options;
-
-  StudentQuestion({
-    required this.id,
-    required this.questionType,
-    required this.stem,
-    this.extraInfo,
-    this.orderIndex,
-    required this.options,
-  });
-
-  factory StudentQuestion.fromJson(Map<String, dynamic> json) {
-    final opts = (json['options'] as List<dynamic>? ?? [])
-        .map((e) => StudentOption.fromJson(e as Map<String, dynamic>))
-        .toList();
-
-    return StudentQuestion(
-      id: json['id'] as int,
-      questionType: json['question_type'] as String,
-      stem: json['stem'] as String,
-      extraInfo: json['extra_info'] as String?,
-      orderIndex: json['order_index'] as int?,
-      options: opts,
-    );
-  }
-}
-
-class StudentQuestionSet {
-  final int passageId;
-  final String? passageTitle;
-  final String passageContent;
-  final int problemSetId;
-  final List<StudentQuestion> questions;
-
-  StudentQuestionSet({
-    required this.passageId,
-    this.passageTitle,
-    required this.passageContent,
-    required this.problemSetId,
-    required this.questions,
-  });
-
-  factory StudentQuestionSet.fromJson(Map<String, dynamic> json) {
-    final qs = (json['questions'] as List<dynamic>? ?? [])
-        .map((e) => StudentQuestion.fromJson(e as Map<String, dynamic>))
-        .toList();
-
-    return StudentQuestionSet(
-      passageId: json['passage_id'] as int,
-      passageTitle: json['passage_title'] as String?,
-      passageContent: json['passage_content'] as String,
-      problemSetId: json['problem_set_id'] as int,
-      questions: qs,
-    );
-  }
-}
-
-/// 정답 체크 응답
-class StudentAnswerCheckResult {
-  final int questionId;
-  final int selectedOptionId;
-  final bool correct;
-  final int correctOptionId;
-  final String? explanation;
-
-  StudentAnswerCheckResult({
-    required this.questionId,
-    required this.selectedOptionId,
-    required this.correct,
-    required this.correctOptionId,
-    this.explanation,
-  });
-
-  factory StudentAnswerCheckResult.fromJson(Map<String, dynamic> json) {
-    return StudentAnswerCheckResult(
-      questionId: json['question_id'] as int,
-      selectedOptionId: json['selected_option_id'] as int,
-      correct: json['correct'] as bool,
-      correctOptionId: json['correct_option_id'] as int,
-      explanation: json['explanation'] as String?,
-    );
-  }
-}
-
+// =====================================================
+// 학생용 문제 세트 요약 (목록 화면)
+// =====================================================
 class StudentProblemSetSummary {
   final int id;
   final String title;
-  final String questionType;
+  final String? questionType;
   final int numQuestions;
-  final DateTime createdAt;
 
   StudentProblemSetSummary({
     required this.id,
     required this.title,
-    required this.questionType,
     required this.numQuestions,
-    required this.createdAt,
+    this.questionType,
   });
 
   factory StudentProblemSetSummary.fromJson(Map<String, dynamic> json) {
     return StudentProblemSetSummary(
       id: json['id'] as int,
       title: json['title'] as String,
-      questionType: json['question_type'] as String,
-      numQuestions: json['num_questions'] as int,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      questionType: json['question_type'] as String?,
+      numQuestions: json['numQuestions'] as int? ?? 0,
+    );
+  }
+}
+
+// =====================================================
+// 학생용 전체 문제 세트 (퀴즈 화면)
+// =====================================================
+class StudentQuestionSet {
+  final int problemSetId;
+  final String title;
+  final String? passageTitle;
+  final String? passageContent;
+  final List<StudentQuestion> questions;
+
+  StudentQuestionSet({
+    required this.problemSetId,
+    required this.title,
+    required this.questions,
+    this.passageTitle,
+    this.passageContent,
+  });
+
+  factory StudentQuestionSet.fromJson(Map<String, dynamic> json) {
+    return StudentQuestionSet(
+      problemSetId: json['problem_set_id'] as int,
+      title: json['title'] as String,
+      passageTitle: json['passage_title'] as String?,
+      passageContent: json['passage_content'] as String?,
+      questions: (json['questions'] as List<dynamic>)
+          .map((e) => StudentQuestion.fromJson(e))
+          .toList(),
+    );
+  }
+}
+
+// =====================================================
+// 학생용 문제
+// =====================================================
+class StudentQuestion {
+  final int id;
+  final int? order;
+  final String? questionType;
+  final String text;
+  final List<StudentOption> options;
+
+  StudentQuestion({
+    required this.id,
+    required this.text,
+    required this.options,
+    this.order,
+    this.questionType,
+  });
+
+  factory StudentQuestion.fromJson(Map<String, dynamic> json) {
+    return StudentQuestion(
+      id: json['id'] as int,
+      order: json['order'] as int?,
+      questionType: json['question_type'] as String?,
+      text: json['text'] as String,
+      options: (json['options'] as List<dynamic>)
+          .map((e) => StudentOption.fromJson(e))
+          .toList(),
+    );
+  }
+}
+
+// =====================================================
+// 학생용 선택지
+// =====================================================
+class StudentOption {
+  final int? id;
+  final String? label;
+  final String? text;
+
+  StudentOption({
+    this.id,
+    this.label,
+    this.text,
+  });
+
+  factory StudentOption.fromJson(Map<String, dynamic> json) {
+    return StudentOption(
+      id: json['id'] as int?,
+      label: json['label'] as String?,
+      text: json['text'] as String?,
+    );
+  }
+}
+
+// =====================================================
+// 정답 체크 결과
+// =====================================================
+class StudentAnswerCheckResult {
+  final int questionId;
+  final bool correct;
+  final int correctOptionId;
+
+  StudentAnswerCheckResult({
+    required this.questionId,
+    required this.correct,
+    required this.correctOptionId,
+  });
+
+  factory StudentAnswerCheckResult.fromJson(Map<String, dynamic> json) {
+    return StudentAnswerCheckResult(
+      questionId: json['question_id'] as int,
+      correct: json['correct'] as bool,
+      correctOptionId: json['correct_option_id'] as int,
     );
   }
 }

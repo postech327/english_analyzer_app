@@ -1,217 +1,257 @@
 import 'package:flutter/material.dart';
+
 import 'package:english_analyzer_app/services/question_maker_service.dart';
+import 'package:english_analyzer_app/services/teacher_problem_set_service.dart';
+import 'package:english_analyzer_app/screens/teacher/teacher_problem_set_preview_screen.dart';
+import 'package:english_analyzer_app/models/teacher_models.dart';
+
 
 class ClozeQuestionPage extends StatefulWidget {
   const ClozeQuestionPage({super.key});
+
   @override
   State<ClozeQuestionPage> createState() => _ClozeQuestionPageState();
 }
 
 class _ClozeQuestionPageState extends State<ClozeQuestionPage> {
   final _svc = QmService();
-
-  final _input = TextEditingController(
-    text:
-        'To build better habits, start small, repeat often, and track your progress daily.',
-  );
-
-  // ✅ 선생님이 “정답(서버 실패시 대체용)”을 직접 적는 입력
-  final _manualAnswer = TextEditingController(); // 비우면 자동 선택
+  final _input = TextEditingController();
 
   bool _busy = false;
-  int _itemCount = 3; // 생성 문항 수(보통 1~3)
+
+  int? _analysisId;
+  Map<String, dynamic>? _hub;
+  bool _didInitArgs = false;
+
+  // 빈칸은 보통 1문항
+  final int _itemCount = 1;
   List<McqItem> _items = [];
 
   @override
   void dispose() {
     _input.dispose();
-    _manualAnswer.dispose();
     super.dispose();
   }
 
-  Future<void> _generate() async {
-    final passage = _input.text.trim();
-    if (passage.isEmpty) return;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didInitArgs) return;
 
-    final userAnswer = _manualAnswer.text.trim();
-    final hasUserAnswer = userAnswer.isNotEmpty;
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map) {
+      final id = args['analysisId'];
+      _analysisId = (id is int) ? id : int.tryParse(id?.toString() ?? '');
+
+      final text = args['text']?.toString();
+      if (text != null && text.trim().isNotEmpty) {
+        _input.text = text.trim();
+      }
+
+      final hubRaw = args['hub'];
+      if (hubRaw is Map) {
+        _hub = hubRaw.map((k, v) => MapEntry(k.toString(), v));
+      }
+
+      final prefill = args['prefillItems'];
+      if (prefill is List && prefill.isNotEmpty) {
+        final list = prefill.whereType<McqItem>().toList();
+        if (list.isNotEmpty) _items = list;
+      }
+    }
+
+    _didInitArgs = true;
+    setState(() {});
+  }
+
+  String _hubValue(String key) {
+    final v = _hub?[key];
+    return (v == null) ? '' : v.toString();
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  Future<void> _generateCloze() async {
+    final txt = _input.text.trim();
+    if (txt.isEmpty) {
+      _toast('지문을 먼저 입력해 주세요.');
+      return;
+    }
 
     setState(() => _busy = true);
+
     try {
-      // 서버 사용 시: 정답을 함께 전달(없으면 서버가 알아서 추출)
+      // ✅ 1) 서버 호출 (백엔드 cloze가 있으면 그걸 우선)
       final items = await _svc.generateViaServer(
         type: 'cloze',
-        passage: passage,
+        passage: txt,
         items: _itemCount,
-        extra: {
-          if (hasUserAnswer) 'answer_text': userAnswer,
-        },
+        extra: const {'choices': 5},
       );
       setState(() => _items = items);
     } catch (e) {
-      // 서버 실패: 로컬 폴백 — 정답이 있으면 그걸로, 없으면 자동 추출 + 빈칸 삽입
-      final fb = _svc.fallbackCloze(
-        passage: passage,
-        answerText: hasUserAnswer ? userAnswer : null,
-      );
+      // ✅ 2) 서버 실패 시 폴백
+      final fb = _svc.fallbackCloze(passage: txt);
       setState(() => _items = fb);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('서버 실패, 폴백 문항 표시: $e')),
-      );
+      _toast('서버 생성 실패, 대체문항 표시: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final h = Theme.of(context).textTheme;
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      children: [
-        Text(
-          '빈칸(cloze) 문제 생성',
-          style: h.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+  Future<void> _save() async {
+    if (_analysisId == null) {
+      _toast('analysisId가 없습니다.');
+      return;
+    }
+    if (_items.isEmpty) {
+      _toast('저장할 문항이 없습니다.');
+      return;
+    }
+
+    try {
+      final payloadItems = _items
+          .map((q) => q.toSaveJson())
+          .toList()
+          .cast<Map<String, dynamic>>();
+
+      final problemSetId = await TeacherProblemSetService.saveProblemSet(
+        analysisId: _analysisId!,
+        questionType: 'cloze',
+        name: 'Cloze 문제',
+        items: payloadItems,
+      );
+
+      _toast('저장 완료! (id=$problemSetId)');
+
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) =>
+              TeacherProblemSetPreviewScreen(problemSetId: problemSetId),
         ),
-        const SizedBox(height: 12),
-
-        // 입력 카드
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TextField(
-                  controller: _input,
-                  minLines: 4,
-                  maxLines: 10,
-                  decoration: const InputDecoration(
-                    labelText: 'Passage',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-
-                // ✅ 정답(서버 실패시 대체용) — 비워두면 자동 추출
-                TextField(
-                  controller: _manualAnswer,
-                  minLines: 1,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: '정답(서버 실패 시 대체용)',
-                    hintText: '예) start small',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-
-                Row(
-                  children: [
-                    const Text('문항 수'),
-                    const SizedBox(width: 8),
-                    DropdownButton<int>(
-                      value: _itemCount,
-                      items: const [1, 2, 3, 4, 5]
-                          .map(
-                            (e) => DropdownMenuItem(
-                              value: e,
-                              child: Text('$e'),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (v) => setState(() => _itemCount = v ?? 1),
-                    ),
-                    const Spacer(),
-                    FilledButton.icon(
-                      onPressed: _busy ? null : _generate,
-                      icon: _busy
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.refresh),
-                      label: const Text('생성'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 12),
-
-        if (_items.isEmpty)
-          const Text('아직 생성 전입니다.')
-        else
-          ..._items.map(_buildClozeCard),
-      ],
-    );
-  }
-
-  /// ✅ 빈칸 표시를 항상 '__________' 형태로 통일하는 헬퍼
-  String _normalizeBlank(String s) {
-    var t = s;
-
-    // __(  )__ 형태 → 긴 밑줄
-    t = t.replaceAll(RegExp(r'__\(\s*\)__'), '__________');
-
-    // ( ) 또는 (   ) 형태 → 긴 밑줄
-    t = t.replaceAll('(   )', '__________');
-    t = t.replaceAll('(  )', '__________');
-    t = t.replaceAll('( )', '__________');
-
-    // 여러 개의 _ 이 연속된 경우도 전부 정리
-    t = t.replaceAll(RegExp(r'_+'), '__________');
-
-    return t;
+      );
+    } catch (e) {
+      _toast('저장 실패: $e');
+    }
   }
 
   Widget _buildClozeCard(McqItem q) {
-    final rawMarked = (q.meta['passage_marked'] ?? '').toString();
-    final marked = _normalizeBlank(rawMarked);
+    final marked = (q.meta['passage_marked'] ?? '').toString().trim();
+    final insert = marked.isNotEmpty ? marked : _input.text.trim();
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              q.stem,
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-
-            // ⬇️ 빈칸이 들어간 본문 보여주기
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.black12.withValues(alpha: 0.04),
-                borderRadius: BorderRadius.circular(8),
+            Text(q.stem, style: const TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 10),
+            if (insert.isNotEmpty) ...[
+              const Text('지문(빈칸 표시)',
+                  style: TextStyle(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 6),
+              Text(insert),
+              const SizedBox(height: 12),
+            ],
+            for (final opt in q.options)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(opt),
               ),
-              child: SelectableText(marked.isEmpty ? '(본문 없음)' : marked),
+            const SizedBox(height: 6),
+            Text(
+              '정답: ${_circled(q.answerIndex + 1)}',
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _circled(int i) => String.fromCharCode(0x2460 + (i - 1));
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('빈칸 문제 (ID: ${_analysisId ?? "-"})'),
+        actions: [
+          IconButton(
+            tooltip: '저장',
+            onPressed: _busy ? null : _save,
+            icon: const Icon(Icons.save_outlined),
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: ListView(
+          children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text('연결된 분석 ID: ${_analysisId ?? "-"}'),
+              ),
             ),
             const SizedBox(height: 12),
-            const Divider(),
-
-            ...List.generate(
-              q.options.length,
-              (i) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Text(q.options[i]),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Passage',
+                        style: TextStyle(fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _input,
+                      maxLines: 10,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        hintText: '지문을 입력하세요',
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            const SizedBox(height: 6),
-            Text('정답: ${q.answerIndex + 1}번'),
-            if (q.meta['explain'] != null &&
-                q.meta['explain'].toString().trim().isNotEmpty)
-              Text('해설: ${q.meta['explain']}'),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Spacer(),
+                FilledButton.icon(
+                  onPressed: _busy ? null : _generateCloze,
+                  icon: _busy
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.auto_fix_high),
+                  label: const Text('생성'),
+                ),
+                const SizedBox(width: 10),
+                OutlinedButton.icon(
+                  onPressed: _busy ? null : _save,
+                  icon: const Icon(Icons.save_outlined),
+                  label: const Text('저장'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            if (_items.isEmpty)
+              const Text('문항이 없습니다. 상단의 “생성” 버튼을 눌러 주세요.')
+            else
+              ..._items.map(_buildClozeCard),
           ],
         ),
       ),

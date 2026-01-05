@@ -107,7 +107,7 @@ class _StudentSetListScreenState extends State<StudentSetListScreen> {
                               return ListTile(
                                 title: Text(ps.title),
                                 subtitle: Text(
-                                  '${_korLabel(ps.questionType)} · 문제 ${ps.numQuestions}개',
+                                  '${_korLabel(ps.questionType ?? 'all')} - 문제 ${ps.numQuestions}개',
                                 ),
                                 trailing: const Icon(Icons.chevron_right),
                                 onTap: () {

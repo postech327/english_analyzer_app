@@ -1,60 +1,59 @@
 // lib/config/api.dart
-/// API 엔드포인트와 공통 BASE URL 관리
+
 class ApiConfig {
-  /// 실행 시 주입: --dart-define=API_BASE=http://127.0.0.1:8000
-  /// 주입이 없다면 로컬 기본값 사용
-  static final String baseUrl = _normalizeBase(
-    const String.fromEnvironment(
-      'API_BASE',
-      defaultValue: 'http://127.0.0.1:8000',
-    ),
+  /// 서버 기본 URL
+  static const String baseUrl = String.fromEnvironment(
+    'API_BASE',
+    defaultValue: 'http://127.0.0.1:8000',
   );
 
-  // ---------- Endpoints ----------
+  /// 내부 유틸: path => Uri
+  static Uri u(String path) => Uri.parse('$baseUrl$path');
 
-  // 인증
-  static String get authRegister => _j('auth/register');
-  static String get login => _j('login');
+  /// 🔥 통합 지문 분석 허브
+  static const String textAnalysisHub = '/text_analysis_hub';
 
-  // 분석 계열
-  static String get analyzeStructure => _j('analyze_structure');
-  static String get analyzeParagraph => _j('analyze_paragraph');
-  static String get analyzeTopicTitleSummary =>
-      _j('analyze_topic_title_summary');
+  /// 🔥 분석 기록 저장 (FastAPI /analyses)
+  static const String analyses = '/analyses';
 
-  // 단어/유의어
-  static String get wordSynonyms => _j('word_synonyms');
+  // ─────────────────────────────
+  // ① 인증 관련
+  // ─────────────────────────────
+  static const String authRegister = '/auth/register';
+  static const String login = '/auth/login';
 
-  // 챗봇
-  static String get chat => _j('chat');
+  // ─────────────────────────────
+  // ② 분석기 관련
+  // ─────────────────────────────
+  static const String analyzeParagraph = '/paragraph/analyze';
+  static const String analyzeStructure = '/analyze_structure';
+  static const String analyzeTopicTitleSummary = '/analyze_topic_title_summary';
+  static const String wordSynonyms = '/word_synonyms';
+  static const String chat = '/chat';
 
-  // 단어 객관식 생성
-  static String get wordMcq => _j('word-mcq'); // 문자열 포맷 응답
-  static String get wordMcqStruct => _j('word-mcq-struct'); // 구조화 응답
+  // ─────────────────────────────
+  // ③ 단어 MCQ 관련
+  // ─────────────────────────────
+  static const String wordMcq = '/word_mcq';
+  static const String wordMcqStruct = '/word_mcq_struct';
 
-  // 대시보드
-  static String get dashboard => _j('dashboard');
+  // ─────────────────────────────
+  // ④ 대시보드
+  // ─────────────────────────────
+  static const String dashboard = '/dashboard';
 
-  // PPT 내보내기
-  static String get exportPpt => _j('export/ppt');
+  // ─────────────────────────────
+  // ⑤ Question Maker (타입별 엔드포인트)
+  // ─────────────────────────────
+  /// 예: /question_maker/topic, /question_maker/title ...
+  static String qm(String type) => '/question_maker/$type';
 
-  // 🆕 선생님: 지문 + 자동생성 문제 세트 저장
-  static String get teacherQuestionSets => _j('teacher/question-sets');
+  // ─────────────────────────────
+  // ⑥ (신규) 지문 분석 허브 + 문제 세트
+  // ─────────────────────────────
+  static const String passageAnalyzeAndSave =
+      '/teacher/passage/analyze_and_save';
 
-  /// 문자열 URL → Uri
-  static Uri u(String url) => Uri.parse(url);
-
-  /// 내부 유틸: 슬래시 중복/누락 방지
-  static String _j(String path) {
-    final p = path.startsWith('/') ? path.substring(1) : path;
-    return '$baseUrl/$p';
-  }
-
-  /// 내부 유틸: baseUrl 끝의 / 제거
-  static String _normalizeBase(String s) {
-    return s.endsWith('/') ? s.substring(0, s.length - 1) : s;
-  }
-
-  // ───────── Question Maker ─────────
-  static String qm(String type) => _j('question_maker/$type');
+  static const String problemSetGenerateAndSave =
+      '/teacher/problem_sets/generate_and_save';
 }

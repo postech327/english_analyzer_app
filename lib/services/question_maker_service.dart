@@ -1,33 +1,16 @@
 // lib/services/question_maker_service.dart
 import 'dart:convert';
 import 'dart:math';
+
 import 'package:http/http.dart' as http;
 import 'package:english_analyzer_app/config/api.dart';
+import 'package:english_analyzer_app/models/teacher_models.dart';
 
-class McqItem {
-  final String stem;
-  final List<String> options;
-  final int answerIndex;
-  final Map<String, dynamic> meta;
-
-  McqItem({
-    required this.stem,
-    required this.options,
-    required this.answerIndex,
-    this.meta = const {},
-  });
-
-  factory McqItem.fromJson(Map<String, dynamic> j) => McqItem(
-        stem: j['stem'] as String? ?? '',
-        options: (j['options'] as List?)?.map((e) => e.toString()).toList() ??
-            const [],
-        answerIndex: j['answer_index'] is int ? j['answer_index'] as int : 0,
-        meta: (j['meta'] as Map?)?.cast<String, dynamic>() ?? const {},
-      );
-}
 
 class QmService {
-  /// 서버 호출 (백엔드: /question_maker/<type>)
+  // ─────────────────────────────────────────────────────────
+  // 서버 호출 (백엔드: /question_maker/<type>)
+  // ─────────────────────────────────────────────────────────
   Future<List<McqItem>> generateViaServer({
     required String type,
     required String passage,
@@ -52,16 +35,67 @@ class QmService {
     final data = jsonDecode(res.body);
     final list = (data['items'] as List?) ?? [];
     return list
-        .map((e) => McqItem.fromJson(e as Map<String, dynamic>))
+        .whereType<Map>()
+        .map((e) => McqItem.fromJson(Map<String, dynamic>.from(e)))
         .toList();
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // ✅ 허브 기반 “정답 고정” 생성기 (Topic/Title/Gist/Summary)
+  // ─────────────────────────────────────────────────────────
+  List<McqItem> buildFixedTTGS({
+    required String type,
+    required String passage,
+    required String correctText,
+    int count = 1,
+    int choices = 5,
+  }) {
+    final stemMap = {
+      'title': 'Which of the following is best for the title of the passage?',
+      'topic': 'Which of the following is best for the topic of the passage?',
+      'gist': 'Which of the following is the main idea of the passage?',
+      'summary': 'Which of the following best summarizes the passage?',
+    };
+    final stem = stemMap[type] ?? stemMap['topic']!;
+    final correct = correctText.trim();
+
+    if (correct.isEmpty) {
+      return fallbackTTGS(type: type, passage: passage, count: count);
+    }
+
+    final items = <McqItem>[];
+    for (int k = 0; k < count; k++) {
+      final distractors = _fixedDistractors(
+        type: type,
+        passage: passage,
+        correct: correct,
+        n: max(0, choices - 1),
+      );
+
+      final optsPlain = [...distractors, correct]..shuffle();
+      final ans = optsPlain.indexOf(correct);
+
+      items.add(
+        McqItem(
+          stem: stem,
+          options: List.generate(
+            optsPlain.length,
+            (i) => '${_circled(i + 1)} ${optsPlain[i]}',
+          ),
+          answerIndex: ans,
+          meta: {
+            'fixed_by_hub': true,
+            'correct_text': correct,
+          },
+        ),
+      );
+    }
+    return items;
   }
 
   // ─────────────────────────────────────────────────────────
   // 폴백들 (오프라인/서버 실패 시)
   // ─────────────────────────────────────────────────────────
-
-  /// 제목/주제/요지/요약 공통 폴백
-  /// type: 'title' | 'topic' | 'gist' | 'summary'
   List<McqItem> fallbackTTGS({
     required String type,
     required String passage,
@@ -94,11 +128,9 @@ class QmService {
     return items;
   }
 
-  /// 빈칸 폴백 (정답 텍스트 필요)
-  /// ✅ 빈칸 폴백 (정답 입력 or 자동 추출 + 본문에 빈칸 표시)
   List<McqItem> fallbackCloze({
     required String passage,
-    String? answerText, // ← 선택 입력
+    String? answerText,
   }) {
     String text = passage.trim();
     if (text.isEmpty) {
@@ -112,7 +144,6 @@ class QmService {
       ];
     }
 
-    // 1) 정답 결정 (사용자 입력 > 자동 추출)
     String answer = (answerText ?? '').trim();
     if (answer.isEmpty) {
       final bigram = RegExp(r'\b([A-Za-z]{3,}\s+[A-Za-z]{3,})\b')
@@ -126,10 +157,8 @@ class QmService {
       }
     }
 
-    // 2) 본문에서 첫 번째 일치만 빈칸으로 치환
-    String marked = _blankFirst(text, answer);
+    final marked = _blankFirst(text, answer);
 
-    // 3) 보기 생성
     final distractors = _perturb(answer);
     final opts = [...distractors.take(4), answer]..shuffle();
     final ans = opts.indexOf(answer);
@@ -149,26 +178,9 @@ class QmService {
     ];
   }
 
-// ── 헬퍼: 본문에서 첫 번째 일치만 빈칸으로 바꾸기 (대소문자 무시)
-  String _blankFirst(String text, String needle) {
-    if (needle.trim().isEmpty) return text;
-
-    final i = text.toLowerCase().indexOf(needle.toLowerCase());
-    if (i < 0) return text;
-
-    final before = text.substring(0, i);
-    final after = text.substring(i + needle.length);
-
-    // ✅ 중괄호 {} 로 변수 경계 지정
-    return '${before}____(   )____$after';
-  }
-
-  /// ✅ 삽입형(Fallback)
-  /// - [insertSentence]가 주어지면 본문에서 찾아 제거하고 그 위치를 정답으로 사용
-  /// - 없으면 휴리스틱(접속/전환 문장 우선, 없으면 마지막 문장)으로 선택해 제거
   List<McqItem> fallbackInsertion({
     required String passage,
-    int choicesCount = 5, // 서버 옵션 유지용(폴백에선 자동 계산)
+    int choicesCount = 5,
     String? insertSentence,
   }) {
     final sents = _splitSentences(passage);
@@ -202,7 +214,6 @@ class QmService {
       }
     }
 
-    // 휴리스틱: 접속/전환 시그널 포함 문장(뒤쪽 우선), 없으면 마지막 문장
     if (picked.isEmpty) {
       int idx = sents.lastIndexWhere(_hasTransition);
       if (idx < 0) idx = sents.length - 1;
@@ -211,16 +222,13 @@ class QmService {
       sents.removeAt(idx);
     }
 
-    // 보기(문장 사이 간격) 개수: (남은 문장 수 + 1)
     final gapCount = sents.length + 1;
     final options = List.generate(gapCount, (i) => _circled(i + 1));
 
-    // 정답 인덱스 계산(제거된 위치)
     int answerIndex = originalIndex;
     if (answerIndex > sents.length) answerIndex = sents.length;
     if (answerIndex < 0) answerIndex = sents.length;
 
-    // 지문(삽입 문장 제외, ① … 형태로 마킹)
     final marked = _injectMarkers(sents);
 
     return [
@@ -237,21 +245,18 @@ class QmService {
     ];
   }
 
-  /// ✅ 순서형(Fallback) — 보기 5개는 고정, 정답 패턴만 랜덤
   List<McqItem> fallbackOrder({
     required String passage,
     int? seed,
   }) {
     final rnd = seed == null ? Random() : Random(seed);
 
-    // 4블록: fixed + A0/B0/C0
     final blocks = _splitIntoBlocks(passage);
-    final fixed = blocks.first;
+    final fixed = blocks[0];
     final a0 = blocks[1];
     final b0 = blocks[2];
     final c0 = blocks[3];
 
-    // 보기 5개 고정
     const options = <String>[
       '① (A)-(C)-(B)',
       '② (B)-(A)-(C)',
@@ -260,10 +265,8 @@ class QmService {
       '⑤ (C)-(B)-(A)',
     ];
 
-    // 정답 패턴을 5개 중 랜덤 선택
     final answerIndex = rnd.nextInt(options.length);
 
-    // 패턴 파싱 → ['A','B','C']
     List<String> parsePattern(String s) {
       final m = RegExp(r'\((A|B|C)\)-\((A|B|C)\)-\((A|B|C)\)').firstMatch(s)!;
       return [m.group(1)!, m.group(2)!, m.group(3)!];
@@ -271,7 +274,6 @@ class QmService {
 
     final pattern = parsePattern(options[answerIndex]);
 
-    // 실제 정답 순서는 A0 → B0 → C0 이므로 라벨 매핑으로 재배치
     final map = <String, String>{
       pattern[0]: a0,
       pattern[1]: b0,
@@ -294,10 +296,72 @@ class QmService {
   }
 
   // ─────────────────────────────────────────────────────────
-  // 헬퍼
+  // 내부 헬퍼들
   // ─────────────────────────────────────────────────────────
+  List<String> _fixedDistractors({
+    required String type,
+    required String passage,
+    required String correct,
+    required int n,
+  }) {
+    final pool = <String>[];
+    final theme = roughTheme(passage);
 
-  /// 문장 분리
+    if (type == 'title') {
+      pool.addAll([
+        'A Warning About Modern Society',
+        'The Limits of Human Knowledge',
+        'A Historical Overview of the Issue',
+        'A Personal Story With a Lesson',
+        'Why People Make the Wrong Choices',
+        'The Hidden Costs Behind Our Decisions',
+        'How Small Factors Shape Big Outcomes',
+      ]);
+    } else if (type == 'topic') {
+      pool.addAll([
+        'How people respond to social pressure',
+        'The role of evidence in decision making',
+        'The unintended consequences of well-meant actions',
+        'The importance of diverse perspectives',
+        theme,
+      ]);
+    } else if (type == 'gist') {
+      pool.addAll([
+        'A key factor explains why people misjudge situations.',
+        'External appearances often hide the real issue.',
+        'Small changes can lead to major misunderstandings.',
+        'People benefit when they question their assumptions.',
+      ]);
+    } else if (type == 'summary') {
+      pool.addAll([
+        'The passage reviews background information and lists several examples.',
+        'The author presents two opposing views without taking a clear side.',
+        'The passage explains a problem and suggests a practical solution.',
+        'The passage describes a trend and evaluates its impact on society.',
+      ]);
+    }
+
+    pool.addAll(const [
+      'Historical background unrelated to the passage.',
+      'Personal anecdotes without general relevance.',
+      'A narrow example mistaken for the main idea.',
+      'An exaggerated claim beyond the text.',
+      'A detail that misses the central point.',
+      'An opposite statement that contradicts the text.',
+    ]);
+
+    final uniq = <String>{};
+    for (final p in pool) {
+      final s = p.trim();
+      if (s.isEmpty) continue;
+      if (s.toLowerCase() == correct.toLowerCase()) continue;
+      uniq.add(s);
+    }
+
+    final list = uniq.toList()..shuffle();
+    return list.take(n).toList();
+  }
+
   List<String> _splitSentences(String t) {
     final cleaned = t.replaceAll('\n', ' ').trim();
     final parts = cleaned
@@ -307,10 +371,8 @@ class QmService {
     return parts.isEmpty ? [cleaned] : parts;
   }
 
-  /// ①, ②, ③ …
   String _circled(int i) => String.fromCharCode(0x2460 + (i - 1));
 
-  /// 삽입형 지문 마킹(① + 문장)
   String _injectMarkers(List<String> sents) {
     final buf = StringBuffer();
     for (int i = 0; i < sents.length; i++) {
@@ -319,7 +381,6 @@ class QmService {
     return buf.toString().trimRight();
   }
 
-  /// 순서형 블록 분할: fixed + A + B + C
   List<String> _splitIntoBlocks(String t) {
     final sents = _splitSentences(t);
     if (sents.length <= 4) {
@@ -338,19 +399,25 @@ class QmService {
     ];
   }
 
-  /// 러프 테마(요지/요약용 임시 정답)
   String roughTheme(String t) {
     final low = t.toLowerCase();
     if (low.contains('students') ||
         low.contains('learn') ||
         low.contains('education')) {
-      return 'The central cause-effect in the passage.';
+      return 'The role of education in learning and development.';
     }
-    if (low.contains('technology') || low.contains('device')) {
-      return 'How technology shapes our daily life.';
+    if (low.contains('technology') ||
+        low.contains('device') ||
+        low.contains('social media')) {
+      return 'How technology influences society and behavior.';
     }
     if (low.contains('environment') || low.contains('climate')) {
       return 'The need for sustainable environmental actions.';
+    }
+    if (low.contains('government') ||
+        low.contains('bailout') ||
+        low.contains('policy')) {
+      return 'How policies can create unintended consequences.';
     }
     return 'The central cause-effect in the passage.';
   }
@@ -364,10 +431,8 @@ class QmService {
       'A detail that misses the central point.',
       'An opposite statement that contradicts the text.',
     ];
-    final list = [...pool]
-      ..remove(correct)
-      ..shuffle();
-    return list.take(n).toList();
+    final list = [...pool]..shuffle();
+    return list.where((e) => e != correct).take(n).toList();
   }
 
   List<String> _perturb(String base) {
@@ -382,6 +447,17 @@ class QmService {
     final uniq = p.toSet().toList()..removeWhere((e) => e.trim().isEmpty);
     uniq.shuffle();
     return uniq;
+  }
+
+  String _blankFirst(String text, String needle) {
+    if (needle.trim().isEmpty) return text;
+
+    final i = text.toLowerCase().indexOf(needle.toLowerCase());
+    if (i < 0) return text;
+
+    final before = text.substring(0, i);
+    final after = text.substring(i + needle.length);
+    return '${before}____(   )____$after';
   }
 
   bool _hasTransition(String s) {

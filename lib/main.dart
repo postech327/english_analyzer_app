@@ -12,6 +12,10 @@ import 'screens/manage_mode.dart';
 import 'screens/topic_summary_page.dart';
 import 'screens/word_synonym_page.dart';
 import 'screens/export_ppt_page.dart';
+import 'screens/text_analysis_hub_screen.dart';
+import 'screens/analyses_list_screen.dart';
+import 'screens/analysis_detail_screen.dart';
+import 'screens/problem_set_preview_screen.dart';
 
 // ✅ question maker
 import 'screens/question_maker/question_maker_home.dart';
@@ -28,9 +32,6 @@ import 'screens/teacher_question_maker_screen.dart';
 
 // 🆕 학생 퀴즈 화면
 import 'screens/student_quiz_screen.dart';
-
-// ✅ API Base (분리)
-import 'config/api.dart';
 
 void main() => runApp(const MyApp());
 
@@ -63,6 +64,7 @@ class MyApp extends StatelessWidget {
         '/export_ppt': (_) => const ExportPptPage(),
 
         // 모드
+        '/text_analysis_hub': (context) => const TextAnalysisHubScreen(),
         '/teacher': (_) => const TeacherModePage(),
         '/student': (_) => const StudentModePage(),
         '/manage': (_) => const ManageModePage(),
@@ -111,6 +113,9 @@ class MyApp extends StatelessWidget {
         '/qm/cloze': (_) => const ClozeQuestionPage(),
         '/qm/insertion': (_) => const InsertionQuestionPage(),
         '/qm/order': (_) => const OrderQuestionPage(),
+        '/analyses_list': (_) => const AnalysesListScreen(),
+        '/analysis_detail': (_) => const AnalysisDetailScreen(),
+        '/problem_set_preview': (_) => const ProblemSetPreviewScreen(),
       },
       onUnknownRoute: (s) =>
           MaterialPageRoute(builder: (_) => const AuthScreen()),

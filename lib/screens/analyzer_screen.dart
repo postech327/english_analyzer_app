@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 
 import '../config/api.dart';
 import 'chat_screen.dart';
-import 'student_quiz_screen.dart'; // ✅ 이 줄 추가
+import 'student_quiz_screen.dart';
 
 class AnalyzerScreen extends StatefulWidget {
   const AnalyzerScreen({super.key});
@@ -20,8 +20,10 @@ class _AnalyzerScreenState extends State<AnalyzerScreen> {
   String _structureResult = '';
   String _topicTitleSummaryResult = '';
   String _wordResult = '';
+  String _passageHubResult = ''; // 🔥 지문 분석 허브 결과
   bool _busy = false;
 
+  // 공통 POST 유틸
   Future<void> _post(
     Uri uri,
     Map<String, dynamic> body,
@@ -49,6 +51,7 @@ class _AnalyzerScreenState extends State<AnalyzerScreen> {
     }
   }
 
+  // ① 문장 구조 분석
   Future<void> _analyzeStructure() async {
     await _post(
       ApiConfig.u(ApiConfig.analyzeStructure),
@@ -65,6 +68,7 @@ class _AnalyzerScreenState extends State<AnalyzerScreen> {
     );
   }
 
+  // ② 주제/제목/요지 분석
   Future<void> _analyzeTopicTitleSummary() async {
     await _post(
       ApiConfig.u(ApiConfig.analyzeTopicTitleSummary),
@@ -82,8 +86,8 @@ class _AnalyzerScreenState extends State<AnalyzerScreen> {
     );
   }
 
+  // ③ 단어 뜻/유의어
   Future<void> _wordSynonyms() async {
-    // 입력값을 , 로 구분 → 공백 제거
     final list = _words.text
         .split(',')
         .map((e) => e.trim())
@@ -99,6 +103,46 @@ class _AnalyzerScreenState extends State<AnalyzerScreen> {
           _wordResult = m['단어 분석 결과']?.toString() ?? text;
         } catch (_) {
           _wordResult = text;
+        }
+        setState(() {});
+      },
+    );
+  }
+
+  // ④ 🔥 지문 분석 허브 + 저장
+  //    /teacher/passage/analyze_and_save 호출
+  Future<void> _analyzePassageAndSave() async {
+    await _post(
+      ApiConfig.u(ApiConfig.passageAnalyzeAndSave),
+      {
+        'title': '앱 입력 지문', // 필요하면 나중에 TextField 하나 만들어서 제목 입력받기
+        'content': _input.text, // 현재 입력 문단을 지문으로 사용
+        'source': 'Flutter App',
+        'level': '',
+        'created_by': 'test@example.com', // 나중에 로그인한 유저 정보로 교체
+      },
+      (text) {
+        try {
+          final m = jsonDecode(text) as Map<String, dynamic>;
+          final analysis = m['analysis'] as Map<String, dynamic>?;
+
+          if (analysis != null) {
+            _passageHubResult = [
+              'Passage ID: ${m['passage_id']}',
+              'Topic(EN): ${analysis['topic_en'] ?? ''}',
+              '주제(KO): ${analysis['topic_ko'] ?? ''}',
+              'Title(EN): ${analysis['title_en'] ?? ''}',
+              '제목(KO): ${analysis['title_ko'] ?? ''}',
+              'Gist(EN): ${analysis['gist_en'] ?? ''}',
+              '요지(KO): ${analysis['gist_ko'] ?? ''}',
+              'Summary(EN): ${analysis['summary_en'] ?? ''}',
+              '요약(KO): ${analysis['summary_ko'] ?? ''}',
+            ].join('\n');
+          } else {
+            _passageHubResult = text;
+          }
+        } catch (_) {
+          _passageHubResult = text;
         }
         setState(() {});
       },
@@ -143,6 +187,8 @@ class _AnalyzerScreenState extends State<AnalyzerScreen> {
               ),
             ),
             const SizedBox(height: 12),
+
+            // 구조/주제 버튼
             Row(
               children: [
                 Expanded(
@@ -160,15 +206,35 @@ class _AnalyzerScreenState extends State<AnalyzerScreen> {
                 ),
               ],
             ),
+            const SizedBox(height: 12),
+
+            // 🔥 지문 분석 허브 + 저장 버튼
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _busy ? null : _analyzePassageAndSave,
+                child: const Text('지문 분석 허브 + 저장'),
+              ),
+            ),
             const SizedBox(height: 16),
+
+            // 결과 카드들
             const Text('• 문장 구조 분석 결과'),
             const SizedBox(height: 4),
             _ResultCard(text: _structureResult),
             const SizedBox(height: 16),
+
             const Text('• 주제 · 제목 · 요지 분석 결과'),
             const SizedBox(height: 4),
             _ResultCard(text: _topicTitleSummaryResult),
+            const SizedBox(height: 16),
+
+            const Text('• 지문 분석 허브 결과'),
+            const SizedBox(height: 4),
+            _ResultCard(text: _passageHubResult),
             const SizedBox(height: 24),
+
+            // 단어 분석
             const Text('단어 뜻/유의어'),
             const SizedBox(height: 8),
             TextField(
@@ -191,7 +257,7 @@ class _AnalyzerScreenState extends State<AnalyzerScreen> {
             const SizedBox(height: 4),
             _ResultCard(text: _wordResult),
 
-            // 🔽🔽 여기부터 학생 모드 버튼 추가 🔽🔽
+            // 학생 모드 버튼
             const SizedBox(height: 24),
             Center(
               child: ElevatedButton(
@@ -209,7 +275,6 @@ class _AnalyzerScreenState extends State<AnalyzerScreen> {
                 child: const Text('학생 모드 시작'),
               ),
             ),
-            // 🔼🔼 여기까지 추가 🔼🔼
           ],
         ),
       ),

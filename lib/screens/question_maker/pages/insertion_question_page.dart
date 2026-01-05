@@ -1,191 +1,259 @@
-// lib/screens/question_maker/pages/insertion_question_page.dart
 import 'package:flutter/material.dart';
+
 import 'package:english_analyzer_app/services/question_maker_service.dart';
+import 'package:english_analyzer_app/services/teacher_problem_set_service.dart';
+import 'package:english_analyzer_app/screens/teacher/teacher_problem_set_preview_screen.dart';
+import 'package:english_analyzer_app/models/teacher_models.dart';
 
 class InsertionQuestionPage extends StatefulWidget {
   const InsertionQuestionPage({super.key});
+
   @override
   State<InsertionQuestionPage> createState() => _InsertionQuestionPageState();
 }
 
 class _InsertionQuestionPageState extends State<InsertionQuestionPage> {
   final _svc = QmService();
-
-  final _input = TextEditingController(
-    text:
-        'Humans are not the most social animal. Ants, bees, and termites put humanity to shame on many metrics of sociality. '
-        'Bees always build hexagonal hives, ants march in lines, and termites move in zigzag formations. '
-        'These patterns recur predictably because they are tightly programmed genetically and propelled pheromonally. '
-        'We humans are more free and thus more diverse in our social patterns.',
-  );
-
-  /// 사용자가 직접 지정할 “삽입할 문장”(선택)
-  final _manualInsert = TextEditingController();
+  final _input = TextEditingController();
 
   bool _busy = false;
-  int _choicesCount = 5; // 서버 옵션 유지용
+
+  int? _analysisId;
+  Map<String, dynamic>? _hub;
+  bool _didInitArgs = false;
+
+  final int _itemCount = 1; // 보통 1문항
   List<McqItem> _items = [];
 
   @override
   void dispose() {
     _input.dispose();
-    _manualInsert.dispose();
     super.dispose();
   }
 
-  Future<void> _generate() async {
-    final txt = _input.text.trim();
-    if (txt.isEmpty) return;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didInitArgs) return;
 
-    final userInsert = _manualInsert.text.trim();
-    final hasUserInsert = userInsert.isNotEmpty;
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map) {
+      final id = args['analysisId'];
+      _analysisId = (id is int) ? id : int.tryParse(id?.toString() ?? '');
+
+      final text = args['text']?.toString();
+      if (text != null && text.trim().isNotEmpty) {
+        _input.text = text.trim();
+      }
+
+      final hubRaw = args['hub'];
+      if (hubRaw is Map) {
+        _hub = hubRaw.map((k, v) => MapEntry(k.toString(), v));
+      }
+
+      final prefill = args['prefillItems'];
+      if (prefill is List && prefill.isNotEmpty) {
+        final list = prefill.whereType<McqItem>().toList();
+        if (list.isNotEmpty) _items = list;
+      }
+    }
+
+    _didInitArgs = true;
+    setState(() {});
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  Future<void> _generateInsertion() async {
+    final txt = _input.text.trim();
+    if (txt.isEmpty) {
+      _toast('지문을 먼저 입력해 주세요.');
+      return;
+    }
 
     setState(() => _busy = true);
-    try {
-      final extra = <String, dynamic>{
-        'choices_count': _choicesCount,
-        if (hasUserInsert) 'insert_sentence': userInsert,
-      };
 
+    try {
+      // ✅ 1) 서버 호출
       final items = await _svc.generateViaServer(
         type: 'insertion',
         passage: txt,
-        items: 1,
-        extra: extra,
+        items: _itemCount,
+        extra: const {'choices': 5},
       );
       setState(() => _items = items);
     } catch (e) {
-      final fb = _svc.fallbackInsertion(
-        passage: txt,
-        choicesCount: _choicesCount,
-        insertSentence: hasUserInsert ? userInsert : null,
-      );
+      // ✅ 2) 서버 실패 시 폴백
+      final fb = _svc.fallbackInsertion(passage: txt);
       setState(() => _items = fb);
+      _toast('서버 생성 실패, 대체문항 표시: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final h = Theme.of(context).textTheme;
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      children: [
-        Text(
-          '문장 삽입(insertion) 문제 생성',
-          style: h.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+  Future<void> _save() async {
+    if (_analysisId == null) {
+      _toast('analysisId가 없습니다.');
+      return;
+    }
+    if (_items.isEmpty) {
+      _toast('저장할 문항이 없습니다.');
+      return;
+    }
+
+    try {
+      final payloadItems = _items
+          .map((q) => q.toSaveJson())
+          .toList()
+          .cast<Map<String, dynamic>>();
+
+      final problemSetId = await TeacherProblemSetService.saveProblemSet(
+        analysisId: _analysisId!,
+        questionType: 'insertion',
+        name: 'Insertion 문제',
+        items: payloadItems,
+      );
+
+      _toast('저장 완료! (id=$problemSetId)');
+
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) =>
+              TeacherProblemSetPreviewScreen(problemSetId: problemSetId),
         ),
-        const SizedBox(height: 12),
-
-        // 입력 카드
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TextField(
-                  controller: _input,
-                  minLines: 5,
-                  maxLines: 12,
-                  decoration: const InputDecoration(
-                    labelText: 'Passage',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-
-                // 수동 삽입 문장(선택)
-                TextField(
-                  controller: _manualInsert,
-                  minLines: 1,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: '삽입할 문장(선택 · 서버 실패 시 대체용)',
-                    hintText:
-                        '예) We humans are more free and thus more diverse in our social patterns.',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-
-                Row(
-                  children: [
-                    const Text('보기 개수'),
-                    const SizedBox(width: 8),
-                    DropdownButton<int>(
-                      value: _choicesCount,
-                      items: const [5, 6, 7]
-                          .map((e) =>
-                              DropdownMenuItem(value: e, child: Text('$e')))
-                          .toList(),
-                      onChanged: (v) => setState(() => _choicesCount = v ?? 5),
-                    ),
-                    const Spacer(),
-                    FilledButton.icon(
-                      onPressed: _busy ? null : _generate,
-                      icon: _busy
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.refresh),
-                      label: const Text('생성'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 12),
-
-        if (_items.isEmpty)
-          const Text('아직 생성 전입니다.')
-        else
-          ..._items.map(_insertionCard),
-      ],
-    );
+      );
+    } catch (e) {
+      _toast('저장 실패: $e');
+    }
   }
 
-  /// 결과 카드
-  Widget _insertionCard(McqItem q) {
-    final insert = (q.meta['insert_sentence'] ?? '').toString();
-    final marked = (q.meta['passage_marked'] ?? '').toString();
+  Widget _buildInsertionCard(McqItem q) {
+    final insertSentence = (q.meta['insert_sentence'] ?? '').toString().trim();
+    final marked = (q.meta['passage_marked'] ?? '').toString().trim();
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(q.stem, style: const TextStyle(fontWeight: FontWeight.w700)),
+            Text(q.stem, style: const TextStyle(fontWeight: FontWeight.w800)),
             const SizedBox(height: 10),
-            const Text('삽입할 문장:',
-                style: TextStyle(fontWeight: FontWeight.w700)),
-            Text(insert),
-            const SizedBox(height: 10),
-            const Divider(),
-            const Text('<지문>'),
-            SelectableText(marked),
-            const SizedBox(height: 10),
-            const Divider(),
-            ...List.generate(
-              q.options.length,
-              (i) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Text(q.options[i]),
+            if (insertSentence.isNotEmpty) ...[
+              const Text('삽입 문장',
+                  style: TextStyle(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 6),
+              Text(insertSentence),
+              const SizedBox(height: 12),
+            ],
+            if (marked.isNotEmpty) ...[
+              const Text('지문(삽입 위치 표시)',
+                  style: TextStyle(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 6),
+              Text(marked),
+              const SizedBox(height: 12),
+            ],
+            const Text('선택지', style: TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 6),
+            for (final opt in q.options)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(opt),
+              ),
+            const SizedBox(height: 6),
+            Text(
+              '정답: ${_circled(q.answerIndex + 1)}',
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _circled(int i) => String.fromCharCode(0x2460 + (i - 1));
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('문장 삽입 (ID: ${_analysisId ?? "-"})'),
+        actions: [
+          IconButton(
+            tooltip: '저장',
+            onPressed: _busy ? null : _save,
+            icon: const Icon(Icons.save_outlined),
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: ListView(
+          children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text('연결된 분석 ID: ${_analysisId ?? "-"}'),
               ),
             ),
-            const SizedBox(height: 6),
-            Text('정답: ${q.answerIndex + 1}번'),
-            if (q.meta['explain'] != null &&
-                q.meta['explain'].toString().trim().isNotEmpty)
-              Text('해설: ${q.meta['explain']}'),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Passage',
+                        style: TextStyle(fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _input,
+                      maxLines: 10,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        hintText: '지문을 입력하세요',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Spacer(),
+                FilledButton.icon(
+                  onPressed: _busy ? null : _generateInsertion,
+                  icon: _busy
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.auto_fix_high),
+                  label: const Text('생성'),
+                ),
+                const SizedBox(width: 10),
+                OutlinedButton.icon(
+                  onPressed: _busy ? null : _save,
+                  icon: const Icon(Icons.save_outlined),
+                  label: const Text('저장'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            if (_items.isEmpty)
+              const Text('문항이 없습니다. 상단의 “생성” 버튼을 눌러 주세요.')
+            else
+              ..._items.map(_buildInsertionCard),
           ],
         ),
       ),

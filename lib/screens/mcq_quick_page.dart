@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import '../models/analyzer_models.dart';
+import 'package:english_analyzer_app/models/analyzer_models.dart';
 
 class McqQuickPage extends StatefulWidget {
   const McqQuickPage({super.key, required this.mcq, required this.word});
 
-  final McqItem mcq;
+  final AnalyzerMcqItem mcq;
   final String word;
 
   @override
