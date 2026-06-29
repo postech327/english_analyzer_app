@@ -1,17 +1,13 @@
 // lib/screens/question_from_hub_screen.dart
-import 'package:flutter/material.dart';
 
+import 'package:flutter/material.dart';
+import '../services/question_api.dart';
 import '../models/analyzer_models.dart';
 
-/// 지문 분석 허브에서 넘어와서
-/// - 어떤 허브 ID인지
-/// - 어떤 지문인지
-/// - (필요하면) 분석 결과까지
-/// 를 가지고 문제를 만드는 화면의 뼈대
-class QuestionFromHubScreen extends StatelessWidget {
+class QuestionFromHubScreen extends StatefulWidget {
   final int hubId;
   final String passageText;
-  final TextAnalysisHubResult hub; // 주제/제목/요지/요약도 필요하면 사용
+  final TextAnalysisHubResult hub;
 
   const QuestionFromHubScreen({
     super.key,
@@ -21,99 +17,146 @@ class QuestionFromHubScreen extends StatelessWidget {
   });
 
   @override
+  State<QuestionFromHubScreen> createState() => _QuestionFromHubScreenState();
+}
+
+class _QuestionFromHubScreenState extends State<QuestionFromHubScreen> {
+  List questions = [];
+  bool isLoading = false;
+
+  /// 🔥 핵심: 문제 생성
+  Future<void> fetchQuestions() async {
+    setState(() {
+      isLoading = true;
+    });
+
+    try {
+      print("🔥 버튼 클릭됨 (Hub)");
+      print("🔥 지문 길이: ${widget.passageText.length}");
+
+      final result = await QuestionApi.generateQuestions(widget.passageText);
+
+      print("🔥 문제 생성 성공");
+      print("🔥 결과: $result");
+
+      setState(() {
+        questions = result;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("문제 생성 성공")),
+      );
+    } catch (e) {
+      print("❌ 문제 생성 실패: $e");
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("문제 생성 실패: $e")),
+      );
+    }
+
+    setState(() {
+      isLoading = false;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('문제 만들기 (Hub ID: $hubId)'),
+        title: Text('문제 만들기 (Hub ID: ${widget.hubId})'),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 1) 지문 정보 간단 표시
-            const Text(
-              '지문 정보',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
-            ),
-            const SizedBox(height: 8),
+            /// 📘 지문
             Expanded(
               child: SingleChildScrollView(
                 child: Text(
-                  passageText,
-                  style: const TextStyle(fontSize: 14, height: 1.4),
+                  widget.passageText,
+                  style: const TextStyle(height: 1.4),
                 ),
               ),
             ),
+
             const SizedBox(height: 12),
 
-            // 2) 분석 결과(주제/제목/요지/요약) 간단 표시
-            const Text(
-              '분석 요약',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
+            /// 🔥 버튼 (핵심)
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: isLoading ? null : fetchQuestions,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                child: const Text(
+                  "🔥 문제 만들기",
+                  style: TextStyle(fontSize: 16),
+                ),
               ),
             ),
-            const SizedBox(height: 6),
-            Text('Topic: ${hub.topic}'),
-            Text('Title: ${hub.title}'),
-            Text('Gist (EN): ${hub.gistEn}'),
-            Text('요지 (Korean): ${hub.gistKo}'),
+
             const SizedBox(height: 12),
 
-            // 3) 문제 유형 선택 버튼(뼈대)
-            const Divider(),
-            const SizedBox(height: 8),
-            const Text(
-              '문제 유형 선택 (추후 구현 예정)',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            const Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _TypeButton(label: '주제'),
-                _TypeButton(label: '제목'),
-                _TypeButton(label: '요지'),
-                _TypeButton(label: '요약'),
-                _TypeButton(label: '빈칸'),
-                _TypeButton(label: '삽입'),
-                _TypeButton(label: '순서'),
-                _TypeButton(label: '전체'),
-              ],
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              '※ 나중에 각 버튼을 누르면 해당 유형 문제를 만드는 화면/함수로 연결하면 됩니다.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
+            /// 🔄 로딩
+            if (isLoading) const CircularProgressIndicator(),
+
+            /// 🧠 결과 출력
+            if (!isLoading && questions.isNotEmpty)
+              Expanded(
+                child: ListView.builder(
+                  itemCount: questions.length,
+                  itemBuilder: (context, index) {
+                    final q = questions[index];
+
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 8),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            /// 질문
+                            Text(
+                              "Q${index + 1}. ${q["question_text"]}",
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+
+                            /// 선택지
+                            ...q["choices"].map<Widget>((c) {
+                              return Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 2),
+                                child: Text(
+                                  "${c["number"]}. ${c["text"]}",
+                                ),
+                              );
+                            }).toList(),
+
+                            const SizedBox(height: 8),
+
+                            /// 정답
+                            Text(
+                              "👉 정답: ${q["answer"]}",
+                              style: const TextStyle(color: Colors.blue),
+                            ),
+
+                            /// 해설
+                            Text("💡 ${q["explanation"]}"),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
           ],
         ),
       ),
-    );
-  }
-}
-
-class _TypeButton extends StatelessWidget {
-  final String label;
-
-  const _TypeButton({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return OutlinedButton(
-      onPressed: () {
-        // TODO: 여기서 실제 문제 제작 로직/화면으로 연결
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$label 문제 만들기 (추후 구현 예정)')),
-        );
-      },
-      child: Text(label),
     );
   }
 }

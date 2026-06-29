@@ -1,15 +1,16 @@
 // lib/services/student_api.dart
 import 'dart:convert';
+
 import 'package:http/http.dart' as http;
 
+import '../config/api.dart';
+import '../config/auth_store.dart';
 import '../models/student_models.dart';
 
 const String baseUrl =
     String.fromEnvironment('API_BASE', defaultValue: 'http://127.0.0.1:8000');
 
 class StudentApi {
-  /// 🔹 문제 세트 목록 조회
-  /// Swagger: GET /student/problem_sets
   static Future<List<StudentProblemSetSummary>> fetchProblemSets({
     String? questionType,
   }) async {
@@ -28,7 +29,7 @@ class StudentApi {
 
     if (resp.statusCode != 200) {
       throw Exception(
-        '문제 세트 목록 로드 실패: ${resp.statusCode} / ${resp.body}',
+        'Problem set list load failed: ${resp.statusCode} / ${resp.body}',
       );
     }
 
@@ -41,47 +42,109 @@ class StudentApi {
         .toList();
   }
 
-  /// 🔹 특정 시험(problem_set_id) 로드
-  /// ✅ Swagger: GET /student/exams/{problem_set_id}
   static Future<StudentQuestionSet> fetchQuestions({
     required int problemSetId,
   }) async {
-    final uri = Uri.parse('$baseUrl/student/exams/$problemSetId');
+    final uri = Uri.parse('$baseUrl/student/exams/$problemSetId/start');
 
-    final resp = await http.get(uri);
+    final resp = await http.get(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ${AuthStore.accessToken}',
+      },
+    );
 
     if (resp.statusCode != 200) {
-      throw Exception('문항 로드 실패: ${resp.statusCode} / ${resp.body}');
+      throw Exception(
+          'Question load failed: ${resp.statusCode} / ${resp.body}');
     }
 
-    final data =
-        jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+    final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
 
-    return StudentQuestionSet.fromJson(data);
+    return StudentQuestionSet.fromJson(decoded);
   }
 
-  /// 🔹 정답 체크
+  static Future<List<StudentExamSummary>> fetchMyExams({
+    int? folderId,
+    bool unfiled = false,
+  }) async {
+    final query = <String, String>{};
+    if (folderId != null) query['folder_id'] = '$folderId';
+    if (unfiled) query['unfiled'] = 'true';
+    final uri = Uri.parse('$baseUrl/student/problem_sets')
+        .replace(queryParameters: query.isEmpty ? null : query);
+
+    final response = await http.get(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ${AuthStore.accessToken}',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      final List data = jsonDecode(utf8.decode(response.bodyBytes));
+      return data.map((e) => StudentExamSummary.fromJson(e)).toList();
+    } else {
+      throw Exception('Failed to load exams');
+    }
+  }
+
+  static Future<List<StudentExamFolder>> fetchExamFolders(
+      {int? parentId}) async {
+    final query = <String, String>{};
+    if (parentId != null) query['parent_id'] = '$parentId';
+    final uri = Uri.parse('$baseUrl/student/problem_sets/folders')
+        .replace(queryParameters: query.isEmpty ? null : query);
+
+    final response = await http.get(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ${AuthStore.accessToken}',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final List data = decoded is Map<String, dynamic>
+          ? decoded['items'] as List? ?? const []
+          : decoded is List
+              ? decoded
+              : const [];
+      return data
+          .map((e) => StudentExamFolder.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } else {
+      throw Exception('Failed to load exam folders');
+    }
+  }
+
   static Future<StudentAnswerCheckResult> checkAnswer({
     required int questionId,
     required int selectedOptionId,
   }) async {
-    final uri = Uri.parse('$baseUrl/student/exams/check-answer');
+    final uri = ApiConfig.u('/student/check-answer');
 
-    final resp = await http.post(
+    final res = await http.post(
       uri,
-      headers: {'Content-Type': 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ${AuthStore.accessToken}',
+      },
       body: jsonEncode({
         'question_id': questionId,
         'selected_option_id': selectedOptionId,
       }),
     );
 
-    if (resp.statusCode != 200) {
-      throw Exception('정답 확인 실패');
+    if (res.statusCode != 200) {
+      throw Exception('Answer check failed: ${res.statusCode} / ${res.body}');
     }
 
     return StudentAnswerCheckResult.fromJson(
-      jsonDecode(utf8.decode(resp.bodyBytes)),
+      jsonDecode(res.body),
     );
   }
 }

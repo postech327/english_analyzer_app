@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../config/api.dart';
-import 'chat_screen.dart';
-import 'student_quiz_screen.dart';
+import '../services/question_api.dart';
 
 class AnalyzerScreen extends StatefulWidget {
   const AnalyzerScreen({super.key});
@@ -14,170 +13,112 @@ class AnalyzerScreen extends StatefulWidget {
 }
 
 class _AnalyzerScreenState extends State<AnalyzerScreen> {
-  final _input = TextEditingController(text: 'The boy who has a pen is happy.');
-  final _words = TextEditingController(text: 'happy, pen, finished');
+  final _input = TextEditingController();
 
   String _structureResult = '';
-  String _topicTitleSummaryResult = '';
-  String _wordResult = '';
-  String _passageHubResult = ''; // 🔥 지문 분석 허브 결과
+  String _topicResult = '';
+  List<dynamic> _questions = [];
+
   bool _busy = false;
 
-  // 공통 POST 유틸
+  /// 공통 POST 함수
   Future<void> _post(
     Uri uri,
     Map<String, dynamic> body,
     void Function(String) onSuccess,
   ) async {
     setState(() => _busy = true);
+
     try {
-      final res = await http
-          .post(
-            uri,
-            headers: const {'Content-Type': 'application/json; charset=utf-8'},
-            body: jsonEncode(body),
-          )
-          .timeout(const Duration(seconds: 30));
+      final res = await http.post(
+        uri,
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      );
 
       if (res.statusCode == 200) {
         onSuccess(utf8.decode(res.bodyBytes));
       } else {
-        onSuccess('❌ 오류: ${res.statusCode} ${res.body}');
+        onSuccess('❌ ${res.statusCode}: ${res.body}');
       }
     } catch (e) {
-      onSuccess('네트워크 오류: $e');
-    } finally {
-      setState(() => _busy = false);
+      onSuccess('❌ 오류: $e');
     }
+
+    setState(() => _busy = false);
   }
 
-  // ① 문장 구조 분석
+  /// 구조 분석
   Future<void> _analyzeStructure() async {
     await _post(
       ApiConfig.u(ApiConfig.analyzeStructure),
       {'text': _input.text},
       (text) {
-        try {
-          final json = jsonDecode(text) as Map<String, dynamic>;
-          _structureResult = json['문장 구조 분석 결과']?.toString() ?? text;
-        } catch (_) {
-          _structureResult = text;
-        }
+        _structureResult = text;
         setState(() {});
       },
     );
   }
 
-  // ② 주제/제목/요지 분석
-  Future<void> _analyzeTopicTitleSummary() async {
+  /// 주제 분석
+  Future<void> _analyzeTopic() async {
     await _post(
       ApiConfig.u(ApiConfig.analyzeTopicTitleSummary),
       {'text': _input.text},
       (text) {
-        try {
-          final m = jsonDecode(text) as Map<String, dynamic>;
-          _topicTitleSummaryResult =
-              'Topic: ${m['topic']}\nTitle: ${m['title']}\nGist(EN): ${m['gist_en']}\nKorean Gist: ${m['gist_ko']}';
-        } catch (_) {
-          _topicTitleSummaryResult = text;
-        }
+        _topicResult = text;
         setState(() {});
       },
     );
   }
 
-  // ③ 단어 뜻/유의어
-  Future<void> _wordSynonyms() async {
-    final list = _words.text
-        .split(',')
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toList();
+  /// 🔥 핵심: 문제 생성 (여기 중요)
+  Future<void> _generateQuestions() async {
+    setState(() => _busy = true);
 
-    await _post(
-      ApiConfig.u(ApiConfig.wordSynonyms),
-      {'words': list},
-      (text) {
-        try {
-          final m = jsonDecode(text) as Map<String, dynamic>;
-          _wordResult = m['단어 분석 결과']?.toString() ?? text;
-        } catch (_) {
-          _wordResult = text;
-        }
-        setState(() {});
-      },
-    );
-  }
+    try {
+      print("🔥 버튼 클릭됨");
 
-  // ④ 🔥 지문 분석 허브 + 저장
-  //    /teacher/passage/analyze_and_save 호출
-  Future<void> _analyzePassageAndSave() async {
-    await _post(
-      ApiConfig.u(ApiConfig.passageAnalyzeAndSave),
-      {
-        'title': '앱 입력 지문', // 필요하면 나중에 TextField 하나 만들어서 제목 입력받기
-        'content': _input.text, // 현재 입력 문단을 지문으로 사용
-        'source': 'Flutter App',
-        'level': '',
-        'created_by': 'test@example.com', // 나중에 로그인한 유저 정보로 교체
-      },
-      (text) {
-        try {
-          final m = jsonDecode(text) as Map<String, dynamic>;
-          final analysis = m['analysis'] as Map<String, dynamic>?;
+      final qs = await QuestionApi.generateQuestions(_input.text);
 
-          if (analysis != null) {
-            _passageHubResult = [
-              'Passage ID: ${m['passage_id']}',
-              'Topic(EN): ${analysis['topic_en'] ?? ''}',
-              '주제(KO): ${analysis['topic_ko'] ?? ''}',
-              'Title(EN): ${analysis['title_en'] ?? ''}',
-              '제목(KO): ${analysis['title_ko'] ?? ''}',
-              'Gist(EN): ${analysis['gist_en'] ?? ''}',
-              '요지(KO): ${analysis['gist_ko'] ?? ''}',
-              'Summary(EN): ${analysis['summary_en'] ?? ''}',
-              '요약(KO): ${analysis['summary_ko'] ?? ''}',
-            ].join('\n');
-          } else {
-            _passageHubResult = text;
-          }
-        } catch (_) {
-          _passageHubResult = text;
-        }
-        setState(() {});
-      },
-    );
+      print("🔥 문제 생성 성공");
+      print("🔥 결과: $qs");
+
+      setState(() {
+        _questions = qs;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("문제 생성 성공")),
+      );
+    } catch (e) {
+      print("❌ 문제 생성 실패: $e");
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("문제 생성 실패")),
+      );
+    }
+
+    setState(() => _busy = false);
   }
 
   @override
   void dispose() {
     _input.dispose();
-    _words.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8EDF6),
-      appBar: AppBar(
-        title: const Text('문단 분석기'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.chat_bubble_outline),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const ChatScreen()),
-            ),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('지문 분석 허브')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('영어 문단을 입력하세요'),
+            /// 📥 입력창
+            const Text('지문 입력'),
             const SizedBox(height: 8),
             TextField(
               controller: _input,
@@ -186,9 +127,10 @@ class _AnalyzerScreenState extends State<AnalyzerScreen> {
                 border: OutlineInputBorder(),
               ),
             ),
+
             const SizedBox(height: 12),
 
-            // 구조/주제 버튼
+            /// 🔍 분석 버튼
             Row(
               children: [
                 Expanded(
@@ -197,105 +139,90 @@ class _AnalyzerScreenState extends State<AnalyzerScreen> {
                     child: const Text('구조 분석'),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: _busy ? null : _analyzeTopicTitleSummary,
-                    child: const Text('주제/요지 분석'),
+                    onPressed: _busy ? null : _analyzeTopic,
+                    child: const Text('주제 분석'),
                   ),
                 ),
               ],
             ),
+
             const SizedBox(height: 12),
 
-            // 🔥 지문 분석 허브 + 저장 버튼
+            /// 🔥 문제 생성 버튼 (핵심)
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: _busy ? null : _analyzePassageAndSave,
-                child: const Text('지문 분석 허브 + 저장'),
+                onPressed: _busy ? null : _generateQuestions,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                child: const Text(
+                  '🔥 문제 만들기',
+                  style: TextStyle(fontSize: 16),
+                ),
               ),
             ),
-            const SizedBox(height: 16),
 
-            // 결과 카드들
-            const Text('• 문장 구조 분석 결과'),
-            const SizedBox(height: 4),
-            _ResultCard(text: _structureResult),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
 
-            const Text('• 주제 · 제목 · 요지 분석 결과'),
-            const SizedBox(height: 4),
-            _ResultCard(text: _topicTitleSummaryResult),
-            const SizedBox(height: 16),
-
-            const Text('• 지문 분석 허브 결과'),
-            const SizedBox(height: 4),
-            _ResultCard(text: _passageHubResult),
-            const SizedBox(height: 24),
-
-            // 단어 분석
-            const Text('단어 뜻/유의어'),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _words,
-              decoration: const InputDecoration(
-                hintText: '단어들을 쉼표/공백으로 구분해 입력 (예: happy, pen, finished)',
-                border: OutlineInputBorder(),
-              ),
+            /// 📘 결과 영역
+            const Text(
+              '📘 생성된 문제',
+              style: TextStyle(fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerRight,
-              child: ElevatedButton(
-                onPressed: _busy ? null : _wordSynonyms,
-                child: const Text('단어 분석'),
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text('• 단어 분석 결과'),
-            const SizedBox(height: 4),
-            _ResultCard(text: _wordResult),
+            const SizedBox(height: 10),
 
-            // 학생 모드 버튼
-            const SizedBox(height: 24),
-            Center(
-              child: ElevatedButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const StudentQuizScreen(
-                        problemSetId: 1, // 테스트용 세트 ID
-                        questionType: null, // null이면 전체 유형
+            if (_questions.isEmpty)
+              const Text('문제가 아직 없습니다.')
+            else
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: _questions.map((q) {
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            q['question_text'] ?? '',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+
+                          /// 선택지
+                          ...(q['choices'] as List).map((c) {
+                            return Text(" - ${c['text']}");
+                          }),
+
+                          const SizedBox(height: 8),
+
+                          /// 정답
+                          Text(
+                            "정답: ${q['answer']}",
+                            style: const TextStyle(color: Colors.blue),
+                          ),
+
+                          const SizedBox(height: 4),
+
+                          /// 해설
+                          Text("해설: ${q['explanation']}"),
+                        ],
                       ),
                     ),
                   );
-                },
-                child: const Text('학생 모드 시작'),
+                }).toList(),
               ),
-            ),
           ],
         ),
       ),
-    );
-  }
-}
-
-class _ResultCard extends StatelessWidget {
-  final String text;
-  const _ResultCard({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEFE6EE),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(text.isEmpty ? '결과 없음' : text),
     );
   }
 }

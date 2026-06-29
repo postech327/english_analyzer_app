@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../services/student_api.dart';
 import '../models/student_models.dart';
-import 'student_quiz_screen.dart'; // 기존 퀴즈 화면 import (경로는 프로젝트 구조에 맞게)
+import 'student_quiz_screen.dart';
 
 class StudentSetListScreen extends StatefulWidget {
   const StudentSetListScreen({super.key});
@@ -13,7 +13,7 @@ class StudentSetListScreen extends StatefulWidget {
 }
 
 class _StudentSetListScreenState extends State<StudentSetListScreen> {
-  String _selectedType = 'all'; // 전체 기본
+  String _selectedType = 'all';
   bool _isLoading = false;
   String? _error;
   List<StudentProblemSetSummary> _sets = [];
@@ -31,10 +31,7 @@ class _StudentSetListScreenState extends State<StudentSetListScreen> {
     });
 
     try {
-      final type = _selectedType; // 'all' 이면 API에서 필터 안 걸리게 됨
-      final data = await StudentApi.fetchProblemSets(
-        questionType: type,
-      );
+      final data = await StudentApi.fetchProblemSets();
       setState(() {
         _sets = data;
       });
@@ -57,7 +54,7 @@ class _StudentSetListScreenState extends State<StudentSetListScreen> {
       ),
       body: Column(
         children: [
-          // ───── 상단 유형 필터 드롭다운 ─────
+          // ───── 상단 필터 ─────
           Padding(
             padding: const EdgeInsets.all(12),
             child: Row(
@@ -87,7 +84,7 @@ class _StudentSetListScreenState extends State<StudentSetListScreen> {
           ),
           const Divider(height: 1),
 
-          // ───── 세트 리스트 영역 ─────
+          // ───── 세트 리스트 ─────
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
@@ -104,22 +101,51 @@ class _StudentSetListScreenState extends State<StudentSetListScreen> {
                             itemCount: _sets.length,
                             itemBuilder: (context, index) {
                               final ps = _sets[index];
-                              return ListTile(
-                                title: Text(ps.title),
-                                subtitle: Text(
-                                  '${_korLabel(ps.questionType ?? 'all')} - 문제 ${ps.numQuestions}개',
-                                ),
-                                trailing: const Icon(Icons.chevron_right),
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => StudentQuizScreen(
-                                        problemSetId: ps.id,
+
+                              return Card(
+                                margin: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 8),
+                                elevation: 3,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        ps.title,
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
                                       ),
-                                    ),
-                                  );
-                                },
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        '${_korLabel(ps.questionType ?? 'all')} • 문제 ${ps.numQuestions}개',
+                                        style:
+                                            const TextStyle(color: Colors.grey),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Align(
+                                        alignment: Alignment.centerRight,
+                                        child: ElevatedButton(
+                                          onPressed: () {
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (_) =>
+                                                    StudentQuizScreen(
+                                                  problemSetId: ps.id,
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                          child: const Text('시험 시작'),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               );
                             },
                           ),

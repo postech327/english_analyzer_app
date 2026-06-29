@@ -1,8 +1,6 @@
 // lib/screens/student/student_exam_result_screen.dart
 import 'package:flutter/material.dart';
 
-import '../../services/student_exam_service.dart';
-
 class StudentExamResultScreen extends StatefulWidget {
   final int problemSetId;
   final int userId;
@@ -31,16 +29,12 @@ class _StudentExamResultScreenState extends State<StudentExamResultScreen> {
   void initState() {
     super.initState();
 
-    // ✅ submit 직후라면 initialResult 사용
-    if (widget.initialResult != null) {
-      _futureResult = Future.value(widget.initialResult!);
-    } else {
-      // ✅ 다시 보기 (GET 결과 API)
-      _futureResult = StudentExamService.fetchExamResult(
-        problemSetId: widget.problemSetId,
-        userId: widget.userId,
-      );
+    // submit 후 바로 온 경우만 허용
+    if (widget.initialResult == null) {
+      throw Exception("결과 데이터가 없습니다.");
     }
+
+    _futureResult = Future.value(widget.initialResult!);
   }
 
   @override

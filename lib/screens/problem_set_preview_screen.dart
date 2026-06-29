@@ -2,6 +2,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import '../models/preview_question.dart';
+import '../services/problem_set_api.dart';
+
 class ProblemSetPreviewScreen extends StatefulWidget {
   const ProblemSetPreviewScreen({super.key});
 
@@ -13,10 +16,13 @@ class ProblemSetPreviewScreen extends StatefulWidget {
 class _ProblemSetPreviewScreenState extends State<ProblemSetPreviewScreen> {
   bool _busy = true;
   String? _error;
-  Map<String, dynamic>? _data;
 
   int? _problemSetId;
   bool _didInitArgs = false;
+
+  String _passageTitle = '';
+  String _passageContent = '';
+  List<PreviewQuestion> _questions = [];
 
   static const _baseUrl = 'http://127.0.0.1:8000';
 
@@ -30,8 +36,8 @@ class _ProblemSetPreviewScreenState extends State<ProblemSetPreviewScreen> {
       final v = args['problemSetId'];
       _problemSetId = (v is int) ? v : int.tryParse(v.toString());
     }
-    _didInitArgs = true;
 
+    _didInitArgs = true;
     _load();
   }
 
@@ -47,11 +53,10 @@ class _ProblemSetPreviewScreenState extends State<ProblemSetPreviewScreen> {
     setState(() {
       _busy = true;
       _error = null;
-      _data = null;
+      _questions.clear();
     });
 
     try {
-      // ✅ FastAPI에 맞춰서 endpoint를 여기로 맞추면 됨
       final url = Uri.parse('$_baseUrl/teacher/problem_sets/$_problemSetId');
       final res = await http.get(url);
 
@@ -60,8 +65,16 @@ class _ProblemSetPreviewScreenState extends State<ProblemSetPreviewScreen> {
       }
 
       final decoded = jsonDecode(res.body) as Map<String, dynamic>;
+
+      _passageTitle = (decoded['passage_title'] ?? '').toString();
+      _passageContent = (decoded['passage_content'] ?? '').toString();
+
+      final rawQuestions = (decoded['questions'] as List<dynamic>? ?? []);
+      _questions =
+          rawQuestions.map((e) => PreviewQuestion.fromJson(e)).toList();
+
       if (!mounted) return;
-      setState(() => _data = decoded);
+      setState(() {});
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = '불러오기 실패: $e');
@@ -70,14 +83,38 @@ class _ProblemSetPreviewScreenState extends State<ProblemSetPreviewScreen> {
     }
   }
 
+  /// ✅ 시험지 확정 저장
+  Future<void> _commitProblemSet() async {
+    if (_problemSetId == null) return;
+
+    try {
+      await ProblemSetApi.commitProblemSet(problemSetId: _problemSetId!);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('시험지 저장 완료')),
+      );
+
+      Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('저장 실패: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8EDF6),
       appBar: AppBar(
-        title: Text(_problemSetId == null
-            ? '문제세트 미리보기'
-            : '문제세트 미리보기 (ID: $_problemSetId)'),
+        title: Text(
+          _problemSetId == null
+              ? '문제세트 미리보기'
+              : '문제세트 미리보기 (ID: $_problemSetId)',
+        ),
         actions: [
           IconButton(
             onPressed: _busy ? null : _load,
@@ -89,22 +126,20 @@ class _ProblemSetPreviewScreenState extends State<ProblemSetPreviewScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? Center(
-                  child:
-                      Text(_error!, style: const TextStyle(color: Colors.red)))
-              : _data == null
-                  ? const Center(child: Text('데이터 없음'))
-                  : _buildPreview(_data!),
+                  child: Text(
+                    _error!,
+                    style: const TextStyle(color: Colors.red),
+                  ),
+                )
+              : _buildPreview(),
     );
   }
 
-  Widget _buildPreview(Map<String, dynamic> data) {
-    final passageTitle = (data['passage_title'] ?? '').toString();
-    final passageContent = (data['passage_content'] ?? '').toString();
-    final questions = (data['questions'] as List<dynamic>? ?? []);
-
+  Widget _buildPreview() {
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
+        /// 📘 지문 카드
         Card(
           child: Padding(
             padding: const EdgeInsets.all(12),
@@ -114,41 +149,59 @@ class _ProblemSetPreviewScreenState extends State<ProblemSetPreviewScreen> {
                 const Text('지문 제목',
                     style: TextStyle(fontWeight: FontWeight.w800)),
                 const SizedBox(height: 6),
-                Text(passageTitle.isEmpty ? '(제목 없음)' : passageTitle),
+                Text(_passageTitle.isEmpty ? '(제목 없음)' : _passageTitle),
                 const SizedBox(height: 12),
                 const Text('지문', style: TextStyle(fontWeight: FontWeight.w800)),
                 const SizedBox(height: 6),
-                SelectableText(passageContent),
+                SelectableText(_passageContent),
               ],
             ),
           ),
         ),
         const SizedBox(height: 12),
-        for (int i = 0; i < questions.length; i++) ...[
-          _questionCard(i + 1, questions[i] as Map<String, dynamic>),
+
+        /// 📄 문제 리스트
+        for (final q in _questions) ...[
+          _questionCard(q),
           const SizedBox(height: 10),
         ],
+
+        const SizedBox(height: 16),
+
+        /// 💾 저장 버튼
+        ElevatedButton.icon(
+          icon: const Icon(Icons.save),
+          label: const Text('시험지 저장'),
+          onPressed: _busy ? null : _commitProblemSet,
+          style: ElevatedButton.styleFrom(
+            minimumSize: const Size.fromHeight(48),
+          ),
+        ),
       ],
     );
   }
 
-  Widget _questionCard(int no, Map<String, dynamic> q) {
-    final stem = (q['stem'] ?? q['text'] ?? '').toString();
-    final options = (q['options'] as List<dynamic>? ?? []);
-
+  Widget _questionCard(PreviewQuestion q) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('[$no] $stem',
-              style: const TextStyle(fontWeight: FontWeight.w800)),
-          const SizedBox(height: 8),
-          for (final opt in options)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Text('${opt['label'] ?? ''} ${opt['text'] ?? ''}'),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '[${q.order}] ${q.text}',
+              style: const TextStyle(fontWeight: FontWeight.w800),
             ),
-        ]),
+            const SizedBox(height: 8),
+            for (int i = 0; i < q.options.length; i++)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Text(
+                  '${String.fromCharCode(65 + i)}. ${q.options[i]}',
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

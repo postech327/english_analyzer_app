@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
-import 'recommended_question_screen.dart';
+import 'package:english_analyzer_app/screens/student/student_recommended_question_screen.dart';
 
 class ConceptDetailScreen extends StatefulWidget {
   final String errorType;
@@ -72,9 +72,8 @@ class _ConceptDetailScreenState extends State<ConceptDetailScreen> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => RecommendedQuestionScreen(
-                          userId: 1, // 실제 로그인 유저 ID
-                          errorType: widget.errorType,
+                        builder: (_) => const StudentRecommendedQuestionScreen(
+                          userId: 1,
                         ),
                       ),
                     );

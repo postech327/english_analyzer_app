@@ -1,13 +1,15 @@
 // lib/models/community_post.dart
 class CommunityPost {
+  final int id;
   final String title;
   final String content;
   final String nickname;
-  final String region; // 예: '서울 · 강남구'
-  final String category; // 예: '질문·답변', '스터디 모집' 등
-  final DateTime createdAt; // 작성 시간
+  final String? region;
+  final String category;
+  final String createdAt;
 
   CommunityPost({
+    required this.id,
     required this.title,
     required this.content,
     required this.nickname,
@@ -15,4 +17,16 @@ class CommunityPost {
     required this.category,
     required this.createdAt,
   });
+
+  factory CommunityPost.fromJson(Map<String, dynamic> json) {
+    return CommunityPost(
+      id: json['id'],
+      title: json['title'],
+      content: json['content'],
+      nickname: json['nickname'],
+      region: json['region'],
+      category: json['category'],
+      createdAt: json['created_at'],
+    );
+  }
 }
