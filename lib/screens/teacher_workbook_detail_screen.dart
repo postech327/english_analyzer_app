@@ -163,11 +163,30 @@ class _TeacherWorkbookDetailScreenState
     );
     if (draft == null) return;
     try {
+      var sectionId = draft.sectionId;
+      final newSectionTitle = draft.newSectionTitle?.trim();
+      if (newSectionTitle != null && newSectionTitle.isNotEmpty) {
+        WorkbookSection? matchedSection;
+        for (final section in workbook.sections) {
+          if (section.title.trim().toLowerCase() ==
+              newSectionTitle.toLowerCase()) {
+            matchedSection = section;
+            break;
+          }
+        }
+        matchedSection ??= await _service.createWorkbookSection(
+          widget.workbookId,
+          title: _sectionTitle(newSectionTitle),
+          unitLabel: _sectionTitle(newSectionTitle),
+          sectionKey: _sectionKey(newSectionTitle),
+        );
+        sectionId = matchedSection.id;
+      }
       await _service.createQuestion(
         workbookId: widget.workbookId,
         questionType: draft.questionType,
         prompt: draft.prompt,
-        sectionId: draft.sectionId,
+        sectionId: sectionId,
         passageText: draft.passageText,
         choices: draft.choices,
         answer: draft.answer,
@@ -175,7 +194,19 @@ class _TeacherWorkbookDetailScreenState
         points: draft.points,
       );
       if (!mounted) return;
-      _reload();
+      if (sectionId != null) {
+        setState(() {
+          _selectedSectionId = sectionId;
+          _future = _service.fetchWorkbook(
+            widget.workbookId,
+            sectionId: sectionId,
+          );
+          _assignmentFuture =
+              _assignmentService.fetchTeacherWorkbookStatus(widget.workbookId);
+        });
+      } else {
+        _reload();
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('문제를 추가했습니다.')),
       );
@@ -185,6 +216,29 @@ class _TeacherWorkbookDetailScreenState
         SnackBar(content: Text('문제 추가 실패: $error')),
       );
     }
+  }
+
+  String _sectionTitle(String input) {
+    final trimmed = input.trim();
+    final unitMatch = RegExp(
+      r'^(?:unit\s*)?(\d+)\s*(?:강)?$',
+      caseSensitive: false,
+    ).firstMatch(trimmed);
+    if (unitMatch != null) return '${unitMatch.group(1)}강';
+    if (trimmed.toLowerCase() == 'test') return 'Test';
+    return trimmed;
+  }
+
+  String _sectionKey(String input) {
+    final title = _sectionTitle(input);
+    final unitMatch = RegExp(r'^(\d+)강$').firstMatch(title);
+    if (unitMatch != null) return 'unit_${unitMatch.group(1)}';
+    if (title.toLowerCase() == 'test') return 'test';
+    final slug = title
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s+'), '_')
+        .replaceAll(RegExp(r'[^a-z0-9가-힣_-]'), '');
+    return 'custom_${slug.isEmpty ? 'section' : slug}';
   }
 
   Future<void> _importQuestions(Workbook workbook) async {

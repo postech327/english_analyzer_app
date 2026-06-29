@@ -13,6 +13,7 @@ class WorkbookQuestionDraft {
     this.explanation,
     this.points = 1,
     this.sectionId,
+    this.newSectionTitle,
   });
 
   final String questionType;
@@ -23,6 +24,7 @@ class WorkbookQuestionDraft {
   final String? explanation;
   final int points;
   final int? sectionId;
+  final String? newSectionTitle;
 }
 
 class _StructuredManualParse {
@@ -88,6 +90,7 @@ class _WorkbookQuestionEditorDialogState
   late final TextEditingController _orderAController;
   late final TextEditingController _orderBController;
   late final TextEditingController _orderCController;
+  late final TextEditingController _newSectionController;
   late final List<TextEditingController> _choiceControllers;
 
   InlineChoiceParseResult? _inlinePreview;
@@ -99,6 +102,7 @@ class _WorkbookQuestionEditorDialogState
   int _answerIndex = 0;
   bool _tfAnswer = true;
   late int _selectedSectionValue;
+  bool _useNewSection = false;
 
   bool get _isInlineChoice => widget.questionType == 'inline_choice';
   bool get _isNewTrueFalse =>
@@ -115,6 +119,7 @@ class _WorkbookQuestionEditorDialogState
     final initial = widget.initial;
     _selectedSectionValue =
         widget.initialSectionId ?? widget.initial?.sectionId ?? 0;
+    _newSectionController = TextEditingController();
     if (_selectedSectionValue != 0 &&
         !widget.sections
             .any((section) => section.id == _selectedSectionValue)) {
@@ -217,6 +222,7 @@ class _WorkbookQuestionEditorDialogState
     _orderAController.dispose();
     _orderBController.dispose();
     _orderCController.dispose();
+    _newSectionController.dispose();
     for (final controller in _choiceControllers) {
       controller.dispose();
     }
@@ -310,6 +316,7 @@ class _WorkbookQuestionEditorDialogState
         passageText: parsed.passageText,
         answer: parsed.toAnswerJson(unitTitle: _sourceController.text),
         sectionId: _draftSectionId,
+        newSectionTitle: _draftNewSectionTitle,
       ),
     );
   }
@@ -347,6 +354,7 @@ class _WorkbookQuestionEditorDialogState
           passageText: _passageController.text,
         ),
         sectionId: _draftSectionId,
+        newSectionTitle: _draftNewSectionTitle,
       ),
     );
   }
@@ -379,6 +387,7 @@ class _WorkbookQuestionEditorDialogState
         ),
         answer: parsed.toAnswerJson(),
         sectionId: _draftSectionId,
+        newSectionTitle: _draftNewSectionTitle,
       ),
     );
   }
@@ -414,6 +423,7 @@ class _WorkbookQuestionEditorDialogState
         passageText: passageText,
         answer: answer,
         sectionId: _draftSectionId,
+        newSectionTitle: _draftNewSectionTitle,
       ),
     );
   }
@@ -542,6 +552,7 @@ class _WorkbookQuestionEditorDialogState
         answer: answer,
         explanation: _emptyToNull(_explanationController.text),
         sectionId: _draftSectionId,
+        newSectionTitle: _draftNewSectionTitle,
       ),
     );
   }
@@ -635,8 +646,15 @@ class _WorkbookQuestionEditorDialogState
     );
   }
 
-  int? get _draftSectionId =>
-      _selectedSectionValue == 0 ? null : _selectedSectionValue;
+  int? get _draftSectionId => _useNewSection || _selectedSectionValue == 0
+      ? null
+      : _selectedSectionValue;
+
+  String? get _draftNewSectionTitle {
+    if (!_useNewSection) return null;
+    final title = _newSectionController.text.trim();
+    return title.isEmpty ? null : title;
+  }
 
   Widget _sectionSelector() {
     final sourceText = widget.workbookSourceText.trim();
@@ -701,6 +719,29 @@ class _WorkbookQuestionEditorDialogState
                   }
                 : null,
           ),
+          if (widget.initial == null) ...[
+            const SizedBox(height: 12),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('새 섹션 직접 입력'),
+              subtitle: const Text('예: 3강, Unit 5, Test, 실전 복습'),
+              value: _useNewSection,
+              onChanged: (value) {
+                setState(() => _useNewSection = value);
+              },
+            ),
+            if (_useNewSection)
+              TextField(
+                controller: _newSectionController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: '새 섹션명',
+                  hintText: '예: 3강',
+                  prefixIcon: Icon(Icons.create_new_folder_outlined),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+          ],
         ],
       ),
     );
