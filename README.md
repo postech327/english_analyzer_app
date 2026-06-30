@@ -1,16 +1,19 @@
-# english_analyzer_app
+# English Analyzer App
 
-A new Flutter project.
+Flutter frontend for the English Analyzer learning application.
 
-## Getting Started
+## Collaboration test
 
-This project is a starting point for a Flutter application.
+Start the FastAPI backend first:
 
-A few resources to get you started if this is your first Flutter project:
+```powershell
+uvicorn main:app --reload --port 8001
+```
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+Then run this frontend from the `english_analyzer_app` directory:
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```powershell
+flutter run -d chrome --dart-define=API_BASE=http://127.0.0.1:8001
+```
+
+The backend API should be available at <http://127.0.0.1:8001/>.
