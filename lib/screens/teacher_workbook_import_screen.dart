@@ -46,7 +46,10 @@ class _TeacherWorkbookImportScreenState
   bool _analyzed = false;
   bool _saving = false;
   bool _pickingHwpx = false;
-  String? _pickedHwpxName;
+  List<String> _pickedHwpxNames = const [];
+  final Map<String, String> _fileErrors = {};
+  String? _processingFileName;
+  String? _savingProgress;
   int _omittedCount = 0;
   bool _removedPreamble = false;
 
@@ -99,7 +102,14 @@ class _TeacherWorkbookImportScreenState
       _controller.text,
       workbookSource: _sourceText,
     );
-    final items = result.candidates;
+    final items = result.candidates
+        .map(
+          (item) => item.copyWith(
+            localId: 'paste_${item.localId}',
+            sourceFileName: '붙여넣기',
+          ),
+        )
+        .toList();
     final duplicates = {
       for (final item in items)
         if (widget.workbook.questions.any(
@@ -111,6 +121,8 @@ class _TeacherWorkbookImportScreenState
       _candidates = items;
       _omittedCount = result.omittedCount;
       _removedPreamble = result.removedPreamble;
+      _pickedHwpxNames = const [];
+      _fileErrors.clear();
       _candidateKeys
         ..clear()
         ..addEntries(
@@ -138,36 +150,93 @@ class _TeacherWorkbookImportScreenState
     if (_pickingHwpx) return;
     setState(() => _pickingHwpx = true);
     try {
-      final picked = await pickWorkbookHwpxFile();
-      if (picked == null) return;
-      if (!picked.name.toLowerCase().endsWith('.hwpx')) {
-        throw const FormatException('HWPX 파일만 선택할 수 있습니다.');
+      final pickedFiles = await pickWorkbookHwpxFiles();
+      if (pickedFiles.isEmpty) return;
+      if (pickedFiles.length > 20) {
+        throw const FormatException('한 번에 HWPX 파일을 최대 20개까지 선택할 수 있습니다.');
       }
-      if (picked.bytes.length > 30 * 1024 * 1024) {
-        throw const FormatException('30MB 이하의 HWPX 파일을 선택해 주세요.');
+      final allCandidates = <WorkbookImportCandidate>[];
+      final errors = <String, String>{};
+      var omittedCount = 0;
+      var removedPreamble = false;
+      for (var fileIndex = 0; fileIndex < pickedFiles.length; fileIndex++) {
+        final picked = pickedFiles[fileIndex];
+        if (mounted) setState(() => _processingFileName = picked.name);
+        try {
+          if (!picked.name.toLowerCase().endsWith('.hwpx')) {
+            throw const FormatException('HWPX 파일만 선택할 수 있습니다.');
+          }
+          if (picked.bytes.length > 30 * 1024 * 1024) {
+            throw const FormatException('파일 크기는 30MB 이하여야 합니다.');
+          }
+          final extracted = extractWorkbookTextFromHwpx(picked.bytes);
+          final result = parseWorkbookImportTextDetailed(
+            extracted.text,
+            workbookSource: _sourceText,
+          );
+          omittedCount += result.omittedCount;
+          removedPreamble = removedPreamble || result.removedPreamble;
+          allCandidates.addAll(
+            result.candidates.map(
+              (item) => item.copyWith(
+                localId: 'file_${fileIndex}_${item.localId}',
+                sourceFileName: picked.name,
+              ),
+            ),
+          );
+        } catch (error) {
+          errors[picked.name] = error.toString();
+        }
       }
-      final extracted = extractWorkbookTextFromHwpx(picked.bytes);
-      _controller.text = extracted.text;
+      final duplicates = {
+        for (final item in allCandidates)
+          if (widget.workbook.questions.any(
+            (question) => _isDuplicateCandidate(item, question),
+          ))
+            item.localId,
+      };
       if (!mounted) return;
       setState(() {
-        _pickedHwpxName = picked.name;
-        _analyzed = false;
-        _candidates = const [];
-        _selected.clear();
-        _duplicateCandidates.clear();
-        _candidateKeys.clear();
-        _omittedCount = 0;
-        _removedPreamble = false;
+        _controller.clear();
+        _pickedHwpxNames = pickedFiles.map((file) => file.name).toList();
+        _fileErrors
+          ..clear()
+          ..addAll(errors);
+        _candidates = allCandidates;
+        _omittedCount = omittedCount;
+        _removedPreamble = removedPreamble;
+        _candidateKeys
+          ..clear()
+          ..addEntries(
+            allCandidates.map((item) => MapEntry(item.localId, GlobalKey())),
+          );
+        _duplicateCandidates
+          ..clear()
+          ..addAll(duplicates);
+        _selected
+          ..clear()
+          ..addAll(
+            allCandidates
+                .where(
+                  (item) =>
+                      item.isSelectedByDefault &&
+                      !duplicates.contains(item.localId),
+                )
+                .map((item) => item.localId),
+          );
+        _analyzed = true;
+        _processingFileName = null;
       });
-      _analyze();
-      _message(
-        '${picked.name}에서 ${extracted.paragraphCount}개 문단을 추출했습니다.',
-      );
     } catch (error) {
       if (!mounted) return;
-      _message('HWPX 텍스트 추출 실패: $error');
+      _message('HWPX 파일 처리 실패: $error');
     } finally {
-      if (mounted) setState(() => _pickingHwpx = false);
+      if (mounted) {
+        setState(() {
+          _pickingHwpx = false;
+          _processingFileName = null;
+        });
+      }
     }
   }
 
@@ -188,6 +257,7 @@ class _TeacherWorkbookImportScreenState
     if (duplicateCount > 0 || warningCount > 0 || items.length >= 10) {
       final proceed = await _confirmSave(
         total: items.length,
+        fileCount: items.map((item) => item.sourceFileName).toSet().length,
         duplicateCount: duplicateCount,
         warningCount: warningCount,
       );
@@ -196,8 +266,14 @@ class _TeacherWorkbookImportScreenState
     setState(() => _saving = true);
     final savedQuestionIds = <int>[];
     final failures = <String>[];
+    final successByFile = <String, int>{};
+    final failureByFile = <String, int>{};
     for (var index = 0; index < items.length; index++) {
       final item = items[index];
+      final fileName = item.sourceFileName ?? '붙여넣기';
+      if (mounted) {
+        setState(() => _savingProgress = '${index + 1}/${items.length}');
+      }
       try {
         final section = _sectionInfoForCandidate(item);
         final answer = Map<String, dynamic>.from(item.answer);
@@ -216,13 +292,23 @@ class _TeacherWorkbookImportScreenState
           explanation: item.explanation,
         );
         savedQuestionIds.add(created.id);
+        successByFile.update(fileName, (value) => value + 1, ifAbsent: () => 1);
       } catch (error) {
-        failures.add('${index + 1}번 후보 (${item.title}): $error');
+        failures.add('$fileName · ${item.title}: $error');
+        failureByFile.update(fileName, (value) => value + 1, ifAbsent: () => 1);
       }
     }
     if (!mounted) return;
-    setState(() => _saving = false);
-    await _showSaveSummary(savedQuestionIds.length, failures);
+    setState(() {
+      _saving = false;
+      _savingProgress = null;
+    });
+    await _showSaveSummary(
+      savedQuestionIds.length,
+      failures,
+      successByFile: successByFile,
+      failureByFile: failureByFile,
+    );
     if (!mounted) return;
     Navigator.pop(
       context,
@@ -235,6 +321,7 @@ class _TeacherWorkbookImportScreenState
 
   Future<bool?> _confirmSave({
     required int total,
+    required int fileCount,
     required int duplicateCount,
     required int warningCount,
   }) {
@@ -243,6 +330,7 @@ class _TeacherWorkbookImportScreenState
       builder: (context) => AlertDialog(
         title: const Text('선택한 문제를 저장할까요?'),
         content: Text(
+          '파일: $fileCount개\n'
           '저장 예정: $total개\n'
           '중복 의심: $duplicateCount개\n'
           '경고 있음: $warningCount개\n\n'
@@ -265,8 +353,10 @@ class _TeacherWorkbookImportScreenState
 
   Future<void> _showSaveSummary(
     int savedCount,
-    List<String> failures,
-  ) async {
+    List<String> failures, {
+    required Map<String, int> successByFile,
+    required Map<String, int> failureByFile,
+  }) async {
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -281,6 +371,22 @@ class _TeacherWorkbookImportScreenState
               children: [
                 Text('성공: $savedCount개'),
                 Text('실패: ${failures.length}개'),
+                if (successByFile.isNotEmpty || failureByFile.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  const Text(
+                    '파일별 결과',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 6),
+                  for (final fileName in {
+                    ...successByFile.keys,
+                    ...failureByFile.keys
+                  })
+                    Text(
+                      '$fileName: 성공 ${successByFile[fileName] ?? 0}개 / '
+                      '실패 ${failureByFile[fileName] ?? 0}개',
+                    ),
+                ],
                 if (failures.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   const Text(
@@ -515,8 +621,10 @@ class _TeacherWorkbookImportScreenState
       return;
     }
 
-    final replacement =
-        parsed.candidates.single.copyWith(localId: item.localId);
+    final replacement = parsed.candidates.single.copyWith(
+      localId: item.localId,
+      sourceFileName: item.sourceFileName,
+    );
     final duplicate = widget.workbook.questions.any(
       (question) => _isDuplicateCandidate(replacement, question),
     );
@@ -606,7 +714,9 @@ class _TeacherWorkbookImportScreenState
                   if (_candidates.isEmpty)
                     _emptyCard()
                   else
-                    ..._candidates.map(_candidateCard),
+                    ..._candidateGroups.entries.map(
+                      (entry) => _fileGroup(entry.key, entry.value),
+                    ),
                 ],
               ],
             ),
@@ -645,11 +755,15 @@ class _TeacherWorkbookImportScreenState
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.upload_file_rounded),
-                  label: Text(_pickingHwpx ? '텍스트 추출 중...' : 'HWPX 파일 선택'),
+                  label: Text(
+                    _pickingHwpx
+                        ? '${_processingFileName ?? '파일'} 분석 중...'
+                        : 'HWPX 파일 선택',
+                  ),
                 ),
-                if (_pickedHwpxName != null)
+                if (_pickedHwpxNames.isNotEmpty)
                   Text(
-                    _pickedHwpxName!,
+                    '선택한 파일 ${_pickedHwpxNames.length}개',
                     style: const TextStyle(
                       color: _teal,
                       fontWeight: FontWeight.w800,
@@ -657,6 +771,23 @@ class _TeacherWorkbookImportScreenState
                   ),
               ],
             ),
+            if (_pickedHwpxNames.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              for (final name in _pickedHwpxNames)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 3),
+                  child: Text(
+                    _fileErrors[name] == null
+                        ? '• $name'
+                        : '• $name — 실패: ${_fileErrors[name]}',
+                    style: TextStyle(
+                      color: _fileErrors[name] == null
+                          ? const Color(0xFF475569)
+                          : const Color(0xFFB91C1C),
+                    ),
+                  ),
+                ),
+            ],
             const SizedBox(height: 10),
             const Text(
               'HWPX에서 텍스트만 추출합니다. 원본 파일은 서버에 업로드하지 않습니다.',
@@ -690,6 +821,10 @@ class _TeacherWorkbookImportScreenState
         runSpacing: 8,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
+          _summaryChip(
+            '파일 ${_candidateGroups.length + _fileErrors.length}개',
+            const Color(0xFF475569),
+          ),
           Text(
             '문제 후보 ${_candidates.length}개',
             style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
@@ -860,6 +995,86 @@ class _TeacherWorkbookImportScreenState
           style: const TextStyle(color: Color(0xFF475569), height: 1.4),
         ),
       );
+
+  Map<String, List<WorkbookImportCandidate>> get _candidateGroups {
+    final groups = <String, List<WorkbookImportCandidate>>{};
+    for (final item in _candidates) {
+      final fileName = item.sourceFileName ?? '붙여넣기';
+      groups.putIfAbsent(fileName, () => []).add(item);
+    }
+    return groups;
+  }
+
+  Widget _fileGroup(String fileName, List<WorkbookImportCandidate> items) {
+    final selectedCount =
+        items.where((item) => _selected.contains(item.localId)).length;
+    final duplicateCount = items.where(_isDuplicateItem).length;
+    final warningCount = items
+        .where((item) => item.warnings.isNotEmpty || item.errors.isNotEmpty)
+        .length;
+    final unknownCount = items.where((item) => item.isUnknown).length;
+
+    void selectGroup(bool Function(WorkbookImportCandidate item) test) {
+      setState(() {
+        _selected.removeAll(items.map((item) => item.localId));
+        _selected.addAll(
+          items
+              .where((item) => _isSelectable(item) && test(item))
+              .map((item) => item.localId),
+        );
+      });
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: _line),
+      ),
+      child: ExpansionTile(
+        initiallyExpanded: _candidateGroups.length <= 3,
+        title: Text(
+          fileName,
+          style: const TextStyle(color: _ink, fontWeight: FontWeight.w900),
+        ),
+        subtitle: Text(
+          '후보 ${items.length}개 · 선택 $selectedCount개 · '
+          '중복 $duplicateCount개 · 경고 $warningCount개 · unknown $unknownCount개',
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                _selectionButton(
+                  icon: Icons.select_all_rounded,
+                  label: '이 파일 전체 선택',
+                  onPressed: () => selectGroup((_) => true),
+                ),
+                _selectionButton(
+                  icon: Icons.deselect_rounded,
+                  label: '이 파일 전체 해제',
+                  onPressed: () => selectGroup((_) => false),
+                ),
+                _selectionButton(
+                  icon: Icons.verified_outlined,
+                  label: '이 파일 정상 후보만',
+                  onPressed: () => selectGroup(_isNormalCandidate),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          ...items.map(_candidateCard),
+        ],
+      ),
+    );
+  }
 
   Widget _candidateCard(WorkbookImportCandidate item) {
     final selected = _selected.contains(item.localId);
@@ -1053,7 +1268,9 @@ class _TeacherWorkbookImportScreenState
                   )
                 : const Icon(Icons.save_alt_rounded),
             label: Text(
-              _saving ? '저장 중...' : '선택한 문제 ${_selected.length}개 저장',
+              _saving
+                  ? '${_savingProgress ?? ''} 문제 저장 중...'
+                  : '선택한 문제 ${_selected.length}개 저장',
             ),
             style:
                 FilledButton.styleFrom(minimumSize: const Size.fromHeight(50)),

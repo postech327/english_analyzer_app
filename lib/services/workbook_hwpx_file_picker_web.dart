@@ -7,18 +7,31 @@ import 'dart:typed_data';
 import 'picked_upload_file.dart';
 
 Future<PickedUploadFile?> pickWorkbookHwpxFile() async {
+  final files = await pickWorkbookHwpxFiles();
+  return files.isEmpty ? null : files.first;
+}
+
+Future<List<PickedUploadFile>> pickWorkbookHwpxFiles() async {
   final input = html.FileUploadInputElement()
     ..accept = '.hwpx,application/zip'
-    ..multiple = false;
+    ..multiple = true;
 
   input.click();
   await input.onChange.first;
 
-  final file = input.files?.isNotEmpty == true ? input.files!.first : null;
-  if (file == null) return null;
+  final files = input.files ?? const <html.File>[];
+  if (files.isEmpty) return const [];
 
+  final picked = <PickedUploadFile>[];
+  for (final file in files) {
+    picked.add(await _readFile(file));
+  }
+  return picked;
+}
+
+Future<PickedUploadFile> _readFile(html.File file) {
   final reader = html.FileReader();
-  final completer = Completer<PickedUploadFile?>();
+  final completer = Completer<PickedUploadFile>();
   reader.onError.first.then((_) {
     if (!completer.isCompleted) {
       completer.completeError('HWPX 파일을 읽지 못했습니다.');

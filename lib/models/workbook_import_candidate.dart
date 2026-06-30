@@ -15,6 +15,7 @@ class WorkbookImportCandidate {
     this.explanation,
     this.errors = const [],
     this.warnings = const [],
+    this.sourceFileName,
   });
 
   final String localId;
@@ -32,12 +33,16 @@ class WorkbookImportCandidate {
   final String summary;
   final List<String> errors;
   final List<String> warnings;
+  final String? sourceFileName;
 
   bool get isUnknown => questionType == 'unknown';
   bool get hasBlockingErrors => errors.isNotEmpty;
   bool get isSelectedByDefault => !isUnknown && !hasBlockingErrors;
 
-  WorkbookImportCandidate copyWith({String? localId}) {
+  WorkbookImportCandidate copyWith({
+    String? localId,
+    String? sourceFileName,
+  }) {
     return WorkbookImportCandidate(
       localId: localId ?? this.localId,
       detectedType: detectedType,
@@ -54,6 +59,7 @@ class WorkbookImportCandidate {
       explanation: explanation,
       errors: errors,
       warnings: warnings,
+      sourceFileName: sourceFileName ?? this.sourceFileName,
     );
   }
 }
