@@ -123,7 +123,9 @@ class _WorkbookQuestionEditorDialogState
     _selectedSectionValue =
         widget.initialSectionId ?? widget.initial?.sectionId ?? 0;
     _newSectionController = TextEditingController();
-    _detailLabelController = TextEditingController();
+    _detailLabelController = TextEditingController(
+      text: _asString(initial?.answer['detail_label']),
+    );
     if (_selectedSectionValue != 0 &&
         !widget.sections
             .any((section) => section.id == _selectedSectionValue)) {
@@ -727,46 +729,45 @@ class _WorkbookQuestionEditorDialogState
                   ),
                 ),
             ],
-            onChanged: widget.initial == null
-                ? (value) {
-                    if (value == null) return;
-                    setState(() => _selectedSectionValue = value);
-                  }
-                : null,
+            onChanged: (value) {
+              if (value == null) return;
+              setState(() {
+                _selectedSectionValue = value;
+                _useNewSection = false;
+              });
+            },
           ),
-          if (widget.initial == null) ...[
-            const SizedBox(height: 12),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('새 섹션 직접 입력'),
-              subtitle: const Text('예: 3강, Unit 5, Test, 실전 복습'),
-              value: _useNewSection,
-              onChanged: (value) {
-                setState(() => _useNewSection = value);
-              },
-            ),
-            if (_useNewSection)
-              TextField(
-                controller: _newSectionController,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: '새 섹션명',
-                  hintText: '예: 3강',
-                  prefixIcon: Icon(Icons.create_new_folder_outlined),
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            const SizedBox(height: 12),
+          const SizedBox(height: 12),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('새 섹션 직접 입력'),
+            subtitle: const Text('예: 3강, Unit 5, Test, 실전 복습'),
+            value: _useNewSection,
+            onChanged: (value) {
+              setState(() => _useNewSection = value);
+            },
+          ),
+          if (_useNewSection)
             TextField(
-              controller: _detailLabelController,
+              controller: _newSectionController,
+              autofocus: true,
               decoration: const InputDecoration(
-                labelText: '세부 번호 (선택)',
-                hintText: '예: 1번, Gateway, Gateway 1',
-                prefixIcon: Icon(Icons.label_outline),
+                labelText: '새 섹션명',
+                hintText: '예: 3강',
+                prefixIcon: Icon(Icons.create_new_folder_outlined),
                 border: OutlineInputBorder(),
               ),
             ),
-          ],
+          const SizedBox(height: 12),
+          TextField(
+            controller: _detailLabelController,
+            decoration: const InputDecoration(
+              labelText: '세부 번호 (선택)',
+              hintText: '예: 1번, Gateway, Gateway 1',
+              prefixIcon: Icon(Icons.label_outline),
+              border: OutlineInputBorder(),
+            ),
+          ),
         ],
       ),
     );

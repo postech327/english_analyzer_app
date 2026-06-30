@@ -277,16 +277,40 @@ class _TeacherWorkbookDetailScreenState
     );
     if (draft == null) return;
     try {
+      var sectionId = draft.sectionId;
+      final newSectionTitle = draft.newSectionTitle?.trim();
+      String? detailLabel = normalizeWorkbookDetailLabel(draft.detailLabel);
+      if (newSectionTitle != null && newSectionTitle.isNotEmpty) {
+        final parsedSection = parseWorkbookSectionLabel(
+          newSectionTitle,
+          explicitDetailLabel: detailLabel,
+        );
+        detailLabel = parsedSection.detailLabel;
+        WorkbookSection? matchedSection;
+        for (final section in workbook.sections) {
+          if (section.title.trim().toLowerCase() ==
+              parsedSection.sectionTitle.toLowerCase()) {
+            matchedSection = section;
+            break;
+          }
+        }
+        matchedSection ??= await _service.createWorkbookSection(
+          widget.workbookId,
+          title: parsedSection.sectionTitle,
+          unitLabel: parsedSection.sectionTitle,
+          sectionKey: parsedSection.sectionKey,
+        );
+        sectionId = matchedSection.id;
+      }
       final answer = Map<String, dynamic>.from(draft.answer);
-      final existingDetail = normalizeWorkbookDetailLabel(
-          question.answer['detail_label']?.toString());
-      if (existingDetail != null) answer['detail_label'] = existingDetail;
+      answer.remove('detail_label');
+      if (detailLabel != null) answer['detail_label'] = detailLabel;
       await _service.updateQuestion(
         workbookId: widget.workbookId,
         questionId: question.id,
         questionType: question.questionType,
         prompt: draft.prompt,
-        sectionId: question.sectionId,
+        sectionId: sectionId,
         passageText: draft.passageText,
         choices: draft.choices,
         answer: answer,
@@ -294,7 +318,15 @@ class _TeacherWorkbookDetailScreenState
         points: draft.points,
       );
       if (!mounted) return;
-      _reload();
+      setState(() {
+        _selectedSectionId = sectionId;
+        _future = _service.fetchWorkbook(
+          widget.workbookId,
+          sectionId: sectionId,
+        );
+        _assignmentFuture =
+            _assignmentService.fetchTeacherWorkbookStatus(widget.workbookId);
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('문제를 수정했습니다.')),
       );

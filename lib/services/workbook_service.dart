@@ -221,6 +221,7 @@ class WorkbookService {
         answer: answer,
         explanation: explanation,
         points: points,
+        includeSectionId: true,
       )..remove('question_type'),
     );
     return WorkbookQuestion.fromJson(decoded as Map<String, dynamic>);
@@ -247,11 +248,12 @@ class WorkbookService {
     required Map<String, dynamic> answer,
     String? explanation,
     int points = 1,
+    bool includeSectionId = false,
   }) {
     return {
       'question_type': questionType,
       'prompt': prompt,
-      if (sectionId != null) 'section_id': sectionId,
+      if (includeSectionId || sectionId != null) 'section_id': sectionId,
       if (_hasText(sectionKey)) 'section_key': sectionKey!.trim(),
       if (_hasText(sectionTitle)) 'section_title': sectionTitle!.trim(),
       if (_hasText(passageText)) 'passage_text': passageText!.trim(),
