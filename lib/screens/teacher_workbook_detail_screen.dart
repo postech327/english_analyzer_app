@@ -6,6 +6,7 @@ import '../models/workbook_attempt.dart';
 import '../services/learning_assignment_service.dart';
 import '../services/workbook_attempt_service.dart';
 import '../services/workbook_service.dart';
+import '../utils/workbook_section_label_parser.dart';
 import '../widgets/workbook_assignment_dialog.dart';
 import '../widgets/workbook_question_editor_dialog.dart';
 import 'teacher_workbook_import_screen.dart';
@@ -165,23 +166,31 @@ class _TeacherWorkbookDetailScreenState
     try {
       var sectionId = draft.sectionId;
       final newSectionTitle = draft.newSectionTitle?.trim();
+      String? detailLabel = normalizeWorkbookDetailLabel(draft.detailLabel);
       if (newSectionTitle != null && newSectionTitle.isNotEmpty) {
+        final parsedSection = parseWorkbookSectionLabel(
+          newSectionTitle,
+          explicitDetailLabel: detailLabel,
+        );
+        detailLabel = parsedSection.detailLabel;
         WorkbookSection? matchedSection;
         for (final section in workbook.sections) {
           if (section.title.trim().toLowerCase() ==
-              newSectionTitle.toLowerCase()) {
+              parsedSection.sectionTitle.toLowerCase()) {
             matchedSection = section;
             break;
           }
         }
         matchedSection ??= await _service.createWorkbookSection(
           widget.workbookId,
-          title: _sectionTitle(newSectionTitle),
-          unitLabel: _sectionTitle(newSectionTitle),
-          sectionKey: _sectionKey(newSectionTitle),
+          title: parsedSection.sectionTitle,
+          unitLabel: parsedSection.sectionTitle,
+          sectionKey: parsedSection.sectionKey,
         );
         sectionId = matchedSection.id;
       }
+      final answer = Map<String, dynamic>.from(draft.answer);
+      if (detailLabel != null) answer['detail_label'] = detailLabel;
       await _service.createQuestion(
         workbookId: widget.workbookId,
         questionType: draft.questionType,
@@ -189,7 +198,7 @@ class _TeacherWorkbookDetailScreenState
         sectionId: sectionId,
         passageText: draft.passageText,
         choices: draft.choices,
-        answer: draft.answer,
+        answer: answer,
         explanation: draft.explanation,
         points: draft.points,
       );
@@ -216,29 +225,6 @@ class _TeacherWorkbookDetailScreenState
         SnackBar(content: Text('문제 추가 실패: $error')),
       );
     }
-  }
-
-  String _sectionTitle(String input) {
-    final trimmed = input.trim();
-    final unitMatch = RegExp(
-      r'^(?:unit\s*)?(\d+)\s*(?:강)?$',
-      caseSensitive: false,
-    ).firstMatch(trimmed);
-    if (unitMatch != null) return '${unitMatch.group(1)}강';
-    if (trimmed.toLowerCase() == 'test') return 'Test';
-    return trimmed;
-  }
-
-  String _sectionKey(String input) {
-    final title = _sectionTitle(input);
-    final unitMatch = RegExp(r'^(\d+)강$').firstMatch(title);
-    if (unitMatch != null) return 'unit_${unitMatch.group(1)}';
-    if (title.toLowerCase() == 'test') return 'test';
-    final slug = title
-        .toLowerCase()
-        .replaceAll(RegExp(r'\s+'), '_')
-        .replaceAll(RegExp(r'[^a-z0-9가-힣_-]'), '');
-    return 'custom_${slug.isEmpty ? 'section' : slug}';
   }
 
   Future<void> _importQuestions(Workbook workbook) async {
@@ -291,6 +277,10 @@ class _TeacherWorkbookDetailScreenState
     );
     if (draft == null) return;
     try {
+      final answer = Map<String, dynamic>.from(draft.answer);
+      final existingDetail = normalizeWorkbookDetailLabel(
+          question.answer['detail_label']?.toString());
+      if (existingDetail != null) answer['detail_label'] = existingDetail;
       await _service.updateQuestion(
         workbookId: widget.workbookId,
         questionId: question.id,
@@ -299,7 +289,7 @@ class _TeacherWorkbookDetailScreenState
         sectionId: question.sectionId,
         passageText: draft.passageText,
         choices: draft.choices,
-        answer: draft.answer,
+        answer: answer,
         explanation: draft.explanation,
         points: draft.points,
       );
@@ -1151,6 +1141,10 @@ class _QuestionCard extends StatelessWidget {
             children: [
               _Chip(text: '${question.orderIndex}번'),
               const SizedBox(width: 6),
+              if (_asString(question.answer['detail_label']).isNotEmpty) ...[
+                _Chip(text: _asString(question.answer['detail_label'])),
+                const SizedBox(width: 6),
+              ],
               _Chip(text: workbookQuestionDisplayLabel(question)),
               const Spacer(),
               IconButton(

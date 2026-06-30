@@ -14,6 +14,7 @@ class WorkbookQuestionDraft {
     this.points = 1,
     this.sectionId,
     this.newSectionTitle,
+    this.detailLabel,
   });
 
   final String questionType;
@@ -25,6 +26,7 @@ class WorkbookQuestionDraft {
   final int points;
   final int? sectionId;
   final String? newSectionTitle;
+  final String? detailLabel;
 }
 
 class _StructuredManualParse {
@@ -91,6 +93,7 @@ class _WorkbookQuestionEditorDialogState
   late final TextEditingController _orderBController;
   late final TextEditingController _orderCController;
   late final TextEditingController _newSectionController;
+  late final TextEditingController _detailLabelController;
   late final List<TextEditingController> _choiceControllers;
 
   InlineChoiceParseResult? _inlinePreview;
@@ -120,6 +123,7 @@ class _WorkbookQuestionEditorDialogState
     _selectedSectionValue =
         widget.initialSectionId ?? widget.initial?.sectionId ?? 0;
     _newSectionController = TextEditingController();
+    _detailLabelController = TextEditingController();
     if (_selectedSectionValue != 0 &&
         !widget.sections
             .any((section) => section.id == _selectedSectionValue)) {
@@ -223,6 +227,7 @@ class _WorkbookQuestionEditorDialogState
     _orderBController.dispose();
     _orderCController.dispose();
     _newSectionController.dispose();
+    _detailLabelController.dispose();
     for (final controller in _choiceControllers) {
       controller.dispose();
     }
@@ -317,6 +322,7 @@ class _WorkbookQuestionEditorDialogState
         answer: parsed.toAnswerJson(unitTitle: _sourceController.text),
         sectionId: _draftSectionId,
         newSectionTitle: _draftNewSectionTitle,
+        detailLabel: _draftDetailLabel,
       ),
     );
   }
@@ -355,6 +361,7 @@ class _WorkbookQuestionEditorDialogState
         ),
         sectionId: _draftSectionId,
         newSectionTitle: _draftNewSectionTitle,
+        detailLabel: _draftDetailLabel,
       ),
     );
   }
@@ -388,6 +395,7 @@ class _WorkbookQuestionEditorDialogState
         answer: parsed.toAnswerJson(),
         sectionId: _draftSectionId,
         newSectionTitle: _draftNewSectionTitle,
+        detailLabel: _draftDetailLabel,
       ),
     );
   }
@@ -424,6 +432,7 @@ class _WorkbookQuestionEditorDialogState
         answer: answer,
         sectionId: _draftSectionId,
         newSectionTitle: _draftNewSectionTitle,
+        detailLabel: _draftDetailLabel,
       ),
     );
   }
@@ -553,6 +562,7 @@ class _WorkbookQuestionEditorDialogState
         explanation: _emptyToNull(_explanationController.text),
         sectionId: _draftSectionId,
         newSectionTitle: _draftNewSectionTitle,
+        detailLabel: _draftDetailLabel,
       ),
     );
   }
@@ -656,6 +666,11 @@ class _WorkbookQuestionEditorDialogState
     return title.isEmpty ? null : title;
   }
 
+  String? get _draftDetailLabel {
+    final value = _detailLabelController.text.trim();
+    return value.isEmpty ? null : value;
+  }
+
   Widget _sectionSelector() {
     final sourceText = widget.workbookSourceText.trim();
     return Container(
@@ -741,6 +756,16 @@ class _WorkbookQuestionEditorDialogState
                   border: OutlineInputBorder(),
                 ),
               ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _detailLabelController,
+              decoration: const InputDecoration(
+                labelText: '세부 번호 (선택)',
+                hintText: '예: 1번, Gateway, Gateway 1',
+                prefixIcon: Icon(Icons.label_outline),
+                border: OutlineInputBorder(),
+              ),
+            ),
           ],
         ],
       ),

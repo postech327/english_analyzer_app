@@ -6,6 +6,7 @@ import '../services/workbook_hwpx_file_picker.dart';
 import '../services/workbook_service.dart';
 import '../utils/workbook_hwpx_text_extractor.dart';
 import '../utils/workbook_import_parser.dart';
+import '../utils/workbook_section_label_parser.dart';
 
 class WorkbookImportSaveResult {
   const WorkbookImportSaveResult({
@@ -198,15 +199,20 @@ class _TeacherWorkbookImportScreenState
     for (var index = 0; index < items.length; index++) {
       final item = items[index];
       try {
+        final section = _sectionInfoForCandidate(item);
+        final answer = Map<String, dynamic>.from(item.answer);
+        if (section.detailLabel != null) {
+          answer['detail_label'] = section.detailLabel;
+        }
         final created = await _service.createQuestion(
           workbookId: widget.workbook.id,
           questionType: item.questionType,
           prompt: item.prompt,
-          sectionKey: _sectionInfoForCandidate(item).key,
-          sectionTitle: _sectionInfoForCandidate(item).title,
+          sectionKey: section.key,
+          sectionTitle: section.title,
           passageText: item.passageText,
           choices: item.choices,
-          answer: item.answer,
+          answer: answer,
           explanation: item.explanation,
         );
         savedQuestionIds.add(created.id);
@@ -1076,24 +1082,24 @@ String _join(List<String?> values) {
 }
 
 _ImportSectionInfo _sectionInfoForCandidate(WorkbookImportCandidate item) {
-  final title = item.title.trim();
-  final unitMatch =
-      RegExp(r'Unit\s*(\d+)', caseSensitive: false).firstMatch(title);
-  if (unitMatch != null) {
-    final unitNo = unitMatch.group(1)!;
-    return _ImportSectionInfo(key: 'unit_$unitNo', title: '$unitNo강');
-  }
-  if (RegExp(r'\bTest\s*\d*', caseSensitive: false).hasMatch(title)) {
-    return const _ImportSectionInfo(key: 'test', title: 'Test');
-  }
-  return const _ImportSectionInfo(key: 'unclassified', title: '미분류');
+  final parsed = parseWorkbookSectionLabel(item.title);
+  return _ImportSectionInfo(
+    key: parsed.sectionKey,
+    title: parsed.sectionTitle,
+    detailLabel: parsed.detailLabel,
+  );
 }
 
 class _ImportSectionInfo {
-  const _ImportSectionInfo({required this.key, required this.title});
+  const _ImportSectionInfo({
+    required this.key,
+    required this.title,
+    this.detailLabel,
+  });
 
   final String key;
   final String title;
+  final String? detailLabel;
 }
 
 bool _isDuplicateCandidate(
