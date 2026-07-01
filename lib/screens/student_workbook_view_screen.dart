@@ -46,6 +46,7 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
   bool _submittedInSession = false;
   int? _selectedSectionId;
   String? _selectedSectionTitle;
+  int _currentQuestionIndex = 0;
   Workbook? _loadedWorkbook;
   WorkbookAttempt? _lastAttempt;
 
@@ -170,6 +171,7 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
     setState(() {
       _isRetakeMode = true;
       _lastAttempt = null;
+      _currentQuestionIndex = 0;
       _multipleChoiceAnswers.clear();
       _trueFalseAnswers.clear();
       _paragraphOrderAnswers.clear();
@@ -317,6 +319,34 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
   Future<void> _submitWorkbook() async {
     final workbook = _loadedWorkbook;
     if (workbook == null || _isSubmitting) return;
+    final firstUnansweredIndex = _firstUnansweredQuestionIndex(workbook);
+    if (firstUnansweredIndex != null) {
+      final submitAnyway = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('미응답 문제가 있습니다'),
+          content: Text(
+            '아직 답하지 않은 문제가 있습니다. '
+            '먼저 ${firstUnansweredIndex + 1}번 문제부터 확인할까요?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('계속 풀기'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('그대로 제출'),
+            ),
+          ],
+        ),
+      );
+      if (submitAnyway != true) {
+        _moveToQuestion(firstUnansweredIndex);
+        return;
+      }
+    }
+    if (!mounted) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -541,6 +571,85 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
     return answers;
   }
 
+  int? _firstUnansweredQuestionIndex(Workbook workbook) {
+    for (var index = 0; index < workbook.questions.length; index++) {
+      if (!_isQuestionAnswered(workbook.questions[index])) return index;
+    }
+    return null;
+  }
+
+  bool _isQuestionAnswered(WorkbookQuestion question) {
+    if (question.questionType == 'inline_choice') {
+      final items = _contentItems(question.content);
+      return items.isNotEmpty &&
+          items.every(
+            (item) =>
+                _multipleChoiceAnswers[
+                    _localKey(question.id, _asInt(item['number']))] !=
+                null,
+          );
+    }
+    if (question.questionType == 'true_false' &&
+        question.content['items'] is List) {
+      final items = _contentItems(question.content);
+      return items.isNotEmpty &&
+          items.every(
+            (item) =>
+                _trueFalseAnswers[
+                    _localKey(question.id, _asInt(item['number']))] !=
+                null,
+          );
+    }
+    if (question.questionType == 'check_learning_set') {
+      final sectionB = _asMap(question.content['section_b']);
+      final blankCount = _asInt(sectionB['blank_count']);
+      if (blankCount <= 0) return false;
+      for (var index = 1; index <= blankCount; index++) {
+        if (_multipleChoiceAnswers[_localKey(question.id, index)] == null) {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (question.questionType == 'initial_blank') {
+      final items = _contentItems(question.content);
+      return items.isNotEmpty &&
+          List.generate(items.length, (index) => index + 1).every(
+            (number) => (_textControllers[_localKey(question.id, number)]
+                        ?.text
+                        .trim() ??
+                    '')
+                .isNotEmpty,
+          );
+    }
+    if (question.questionType == 'sentence_insertion' ||
+        question.questionType == 'multiple_choice') {
+      return _multipleChoiceAnswers[question.id] != null;
+    }
+    if (question.questionType == 'paragraph_order') {
+      return (_paragraphOrderAnswers[question.id] ?? const <String>[])
+          .isNotEmpty;
+    }
+    if (question.questionType == 'true_false') {
+      return _trueFalseAnswers[question.id] != null;
+    }
+    return (_textControllers[question.id]?.text.trim() ?? '').isNotEmpty;
+  }
+
+  void _moveToQuestion(int index) {
+    final workbook = _loadedWorkbook;
+    if (workbook == null || workbook.questions.isEmpty) return;
+    final nextIndex = index.clamp(0, workbook.questions.length - 1);
+    setState(() => _currentQuestionIndex = nextIndex);
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -602,6 +711,7 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
                     setState(() {
                       _selectedSectionId = section.id;
                       _selectedSectionTitle = section.title;
+                      _currentQuestionIndex = 0;
                       _future = _workbookService.fetchStudentWorkbook(
                         widget.assignment.contentId,
                         sectionId: section.id,
@@ -619,8 +729,19 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
                 const SizedBox(height: 10),
                 if (workbook.questions.isEmpty)
                   const _EmptyQuestionCard()
-                else
-                  ...workbook.questions.map(_buildQuestionCard),
+                else ...[
+                  _QuestionProgressCard(
+                    current: _currentQuestionIndex + 1,
+                    total: workbook.questions.length,
+                  ),
+                  const SizedBox(height: 10),
+                  _buildQuestionCard(
+                    workbook.questions[
+                        _currentQuestionIndex < workbook.questions.length
+                            ? _currentQuestionIndex
+                            : 0],
+                  ),
+                ],
               ],
             ],
           );
@@ -693,6 +814,10 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
         ],
       );
     }
+    final questionCount = workbook?.questions.length ?? 0;
+    if (questionCount > 0) {
+      return _buildQuestionNavigationBar(questionCount);
+    }
     return Row(
       children: [
         Expanded(
@@ -716,6 +841,77 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
               backgroundColor: _blue,
               foregroundColor: Colors.white,
               minimumSize: const Size.fromHeight(48),
+              textStyle: const TextStyle(fontWeight: FontWeight.w900),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuestionNavigationBar(int questionCount) {
+    final currentIndex =
+        _currentQuestionIndex < questionCount ? _currentQuestionIndex : 0;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: currentIndex > 0
+                    ? () => _moveToQuestion(currentIndex - 1)
+                    : null,
+                icon: const Icon(Icons.arrow_back_rounded),
+                label: const Text('이전'),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Text(
+                '${currentIndex + 1} / $questionCount',
+                style: const TextStyle(
+                  color: _ink,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: currentIndex < questionCount - 1
+                    ? () => _moveToQuestion(currentIndex + 1)
+                    : null,
+                icon: const Icon(Icons.arrow_forward_rounded),
+                label: const Text('다음'),
+                iconAlignment: IconAlignment.end,
+                style: FilledButton.styleFrom(
+                  backgroundColor: _blue,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _isSubmitting ? null : _submitWorkbook,
+            icon: _isSubmitting
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.send_rounded),
+            label: Text(_isSubmitting ? '제출 중...' : '제출하기'),
+            style: FilledButton.styleFrom(
+              backgroundColor: _blue,
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(46),
               textStyle: const TextStyle(fontWeight: FontWeight.w900),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
@@ -927,6 +1123,63 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
           ),
         ),
     };
+  }
+}
+
+class _QuestionProgressCard extends StatelessWidget {
+  const _QuestionProgressCard({
+    required this.current,
+    required this.total,
+  });
+
+  final int current;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = total == 0 ? 0.0 : current / total;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _StudentWorkbookViewScreenState._line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  '학습 진행률',
+                  style: TextStyle(
+                    color: _StudentWorkbookViewScreenState._ink,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Text(
+                '$current / $total',
+                style: const TextStyle(
+                  color: _StudentWorkbookViewScreenState._blue,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 9),
+          LinearProgressIndicator(
+            value: progress,
+            minHeight: 8,
+            borderRadius: BorderRadius.circular(999),
+            backgroundColor: const Color(0xFFE2E8F0),
+            color: _StudentWorkbookViewScreenState._blue,
+          ),
+        ],
+      ),
+    );
   }
 }
 
