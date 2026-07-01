@@ -43,6 +43,9 @@ class _TeacherWorkbookImportScreenState
   final Set<String> _selected = {};
   final Set<String> _duplicateCandidates = {};
   final Map<String, GlobalKey> _candidateKeys = {};
+  final Map<String, bool> _expandedFiles = {};
+  final Map<String, int> _visibleCandidatesByFile = {};
+  static const int _candidatePageSize = 30;
   bool _analyzed = false;
   bool _saving = false;
   bool _pickingHwpx = false;
@@ -123,6 +126,8 @@ class _TeacherWorkbookImportScreenState
       _removedPreamble = result.removedPreamble;
       _pickedHwpxNames = const [];
       _fileErrors.clear();
+      _expandedFiles.clear();
+      _visibleCandidatesByFile.clear();
       _candidateKeys
         ..clear()
         ..addEntries(
@@ -202,6 +207,8 @@ class _TeacherWorkbookImportScreenState
         _fileErrors
           ..clear()
           ..addAll(errors);
+        _expandedFiles.clear();
+        _visibleCandidatesByFile.clear();
         _candidates = allCandidates;
         _omittedCount = omittedCount;
         _removedPreamble = removedPreamble;
@@ -664,6 +671,22 @@ class _TeacherWorkbookImportScreenState
       _message('해당 후보가 없습니다.');
       return;
     }
+    final fileName = target.sourceFileName ?? '붙여넣기';
+    final groupItems = _candidateGroups[fileName] ?? const [];
+    final targetIndex =
+        groupItems.indexWhere((item) => item.localId == target!.localId);
+    setState(() {
+      _expandedFiles[fileName] = true;
+      if (targetIndex >= 0) {
+        final requiredCount =
+            ((targetIndex + 1 + _candidatePageSize - 1) ~/ _candidatePageSize) *
+                _candidatePageSize;
+        final current =
+            _visibleCandidatesByFile[fileName] ?? _candidatePageSize;
+        _visibleCandidatesByFile[fileName] =
+            current < requiredCount ? requiredCount : current;
+      }
+    });
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted) return;
     final targetContext = _candidateKeys[target.localId]?.currentContext;
@@ -1013,6 +1036,10 @@ class _TeacherWorkbookImportScreenState
         .where((item) => item.warnings.isNotEmpty || item.errors.isNotEmpty)
         .length;
     final unknownCount = items.where((item) => item.isUnknown).length;
+    final isExpanded = _expandedFiles[fileName] ?? _candidateGroups.length == 1;
+    final visibleCount =
+        (_visibleCandidatesByFile[fileName] ?? _candidatePageSize)
+            .clamp(0, items.length);
 
     void selectGroup(bool Function(WorkbookImportCandidate item) test) {
       setState(() {
@@ -1034,7 +1061,17 @@ class _TeacherWorkbookImportScreenState
         side: const BorderSide(color: _line),
       ),
       child: ExpansionTile(
-        initiallyExpanded: _candidateGroups.length <= 3,
+        key: ValueKey('$fileName-$isExpanded'),
+        initiallyExpanded: isExpanded,
+        onExpansionChanged: (value) {
+          setState(() {
+            _expandedFiles[fileName] = value;
+            _visibleCandidatesByFile.putIfAbsent(
+              fileName,
+              () => _candidatePageSize,
+            );
+          });
+        },
         title: Text(
           fileName,
           style: const TextStyle(color: _ink, fontWeight: FontWeight.w900),
@@ -1044,34 +1081,51 @@ class _TeacherWorkbookImportScreenState
           '중복 $duplicateCount개 · 경고 $warningCount개 · unknown $unknownCount개',
         ),
         childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-        children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: [
-                _selectionButton(
-                  icon: Icons.select_all_rounded,
-                  label: '이 파일 전체 선택',
-                  onPressed: () => selectGroup((_) => true),
+        children: isExpanded
+            ? [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      _selectionButton(
+                        icon: Icons.select_all_rounded,
+                        label: '이 파일 전체 선택',
+                        onPressed: () => selectGroup((_) => true),
+                      ),
+                      _selectionButton(
+                        icon: Icons.deselect_rounded,
+                        label: '이 파일 전체 해제',
+                        onPressed: () => selectGroup((_) => false),
+                      ),
+                      _selectionButton(
+                        icon: Icons.verified_outlined,
+                        label: '이 파일 정상 후보만',
+                        onPressed: () => selectGroup(_isNormalCandidate),
+                      ),
+                    ],
+                  ),
                 ),
-                _selectionButton(
-                  icon: Icons.deselect_rounded,
-                  label: '이 파일 전체 해제',
-                  onPressed: () => selectGroup((_) => false),
-                ),
-                _selectionButton(
-                  icon: Icons.verified_outlined,
-                  label: '이 파일 정상 후보만',
-                  onPressed: () => selectGroup(_isNormalCandidate),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-          ...items.map(_candidateCard),
-        ],
+                const SizedBox(height: 10),
+                ...items.take(visibleCount).map(_candidateCard),
+                if (visibleCount < items.length)
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _visibleCandidatesByFile[fileName] =
+                              (visibleCount + _candidatePageSize)
+                                  .clamp(0, items.length);
+                        });
+                      },
+                      icon: const Icon(Icons.expand_more_rounded),
+                      label: Text('더 보기 (${items.length - visibleCount}개 남음)'),
+                    ),
+                  ),
+              ]
+            : const [],
       ),
     );
   }
