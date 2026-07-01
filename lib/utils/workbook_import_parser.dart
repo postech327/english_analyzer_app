@@ -402,6 +402,12 @@ WorkbookImportCandidate _inlineChoiceCandidate(
   if (parsed.items.length >= 50) {
     warnings.add('선택 항목이 50개 이상입니다. 후보 분리가 필요할 수 있습니다.');
   }
+  final cleanup = cleanStudentPassageText(
+    parsed.passageText,
+    parsed.items.map((item) => item.answer),
+  );
+  final answer = parsed.toAnswerJson(unitTitle: source)
+    ..['passage_text'] = cleanup.cleanedText;
   return WorkbookImportCandidate(
     localId: id,
     detectedType: 'inline_choice',
@@ -409,13 +415,94 @@ WorkbookImportCandidate _inlineChoiceCandidate(
     typeLabel: '본문 선택형',
     title: metadata.title,
     prompt: '본문에서 알맞은 표현을 고르세요.',
-    passageText: parsed.passageText,
-    answer: parsed.toAnswerJson(unitTitle: source),
+    passageText: cleanup.cleanedText,
+    answer: answer,
     rawText: rawText,
     summary: '선택 항목 ${parsed.items.length}개 · 해설 $explanationCount개',
     errors: errors,
     warnings: warnings,
+    infoMessages: [
+      if (cleanup.removedLineCount > 0)
+        '본문 뒤 정답/해설 추정 ${cleanup.removedLineCount}줄을 학생용 본문에서 제외했습니다.',
+    ],
   );
+}
+
+class StudentPassageCleanupResult {
+  const StudentPassageCleanupResult({
+    required this.cleanedText,
+    required this.removedLineCount,
+  });
+
+  final String cleanedText;
+  final int removedLineCount;
+}
+
+StudentPassageCleanupResult cleanStudentPassageText(
+  String passageText,
+  Iterable<String> parsedAnswers,
+) {
+  final answers = parsedAnswers
+      .map(_normalizeAnswerNote)
+      .where((answer) => answer.isNotEmpty)
+      .toSet();
+  if (answers.isEmpty || passageText.trim().isEmpty) {
+    return StudentPassageCleanupResult(
+      cleanedText: passageText.trim(),
+      removedLineCount: 0,
+    );
+  }
+
+  final lines = passageText.split(RegExp(r'\r?\n'));
+  var cursor = lines.length - 1;
+  var matchedLines = 0;
+  var cutIndex = lines.length;
+  while (cursor >= 0) {
+    final line = lines[cursor].trim();
+    if (line.isEmpty) {
+      if (matchedLines > 0) cutIndex = cursor;
+      cursor--;
+      continue;
+    }
+    if (!_isTrailingAnswerNote(line, answers)) break;
+    matchedLines++;
+    cutIndex = cursor;
+    cursor--;
+  }
+
+  if (matchedLines < 2) {
+    return StudentPassageCleanupResult(
+      cleanedText: passageText.trim(),
+      removedLineCount: 0,
+    );
+  }
+  final cleaned = lines.take(cutIndex).join('\n').trim();
+  if (cleaned.length < 40) {
+    return StudentPassageCleanupResult(
+      cleanedText: passageText.trim(),
+      removedLineCount: 0,
+    );
+  }
+  return StudentPassageCleanupResult(
+    cleanedText: cleaned,
+    removedLineCount: matchedLines,
+  );
+}
+
+bool _isTrailingAnswerNote(String line, Set<String> answers) {
+  final withoutPrefix = line.replaceFirst(
+    RegExp(r'^\s*(?:[-•·]\s*|\d+\s*[.)]\s*)'),
+    '',
+  );
+  final parenthesisIndex = withoutPrefix.indexOf('(');
+  final answerPart = parenthesisIndex >= 0
+      ? withoutPrefix.substring(0, parenthesisIndex)
+      : withoutPrefix;
+  return answers.contains(_normalizeAnswerNote(answerPart));
+}
+
+String _normalizeAnswerNote(String value) {
+  return value.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9가-힣]+'), '');
 }
 
 class _InlineChoiceMetadata {
@@ -484,6 +571,15 @@ WorkbookImportCandidate _checkLearningCandidate(
   final bankCount = (section['word_bank'] as List?)?.length ?? 0;
   final blankCount = section['blank_count'] as int? ?? 0;
   final answerCount = (section['answers'] as List?)?.length ?? 0;
+  final cleanup = cleanStudentPassageText(
+    (section['passage_text'] ?? '').toString(),
+    ((section['answers'] as List?) ?? const []).map((value) => '$value'),
+  );
+  final answer = parsed.toAnswerJson();
+  final answerSection = answer['section_b'];
+  if (answerSection is Map<String, dynamic>) {
+    answerSection['passage_text'] = cleanup.cleanedText;
+  }
   return WorkbookImportCandidate(
     localId: id,
     detectedType: 'check_learning_set',
@@ -491,12 +587,16 @@ WorkbookImportCandidate _checkLearningCandidate(
     typeLabel: '확인학습',
     title: '확인학습',
     prompt: '확인학습',
-    passageText: (section['passage_text'] ?? '').toString(),
-    answer: parsed.toAnswerJson(),
+    passageText: cleanup.cleanedText,
+    answer: answer,
     rawText: rawText,
     summary: '보기 $bankCount개 · 빈칸 $blankCount개 · 정답 $answerCount개',
     errors: parsed.errors,
     warnings: parsed.warnings,
+    infoMessages: [
+      if (cleanup.removedLineCount > 0)
+        '본문 뒤 정답/해설 추정 ${cleanup.removedLineCount}줄을 학생용 본문에서 제외했습니다.',
+    ],
   );
 }
 
@@ -631,6 +731,11 @@ WorkbookImportCandidate _initialBlankCandidate(
           unitTitle: source.isNotEmpty ? source : imported.title,
         );
   final items = (answer['items'] as List?)?.whereType<Map>().toList() ?? [];
+  final cleanup = cleanStudentPassageText(
+    (answer['passage_text'] ?? passage).toString(),
+    items.map((item) => (item['answer'] ?? '').toString()),
+  );
+  answer['passage_text'] = cleanup.cleanedText;
   final missing =
       items.where((item) => (item['answer'] ?? '').toString().isEmpty).length;
   final errors = <String>[
@@ -644,11 +749,15 @@ WorkbookImportCandidate _initialBlankCandidate(
     typeLabel: '첫 글자 빈칸',
     title: imported?.title ?? '첫 글자 빈칸',
     prompt: '첫 글자를 참고하여 빈칸에 알맞은 단어를 쓰세요.',
-    passageText: (answer['passage_text'] ?? passage).toString(),
+    passageText: cleanup.cleanedText,
     answer: answer,
     rawText: rawText,
     summary: '빈칸 ${items.length}개 · 정답 ${items.length - missing}개',
     errors: errors,
+    infoMessages: [
+      if (cleanup.removedLineCount > 0)
+        '본문 뒤 정답/해설 추정 ${cleanup.removedLineCount}줄을 학생용 본문에서 제외했습니다.',
+    ],
   );
 }
 

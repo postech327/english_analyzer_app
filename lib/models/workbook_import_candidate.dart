@@ -15,6 +15,7 @@ class WorkbookImportCandidate {
     this.explanation,
     this.errors = const [],
     this.warnings = const [],
+    this.infoMessages = const [],
     this.sourceFileName,
   });
 
@@ -33,6 +34,7 @@ class WorkbookImportCandidate {
   final String summary;
   final List<String> errors;
   final List<String> warnings;
+  final List<String> infoMessages;
   final String? sourceFileName;
 
   bool get isUnknown => questionType == 'unknown';
@@ -59,6 +61,7 @@ class WorkbookImportCandidate {
       explanation: explanation,
       errors: errors,
       warnings: warnings,
+      infoMessages: infoMessages,
       sourceFileName: sourceFileName ?? this.sourceFileName,
     );
   }

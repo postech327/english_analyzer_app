@@ -1214,6 +1214,8 @@ class _TeacherWorkbookImportScreenState
               _messageLine(error, const Color(0xFFC2410C)),
             for (final warning in item.warnings)
               _messageLine(warning, const Color(0xFFA16207)),
+            for (final info in item.infoMessages)
+              _messageLine(info, const Color(0xFF0369A1)),
             if (item.isUnknown)
               _messageLine(
                 '유형 표식이나 정답 형식을 원문에 추가한 뒤 다시 분석해 주세요.',

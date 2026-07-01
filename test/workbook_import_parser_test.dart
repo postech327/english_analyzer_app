@@ -3,6 +3,59 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:english_analyzer_app/utils/workbook_import_parser.dart';
 
 void main() {
+  test('removes trailing inline-choice answer footnotes from passage', () {
+    final candidate = parseWorkbookImportText('''
+Unit 1 Gateway
+To Whom It May Concern,
+
+I recently [visited/ignored] visited the history foundation and viewed its
+[exhibition/office] exhibition about the local gold rush.
+
+visited
+exhibition (office: a place to work)
+''').single;
+
+    expect(candidate.questionType, 'inline_choice');
+    expect(candidate.passageText, isNot(contains('\nvisited\n')));
+    expect(candidate.passageText, isNot(contains('office: a place to work')));
+    expect(candidate.answer['items'][0]['answer'], 'visited');
+    expect(candidate.answer['items'][1]['answer'], 'exhibition');
+    expect(candidate.infoMessages, isNotEmpty);
+  });
+
+  test('removes several standalone answer footnotes', () {
+    final result = cleanStudentPassageText(
+      'A sufficiently long student passage remains visible after cleanup.\n\n'
+      'visited\narriving\navailable',
+      const ['visited', 'arriving', 'available'],
+    );
+
+    expect(result.cleanedText, endsWith('after cleanup.'));
+    expect(result.removedLineCount, 3);
+  });
+
+  test('keeps a normal answer-like word in the middle of passage', () {
+    const passage = 'The class discussed the following word.\nvisited\n'
+        'After that discussion, the lesson continued with another paragraph.';
+    final result = cleanStudentPassageText(passage, const ['visited']);
+
+    expect(result.cleanedText, passage);
+    expect(result.removedLineCount, 0);
+  });
+
+  test('removes trailing answer lines containing parenthetical explanation',
+      () {
+    final result = cleanStudentPassageText(
+      'A sufficiently long passage appears before the appended teacher notes.\n'
+      'exhibition (concealment: explanation)\n'
+      'collection (separation: explanation)',
+      const ['exhibition', 'collection'],
+    );
+
+    expect(result.cleanedText, endsWith('teacher notes.'));
+    expect(result.removedLineCount, 2);
+  });
+
   test('parses seven tagged workbook question candidates', () {
     final candidates =
         parseWorkbookImportText(_sample, workbookSource: '수특 · 5강');
