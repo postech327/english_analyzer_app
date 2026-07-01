@@ -404,7 +404,9 @@ WorkbookImportCandidate _inlineChoiceCandidate(
   }
   final cleanup = cleanStudentPassageText(
     parsed.passageText,
-    parsed.items.map((item) => item.answer),
+    parsed.items.expand(
+      (item) => <String>[item.answer, ...item.choices],
+    ),
   );
   final answer = parsed.toAnswerJson(unitTitle: source)
     ..['passage_text'] = cleanup.cleanedText;
@@ -511,9 +513,11 @@ bool _isTrailingAnswerNote(String line, Set<String> answers) {
     '',
   );
   final parenthesisIndex = withoutPrefix.indexOf('(');
-  final answerPart = parenthesisIndex >= 0
-      ? withoutPrefix.substring(0, parenthesisIndex)
-      : withoutPrefix;
+  final answerPart = (parenthesisIndex >= 0
+          ? withoutPrefix.substring(0, parenthesisIndex)
+          : withoutPrefix)
+      .trim()
+      .replaceFirst(RegExp(r'[\s.,;:]+$'), '');
   return answers.contains(_normalizeAnswerNote(answerPart));
 }
 

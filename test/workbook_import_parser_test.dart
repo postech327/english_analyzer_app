@@ -112,6 +112,54 @@ exhibition (office: a place to work)
     expect(result.removedLineCount, 0);
   });
 
+  test('normalizes commas and parenthetical notes in trailing block', () {
+    final result = cleanStudentPassageText(
+      'The graph passage is long enough to preserve the student-facing body '
+      'while removing only the appended answer-note block.\n\n'
+      'maintaining\n\n'
+      'gradually (intensely 격렬하게)\n\n'
+      'reaching\n\n'
+      'remained (perished 소멸되다)\n\n'
+      'increase, (decrease 하락)\n\n'
+      'rise, (decline 감소)',
+      const [
+        'maintaining',
+        'gradually',
+        'reaching',
+        'remained',
+        'increase',
+        'rise',
+      ],
+    );
+
+    expect(result.cleanedText, endsWith('answer-note block.'));
+    expect(result.cleanedText, isNot(contains('\nmaintaining')));
+    expect(result.cleanedText, isNot(contains('increase, (decrease')));
+    expect(result.cleanedText, isNot(contains('rise, (decline')));
+    expect(result.removedLineCount, 6);
+  });
+
+  test('keeps inline-choice metadata when comma footnotes are removed', () {
+    final candidate = parseWorkbookImportText('''
+Unit 4 Gateway
+The graph shows people [maintaining/abandoning] maintaining routines,
+[gradually/immediately] gradually reaching goals, and sales
+[increase/decrease] increase while prices [rise/decline] rise.
+
+maintaining
+gradually (immediately: explanation)
+increase, (decrease: explanation)
+rise, (decline: explanation)
+''').single;
+
+    expect(candidate.passageText, isNot(contains('\nmaintaining')));
+    expect(candidate.passageText, isNot(contains('increase, (decrease')));
+    expect(
+      candidate.answer['items'].map((item) => item['answer']),
+      containsAll(['maintaining', 'gradually', 'increase', 'rise']),
+    );
+  });
+
   test('parses seven tagged workbook question candidates', () {
     final candidates =
         parseWorkbookImportText(_sample, workbookSource: '수특 · 5강');
