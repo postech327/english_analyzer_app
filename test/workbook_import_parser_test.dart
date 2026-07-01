@@ -56,6 +56,62 @@ exhibition (office: a place to work)
     expect(result.removedLineCount, 2);
   });
 
+  test('removes a realistic long trailing answer-note block', () {
+    const answers = [
+      'during',
+      'enjoyable',
+      'noticed',
+      'that',
+      'enjoy',
+      'due to',
+      'restoration',
+      'plan',
+      'accurately',
+      'accept',
+    ];
+    final result = cleanStudentPassageText(
+      'Dear Blue Dot Travel Book Editor,\n\n'
+      'I recently used your travel book during my trip and found it helpful. '
+      'The information should be updated so future readers can plan accurately '
+      'and avoid confusion.\n\n'
+      'during\n\n'
+      'enjoyable.\n'
+      'noticed (neglected 무시하다)\n'
+      'that\n'
+      'that\n'
+      'enjoy\n'
+      'during\n'
+      'that\n'
+      'due to\n'
+      'restoration (destruction 파괴)\n'
+      'plan\n'
+      'accurately\n'
+      'accept',
+      answers,
+    );
+
+    expect(result.cleanedText, endsWith('avoid confusion.'));
+    expect(result.cleanedText, isNot(contains('noticed (neglected')));
+    expect(result.cleanedText, isNot(contains('\ndue to\n')));
+    expect(result.removedLineCount, 13);
+  });
+
+  test('does not remove answer-like lines followed by normal prose', () {
+    const passage =
+        'A long passage begins with enough context for a safe cleanup check.\n'
+        'during\n'
+        'that\n'
+        'This is a normal sentence that continues the passage after those '
+        'short lines and must remain visible to the student.';
+    final result = cleanStudentPassageText(
+      passage,
+      const ['during', 'that', 'accurately'],
+    );
+
+    expect(result.cleanedText, passage);
+    expect(result.removedLineCount, 0);
+  });
+
   test('parses seven tagged workbook question candidates', () {
     final candidates =
         parseWorkbookImportText(_sample, workbookSource: '수특 · 5강');

@@ -454,30 +454,46 @@ StudentPassageCleanupResult cleanStudentPassageText(
   }
 
   final lines = passageText.split(RegExp(r'\r?\n'));
-  var cursor = lines.length - 1;
+  final lastSixtyStart = lines.length > 60 ? lines.length - 60 : 0;
+  final lastFortyPercentStart = (lines.length * 0.6).floor();
+  final tailStart = lastSixtyStart < lastFortyPercentStart
+      ? lastSixtyStart
+      : lastFortyPercentStart;
+  int? cutIndex;
   var matchedLines = 0;
-  var cutIndex = lines.length;
-  while (cursor >= 0) {
-    final line = lines[cursor].trim();
-    if (line.isEmpty) {
-      if (matchedLines > 0) cutIndex = cursor;
-      cursor--;
-      continue;
+  for (var start = tailStart; start < lines.length; start++) {
+    if (!_isTrailingAnswerNote(lines[start], answers)) continue;
+    final suffix = lines
+        .skip(start)
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+    if (suffix.isEmpty) continue;
+    final matches =
+        suffix.where((line) => _isTrailingAnswerNote(line, answers)).length;
+    final minimumMatches = answers.length >= 8 ? 3 : 2;
+    final density = matches / suffix.length;
+    final allNoteLike = suffix.every(
+      (line) =>
+          _isTrailingAnswerNote(line, answers) ||
+          _looksLikeTrailingNoteLine(line),
+    );
+    if (matches >= minimumMatches && density >= 0.45 && allNoteLike) {
+      cutIndex = start;
+      matchedLines = suffix.length;
+      break;
     }
-    if (!_isTrailingAnswerNote(line, answers)) break;
-    matchedLines++;
-    cutIndex = cursor;
-    cursor--;
   }
 
-  if (matchedLines < 2) {
+  if (cutIndex == null) {
     return StudentPassageCleanupResult(
       cleanedText: passageText.trim(),
       removedLineCount: 0,
     );
   }
   final cleaned = lines.take(cutIndex).join('\n').trim();
-  if (cleaned.length < 40) {
+  final originalLength = passageText.trim().length;
+  if (cleaned.length < 40 || cleaned.length < (originalLength * 0.25).floor()) {
     return StudentPassageCleanupResult(
       cleanedText: passageText.trim(),
       removedLineCount: 0,
@@ -499,6 +515,19 @@ bool _isTrailingAnswerNote(String line, Set<String> answers) {
       ? withoutPrefix.substring(0, parenthesisIndex)
       : withoutPrefix;
   return answers.contains(_normalizeAnswerNote(answerPart));
+}
+
+bool _looksLikeTrailingNoteLine(String line) {
+  final text = line.trim();
+  if (text.isEmpty) return true;
+  if (text.length > 100) return false;
+  final words = text.split(RegExp(r'\s+'));
+  if (words.length > 10) return false;
+  if (RegExp(r'^(?:dear|sincerely|to whom)\b', caseSensitive: false)
+      .hasMatch(text)) {
+    return false;
+  }
+  return true;
 }
 
 String _normalizeAnswerNote(String value) {
