@@ -160,6 +160,42 @@ rise, (decline: explanation)
     );
   });
 
+  test('removes a long-choice block with generic unmatched words', () {
+    final result = cleanStudentPassageText(
+      'Changes in closeness are discussed in a sufficiently long passage with '
+      'eighteen blanks, and this complete sentence must remain visible to the '
+      'student after import cleanup.\n\n'
+      'are\n\n'
+      'important (insignificant 중요하지 않은)\n\n'
+      'emotional (physical 물리적인)\n\n'
+      'induced\n\n'
+      'important (insignificant 중요하지 않은)\n\n'
+      'real.\n\n'
+      'set\n\n'
+      'with whom\n\n'
+      'it',
+      const [
+        'important',
+        'insignificant',
+        'emotional',
+        'physical',
+        'real',
+        'with whom',
+        'familiar',
+        'fictional',
+        'interaction',
+        'violence',
+      ],
+    );
+
+    expect(result.cleanedText, endsWith('after import cleanup.'));
+    expect(result.cleanedText, isNot(contains('\nare\n')));
+    expect(result.cleanedText, isNot(contains('important (insignificant')));
+    expect(result.cleanedText, isNot(contains('\nwith whom\n')));
+    expect(result.cleanedText, isNot(endsWith('\nit')));
+    expect(result.removedLineCount, 9);
+  });
+
   test('parses seven tagged workbook question candidates', () {
     final candidates =
         parseWorkbookImportText(_sample, workbookSource: '수특 · 5강');

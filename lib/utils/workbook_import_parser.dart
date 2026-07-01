@@ -457,14 +457,23 @@ StudentPassageCleanupResult cleanStudentPassageText(
 
   final lines = passageText.split(RegExp(r'\r?\n'));
   final lastSixtyStart = lines.length > 60 ? lines.length - 60 : 0;
-  final lastFortyPercentStart = (lines.length * 0.6).floor();
-  final tailStart = lastSixtyStart < lastFortyPercentStart
+  final lastFortyFivePercentStart = (lines.length * 0.55).floor();
+  final tailStart = lastSixtyStart < lastFortyFivePercentStart
       ? lastSixtyStart
-      : lastFortyPercentStart;
+      : lastFortyFivePercentStart;
   int? cutIndex;
   var matchedLines = 0;
   for (var start = tailStart; start < lines.length; start++) {
-    if (!_isTrailingAnswerNote(lines[start], answers)) continue;
+    final startsWithMatchedAnswer =
+        _isTrailingAnswerNote(lines[start], answers);
+    final startsWithSeparatedShortNote = answers.length >= 8 &&
+        start > 0 &&
+        lines[start - 1].trim().isEmpty &&
+        lines[start].trim().isNotEmpty &&
+        _looksLikeTrailingNoteLine(lines[start]);
+    if (!startsWithMatchedAnswer && !startsWithSeparatedShortNote) {
+      continue;
+    }
     final suffix = lines
         .skip(start)
         .map((line) => line.trim())
@@ -475,14 +484,26 @@ StudentPassageCleanupResult cleanStudentPassageText(
         suffix.where((line) => _isTrailingAnswerNote(line, answers)).length;
     final minimumMatches = answers.length >= 8 ? 3 : 2;
     final density = matches / suffix.length;
+    final parentheticalLines =
+        suffix.where((line) => line.contains('(') && line.contains(')')).length;
+    final shortLines =
+        suffix.where((line) => line.split(RegExp(r'\s+')).length <= 5).length;
+    final shortLineRatio = shortLines / suffix.length;
     final allNoteLike = suffix.every(
       (line) =>
           _isTrailingAnswerNote(line, answers) ||
           _looksLikeTrailingNoteLine(line),
     );
-    if (matches >= minimumMatches && density >= 0.45 && allNoteLike) {
+    final normalBlock =
+        matches >= minimumMatches && density >= 0.45 && allNoteLike;
+    final longAnswerBlock = answers.length >= 8 &&
+        (matches >= 4 || (matches >= 2 && parentheticalLines >= 2)) &&
+        shortLineRatio >= 0.8 &&
+        allNoteLike;
+    if (normalBlock || longAnswerBlock) {
       cutIndex = start;
-      matchedLines = suffix.length;
+      matchedLines =
+          lines.skip(start).where((line) => line.trim().isNotEmpty).length;
       break;
     }
   }
@@ -495,7 +516,11 @@ StudentPassageCleanupResult cleanStudentPassageText(
   }
   final cleaned = lines.take(cutIndex).join('\n').trim();
   final originalLength = passageText.trim().length;
-  if (cleaned.length < 40 || cleaned.length < (originalLength * 0.25).floor()) {
+  final removesAtLeastHalf = cleaned.length < (originalLength * 0.5).floor();
+  final hasSubstantialBody = cleaned.length >= 40 &&
+      cleaned.split(RegExp(r'\s+')).where((word) => word.isNotEmpty).length >=
+          6;
+  if (cleaned.length < 40 || (removesAtLeastHalf && !hasSubstantialBody)) {
     return StudentPassageCleanupResult(
       cleanedText: passageText.trim(),
       removedLineCount: 0,
