@@ -46,6 +46,10 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
   bool _submittedInSession = false;
   int? _selectedSectionId;
   String? _selectedSectionTitle;
+  String? _selectedQuestionType;
+  String? _browsedQuestionType;
+  bool _showTypeView = false;
+  bool _scopeStarted = false;
   int _currentQuestionIndex = 0;
   Workbook? _loadedWorkbook;
   WorkbookAttempt? _lastAttempt;
@@ -319,7 +323,8 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
   Future<void> _submitWorkbook() async {
     final workbook = _loadedWorkbook;
     if (workbook == null || _isSubmitting) return;
-    final firstUnansweredIndex = _firstUnansweredQuestionIndex(workbook);
+    final questions = _currentQuestions(workbook);
+    final firstUnansweredIndex = _firstUnansweredQuestionIndex(questions);
     if (firstUnansweredIndex != null) {
       final submitAnyway = await showDialog<bool>(
         context: context,
@@ -374,7 +379,8 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
         assignmentId: widget.assignment.id,
         workbookId: workbook.id,
         sectionId: _selectedSectionId,
-        answers: _buildSubmitAnswers(workbook),
+        questionIds: questions.map((question) => question.id).toList(),
+        answers: _buildSubmitAnswers(questions),
       );
       if (!mounted) return;
       setState(() {
@@ -438,9 +444,11 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
     );
   }
 
-  List<Map<String, dynamic>> _buildSubmitAnswers(Workbook workbook) {
+  List<Map<String, dynamic>> _buildSubmitAnswers(
+    List<WorkbookQuestion> questions,
+  ) {
     final answers = <Map<String, dynamic>>[];
-    for (final question in workbook.questions) {
+    for (final question in questions) {
       if (question.questionType == 'inline_choice') {
         for (final item in _contentItems(question.content)) {
           final number = _asInt(item['number']);
@@ -571,9 +579,9 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
     return answers;
   }
 
-  int? _firstUnansweredQuestionIndex(Workbook workbook) {
-    for (var index = 0; index < workbook.questions.length; index++) {
-      if (!_isQuestionAnswered(workbook.questions[index])) return index;
+  int? _firstUnansweredQuestionIndex(List<WorkbookQuestion> questions) {
+    for (var index = 0; index < questions.length; index++) {
+      if (!_isQuestionAnswered(questions[index])) return index;
     }
     return null;
   }
@@ -638,8 +646,10 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
 
   void _moveToQuestion(int index) {
     final workbook = _loadedWorkbook;
-    if (workbook == null || workbook.questions.isEmpty) return;
-    final nextIndex = index.clamp(0, workbook.questions.length - 1);
+    if (workbook == null) return;
+    final questions = _currentQuestions(workbook);
+    if (questions.isEmpty) return;
+    final nextIndex = index.clamp(0, questions.length - 1);
     setState(() => _currentQuestionIndex = nextIndex);
     if (_scrollController.hasClients) {
       _scrollController.animateTo(
@@ -648,6 +658,43 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
         curve: Curves.easeOutCubic,
       );
     }
+  }
+
+  List<WorkbookQuestion> _currentQuestions(Workbook workbook) {
+    if (!_scopeStarted) return workbook.questions;
+    return workbook.questions.where((question) {
+      final sectionMatches = _selectedSectionId == null
+          ? true
+          : question.sectionId == _selectedSectionId;
+      final typeMatches = _selectedQuestionType == null
+          ? true
+          : _questionFilterKey(question) == _selectedQuestionType;
+      return sectionMatches && typeMatches;
+    }).toList();
+  }
+
+  void _startScope({
+    int? sectionId,
+    String? sectionTitle,
+    String? questionType,
+  }) {
+    setState(() {
+      _selectedSectionId = sectionId;
+      _selectedSectionTitle = sectionTitle;
+      _selectedQuestionType = questionType;
+      _scopeStarted = true;
+      _currentQuestionIndex = 0;
+    });
+  }
+
+  void _returnToScopeSelection() {
+    setState(() {
+      _selectedSectionId = null;
+      _selectedSectionTitle = null;
+      _selectedQuestionType = null;
+      _scopeStarted = false;
+      _currentQuestionIndex = 0;
+    });
   }
 
   @override
@@ -690,10 +737,11 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
             );
           }
           _loadedWorkbook = workbook;
+          final questions = _currentQuestions(workbook);
           final completedForUi =
               widget.assignment.isCompleted || _submittedInSession;
           final needsSectionSelection =
-              workbook.sections.length > 1 && _selectedSectionId == null;
+              workbook.sections.length > 1 && !_scopeStarted;
           return ListView(
             controller: _scrollController,
             padding: const EdgeInsets.fromLTRB(18, 14, 18, 110),
@@ -702,24 +750,49 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
                 assignment: widget.assignment,
                 workbook: workbook,
                 selectedSectionTitle: _selectedSectionTitle,
+                selectedQuestionTypeLabel: _selectedQuestionType == null
+                    ? null
+                    : _questionTypeFilterLabel(_selectedQuestionType!),
+                isAllSections: _selectedQuestionType != null &&
+                    _selectedSectionId == null &&
+                    _scopeStarted,
               ),
               if (needsSectionSelection) ...[
                 const SizedBox(height: 14),
                 _StudentSectionSelectionCard(
                   workbook: workbook,
-                  onSelected: (section) {
-                    setState(() {
-                      _selectedSectionId = section.id;
-                      _selectedSectionTitle = section.title;
-                      _currentQuestionIndex = 0;
-                      _future = _workbookService.fetchStudentWorkbook(
-                        widget.assignment.contentId,
-                        sectionId: section.id,
-                      );
-                    });
-                  },
+                  showTypeView: _showTypeView,
+                  selectedQuestionType: _browsedQuestionType,
+                  onViewChanged: (showTypeView) => setState(() {
+                    _showTypeView = showTypeView;
+                    _browsedQuestionType = null;
+                  }),
+                  onQuestionTypeSelected: (type) =>
+                      setState(() => _browsedQuestionType = type),
+                  onBackToTypes: () =>
+                      setState(() => _browsedQuestionType = null),
+                  onSectionSelected: (section) => _startScope(
+                    sectionId: section.id,
+                    sectionTitle: section.title,
+                  ),
+                  onTypeScopeSelected: (section, type) => _startScope(
+                    sectionId: section?.id,
+                    sectionTitle: section?.title,
+                    questionType: type,
+                  ),
                 ),
               ] else ...[
+                if (workbook.sections.length > 1) ...[
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _returnToScopeSelection,
+                      icon: const Icon(Icons.tune_rounded),
+                      label: const Text('풀이 범위 다시 선택'),
+                    ),
+                  ),
+                ],
                 if (completedForUi && !_isRetakeMode) ...[
                   const SizedBox(height: 14),
                   const _CompletedPracticeNotice(),
@@ -727,19 +800,18 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
                 const SizedBox(height: 14),
                 const _WorkbookQuestionSectionHeader(),
                 const SizedBox(height: 10),
-                if (workbook.questions.isEmpty)
+                if (questions.isEmpty)
                   const _EmptyQuestionCard()
                 else ...[
                   _QuestionProgressCard(
                     current: _currentQuestionIndex + 1,
-                    total: workbook.questions.length,
+                    total: questions.length,
                   ),
                   const SizedBox(height: 10),
                   _buildQuestionCard(
-                    workbook.questions[
-                        _currentQuestionIndex < workbook.questions.length
-                            ? _currentQuestionIndex
-                            : 0],
+                    questions[_currentQuestionIndex < questions.length
+                        ? _currentQuestionIndex
+                        : 0],
                   ),
                 ],
               ],
@@ -763,9 +835,7 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
 
   Widget _buildBottomBar() {
     final workbook = _loadedWorkbook;
-    if (workbook != null &&
-        workbook.sections.length > 1 &&
-        _selectedSectionId == null) {
+    if (workbook != null && workbook.sections.length > 1 && !_scopeStarted) {
       return _BackToLearningButton(
           onPressed: () => Navigator.pop(context, false));
     }
@@ -814,7 +884,8 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
         ],
       );
     }
-    final questionCount = workbook?.questions.length ?? 0;
+    final questionCount =
+        workbook == null ? 0 : _currentQuestions(workbook).length;
     if (questionCount > 0) {
       return _buildQuestionNavigationBar(questionCount);
     }
@@ -1188,11 +1259,15 @@ class _HeaderCard extends StatelessWidget {
     required this.assignment,
     required this.workbook,
     this.selectedSectionTitle,
+    this.selectedQuestionTypeLabel,
+    this.isAllSections = false,
   });
 
   final LearningAssignment assignment;
   final Workbook workbook;
   final String? selectedSectionTitle;
+  final String? selectedQuestionTypeLabel;
+  final bool isAllSections;
 
   @override
   Widget build(BuildContext context) {
@@ -1293,6 +1368,9 @@ class _HeaderCard extends StatelessWidget {
               _MiniChip(text: _statusLabel(assignment.status)),
               if ((selectedSectionTitle ?? '').trim().isNotEmpty)
                 _MiniChip(text: '섹션 ${selectedSectionTitle!.trim()}'),
+              if ((selectedQuestionTypeLabel ?? '').trim().isNotEmpty)
+                _MiniChip(text: selectedQuestionTypeLabel!.trim()),
+              if (isAllSections) const _MiniChip(text: '전체 강'),
               if ((assignment.dueAt ?? '').isNotEmpty)
                 _MiniChip(text: '마감 ${_dateText(assignment.dueAt!)}'),
             ],
@@ -1306,11 +1384,24 @@ class _HeaderCard extends StatelessWidget {
 class _StudentSectionSelectionCard extends StatelessWidget {
   const _StudentSectionSelectionCard({
     required this.workbook,
-    required this.onSelected,
+    required this.showTypeView,
+    required this.selectedQuestionType,
+    required this.onViewChanged,
+    required this.onQuestionTypeSelected,
+    required this.onBackToTypes,
+    required this.onSectionSelected,
+    required this.onTypeScopeSelected,
   });
 
   final Workbook workbook;
-  final ValueChanged<WorkbookSection> onSelected;
+  final bool showTypeView;
+  final String? selectedQuestionType;
+  final ValueChanged<bool> onViewChanged;
+  final ValueChanged<String> onQuestionTypeSelected;
+  final VoidCallback onBackToTypes;
+  final ValueChanged<WorkbookSection> onSectionSelected;
+  final void Function(WorkbookSection? section, String type)
+      onTypeScopeSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -1324,83 +1415,206 @@ class _StudentSectionSelectionCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '학습할 섹션을 선택하세요',
-            style: TextStyle(
-              color: _StudentWorkbookViewScreenState._ink,
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 5),
-          const Text(
-            '강 또는 Test 단위로 나누어 필요한 부분만 풀 수 있습니다.',
-            style: TextStyle(
-              color: _StudentWorkbookViewScreenState._muted,
-              fontWeight: FontWeight.w700,
-            ),
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: false, label: Text('강별 보기')),
+              ButtonSegment(value: true, label: Text('유형별 보기')),
+            ],
+            selected: {showTypeView},
+            onSelectionChanged: (values) => onViewChanged(values.first),
           ),
           const SizedBox(height: 14),
-          for (final section in workbook.sections)
-            Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: const Color(0xFFE5EAF3)),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEFF6FF),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Icon(
-                      Icons.folder_open_rounded,
-                      color: _StudentWorkbookViewScreenState._blue,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          section.title,
-                          style: const TextStyle(
-                            color: _StudentWorkbookViewScreenState._ink,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          '${section.questionCount}문항',
-                          style: const TextStyle(
-                            color: _StudentWorkbookViewScreenState._muted,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  FilledButton(
-                    onPressed: section.questionCount <= 0
-                        ? null
-                        : () => onSelected(section),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: _StudentWorkbookViewScreenState._blue,
-                      foregroundColor: Colors.white,
-                    ),
-                    child: const Text('시작하기'),
-                  ),
-                ],
-              ),
+          if (!showTypeView) ..._buildSectionRows(),
+          if (showTypeView && selectedQuestionType == null)
+            ..._buildQuestionTypeRows(),
+          if (showTypeView && selectedQuestionType != null)
+            ..._buildTypeSectionRows(selectedQuestionType!),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildSectionRows() {
+    return [
+      const Text(
+        '학습할 강을 선택하세요',
+        style: _selectionTitleStyle,
+      ),
+      const SizedBox(height: 5),
+      const Text(
+        '강 또는 Test 단위로 전체 문제를 풉니다.',
+        style: _selectionDescriptionStyle,
+      ),
+      const SizedBox(height: 14),
+      for (final section in workbook.sections)
+        _ScopeRow(
+          icon: Icons.folder_open_rounded,
+          title: section.title,
+          count: section.questionCount,
+          onPressed: section.questionCount <= 0
+              ? null
+              : () => onSectionSelected(section),
+        ),
+    ];
+  }
+
+  List<Widget> _buildQuestionTypeRows() {
+    final counts = <String, int>{};
+    for (final question in workbook.questions) {
+      final key = _questionFilterKey(question);
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    final entries = counts.entries.toList()
+      ..sort(
+        (a, b) => _questionTypeSortOrder(a.key)
+            .compareTo(_questionTypeSortOrder(b.key)),
+      );
+    return [
+      const Text('학습할 문제 유형을 선택하세요', style: _selectionTitleStyle),
+      const SizedBox(height: 5),
+      const Text(
+        '워크북에 실제로 포함된 유형만 표시됩니다.',
+        style: _selectionDescriptionStyle,
+      ),
+      const SizedBox(height: 14),
+      if (entries.isEmpty)
+        const Text(
+          '아직 이 워크북에 문제가 없습니다.',
+          style: _selectionDescriptionStyle,
+        ),
+      for (final entry in entries)
+        _ScopeRow(
+          icon: Icons.category_outlined,
+          title: _questionTypeFilterLabel(entry.key),
+          count: entry.value,
+          buttonLabel: '강 선택',
+          onPressed: () => onQuestionTypeSelected(entry.key),
+        ),
+    ];
+  }
+
+  List<Widget> _buildTypeSectionRows(String type) {
+    final matching = workbook.questions
+        .where((question) => _questionFilterKey(question) == type)
+        .toList();
+    final counts = <int, int>{};
+    for (final question in matching) {
+      final sectionId = question.sectionId;
+      if (sectionId != null) {
+        counts[sectionId] = (counts[sectionId] ?? 0) + 1;
+      }
+    }
+    final sections = workbook.sections
+        .where((section) => (counts[section.id] ?? 0) > 0)
+        .toList();
+    return [
+      TextButton.icon(
+        onPressed: onBackToTypes,
+        icon: const Icon(Icons.arrow_back_rounded),
+        label: const Text('유형 목록'),
+      ),
+      Text(_questionTypeFilterLabel(type), style: _selectionTitleStyle),
+      const SizedBox(height: 12),
+      _ScopeRow(
+        icon: Icons.select_all_rounded,
+        title: '전체 강',
+        count: matching.length,
+        onPressed:
+            matching.isEmpty ? null : () => onTypeScopeSelected(null, type),
+      ),
+      for (final section in sections)
+        _ScopeRow(
+          icon: Icons.folder_open_rounded,
+          title: section.title,
+          count: counts[section.id] ?? 0,
+          onPressed: () => onTypeScopeSelected(section, type),
+        ),
+    ];
+  }
+
+  static const _selectionTitleStyle = TextStyle(
+    color: _StudentWorkbookViewScreenState._ink,
+    fontSize: 18,
+    fontWeight: FontWeight.w900,
+  );
+
+  static const _selectionDescriptionStyle = TextStyle(
+    color: _StudentWorkbookViewScreenState._muted,
+    fontWeight: FontWeight.w700,
+  );
+}
+
+class _ScopeRow extends StatelessWidget {
+  const _ScopeRow({
+    required this.icon,
+    required this.title,
+    required this.count,
+    required this.onPressed,
+    this.buttonLabel = '시작하기',
+  });
+
+  final IconData icon;
+  final String title;
+  final int count;
+  final VoidCallback? onPressed;
+  final String buttonLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE5EAF3)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(14),
             ),
+            child: Icon(
+              icon,
+              color: _StudentWorkbookViewScreenState._blue,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: _StudentWorkbookViewScreenState._ink,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '$count문항',
+                  style: const TextStyle(
+                    color: _StudentWorkbookViewScreenState._muted,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          FilledButton(
+            onPressed: onPressed,
+            style: FilledButton.styleFrom(
+              backgroundColor: _StudentWorkbookViewScreenState._blue,
+              foregroundColor: Colors.white,
+            ),
+            child: Text(buttonLabel),
+          ),
         ],
       ),
     );
@@ -2833,6 +3047,55 @@ String _questionTypeLabel(String type) {
     'check_learning_set:C' => '확인학습',
     _ => type,
   };
+}
+
+String _questionFilterKey(WorkbookQuestion question) {
+  if (question.questionType == 'true_false') {
+    final subtype = question.content['subtype'] ?? question.answer['subtype'];
+    if (subtype == 'true_false_ko') return 'true_false_ko';
+    return 'true_false_en';
+  }
+  if (question.questionType == 'english_tf' ||
+      question.questionType == 'english_true_false') {
+    return 'true_false_en';
+  }
+  if (question.questionType == 'korean_tf' ||
+      question.questionType == 'korean_true_false') {
+    return 'true_false_ko';
+  }
+  if (question.questionType == 'check_learning') {
+    return 'check_learning_set';
+  }
+  return question.questionType;
+}
+
+String _questionTypeFilterLabel(String type) {
+  return switch (type) {
+    'inline_choice' => '본문 선택형',
+    'initial_blank' => '첫 글자 빈칸',
+    'check_learning_set' => '확인학습',
+    'true_false_en' => '영어 T/F',
+    'true_false_ko' => '한글 T/F',
+    'sentence_insertion' => '문장 삽입',
+    'paragraph_order' => '문단 배열',
+    'multiple_choice' => '선택형',
+    _ => _questionTypeLabel(type),
+  };
+}
+
+int _questionTypeSortOrder(String type) {
+  const order = [
+    'inline_choice',
+    'initial_blank',
+    'check_learning_set',
+    'true_false_en',
+    'true_false_ko',
+    'sentence_insertion',
+    'paragraph_order',
+    'multiple_choice',
+  ];
+  final index = order.indexOf(type);
+  return index < 0 ? order.length : index;
 }
 
 List<Map<String, dynamic>> _contentItems(Map<String, dynamic> content) {
