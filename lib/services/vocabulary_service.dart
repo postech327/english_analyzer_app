@@ -64,6 +64,29 @@ class VocabularyService {
     return VocabularySet.fromJson(decoded as Map<String, dynamic>);
   }
 
+  Future<List<VocabularyAssignment>> fetchAssignments(int setId) async {
+    final decoded = await _get(
+      ApiConfig.u('/teacher/vocabulary-sets/$setId/assignments'),
+    );
+    return VocabularyAssignment.listFromJson(
+      decoded is Map<String, dynamic> ? decoded['items'] : decoded,
+    );
+  }
+
+  Future<VocabularyAssignResult> assignSet(
+    int setId,
+    List<int> studentIds,
+  ) async {
+    final decoded = await _send(
+      'POST',
+      ApiConfig.u('/teacher/vocabulary-sets/$setId/assign'),
+      {'student_ids': studentIds},
+    );
+    return VocabularyAssignResult.fromJson(
+      decoded as Map<String, dynamic>,
+    );
+  }
+
   Future<List<VocabularySet>> fetchStudentSets() async {
     final decoded = await _get(ApiConfig.u('/student/vocabulary-sets'));
     return VocabularySet.listFromJson(

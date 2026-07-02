@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../models/vocabulary.dart';
+import '../models/learning_assignment.dart';
+import '../services/learning_assignment_service.dart';
 import '../services/vocabulary_service.dart';
 import '../utils/vocabulary_import_parser.dart';
 
@@ -107,6 +109,30 @@ class _TeacherVocabularyListScreenState
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('$error')));
     }
+  }
+
+  Future<void> _openAssignmentDialog(VocabularySet vocabularySet) async {
+    if (vocabularySet.status != 'published') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('게시된 단어장만 배포할 수 있습니다.')),
+      );
+      return;
+    }
+    final result = await showDialog<VocabularyAssignResult>(
+      context: context,
+      builder: (_) => _VocabularyAssignmentDialog(
+        vocabularySet: vocabularySet,
+      ),
+    );
+    if (result == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '${result.assignedCount}명에게 배포했습니다.'
+          '${result.skippedCount > 0 ? ' (${result.skippedCount}명은 이미 배포됨)' : ''}',
+        ),
+      ),
+    );
   }
 
   @override
@@ -232,35 +258,59 @@ class _TeacherVocabularyListScreenState
                               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                               child: SizedBox(
                                 width: double.infinity,
-                                child: item.status == 'published'
-                                    ? OutlinedButton.icon(
-                                        onPressed:
-                                            _changingStatus.contains(item.id)
-                                                ? null
-                                                : () => _togglePublished(item),
-                                        icon: const Icon(
-                                          Icons.visibility_off_outlined,
-                                        ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: item.status == 'published'
+                                            ? () => _openAssignmentDialog(item)
+                                            : null,
+                                        icon: const Icon(Icons.send_rounded),
                                         label: Text(
-                                          _changingStatus.contains(item.id)
-                                              ? '변경 중...'
-                                              : '초안으로 전환',
-                                        ),
-                                      )
-                                    : FilledButton.icon(
-                                        onPressed:
-                                            _changingStatus.contains(item.id)
-                                                ? null
-                                                : () => _togglePublished(item),
-                                        icon: const Icon(
-                                          Icons.publish_rounded,
-                                        ),
-                                        label: Text(
-                                          _changingStatus.contains(item.id)
-                                              ? '변경 중...'
-                                              : '게시하기',
+                                          item.status == 'published'
+                                              ? '배포'
+                                              : '게시 후 배포',
                                         ),
                                       ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: item.status == 'published'
+                                          ? OutlinedButton.icon(
+                                              onPressed: _changingStatus
+                                                      .contains(item.id)
+                                                  ? null
+                                                  : () =>
+                                                      _togglePublished(item),
+                                              icon: const Icon(
+                                                Icons.visibility_off_outlined,
+                                              ),
+                                              label: Text(
+                                                _changingStatus
+                                                        .contains(item.id)
+                                                    ? '변경 중...'
+                                                    : '초안 전환',
+                                              ),
+                                            )
+                                          : FilledButton.icon(
+                                              onPressed: _changingStatus
+                                                      .contains(item.id)
+                                                  ? null
+                                                  : () =>
+                                                      _togglePublished(item),
+                                              icon: const Icon(
+                                                Icons.publish_rounded,
+                                              ),
+                                              label: Text(
+                                                _changingStatus
+                                                        .contains(item.id)
+                                                    ? '변경 중...'
+                                                    : '게시하기',
+                                              ),
+                                            ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                         ],
@@ -494,6 +544,132 @@ class _TeacherVocabularyEditorScreenState
           ),
         ],
       ),
+    );
+  }
+}
+
+class _VocabularyAssignmentDialog extends StatefulWidget {
+  const _VocabularyAssignmentDialog({required this.vocabularySet});
+
+  final VocabularySet vocabularySet;
+
+  @override
+  State<_VocabularyAssignmentDialog> createState() =>
+      _VocabularyAssignmentDialogState();
+}
+
+class _VocabularyAssignmentDialogState
+    extends State<_VocabularyAssignmentDialog> {
+  final _vocabularyService = const VocabularyService();
+  final _assignmentService = const LearningAssignmentService();
+  final Set<int> _selected = {};
+  List<AssignableStudent> _students = const [];
+  Set<int> _assignedStudentIds = const {};
+  bool _loading = true;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final students = await _assignmentService.fetchStudents();
+      final assignments =
+          await _vocabularyService.fetchAssignments(widget.vocabularySet.id);
+      if (!mounted) return;
+      setState(() {
+        _students = students;
+        _assignedStudentIds =
+            assignments.map((assignment) => assignment.studentId).toSet();
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = '$error';
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _assign() async {
+    if (_selected.isEmpty) return;
+    setState(() => _saving = true);
+    try {
+      final result = await _vocabularyService.assignSet(
+        widget.vocabularySet.id,
+        _selected.toList(),
+      );
+      if (mounted) Navigator.pop(context, result);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = '$error';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('${widget.vocabularySet.title} 배포'),
+      content: SizedBox(
+        width: 440,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+                ? Text(_error!)
+                : _students.isEmpty
+                    ? const Text('배포할 학생이 없습니다.')
+                    : ListView(
+                        shrinkWrap: true,
+                        children: [
+                          for (final student in _students)
+                            CheckboxListTile(
+                              value: _assignedStudentIds.contains(student.id) ||
+                                  _selected.contains(student.id),
+                              onChanged:
+                                  _assignedStudentIds.contains(student.id)
+                                      ? null
+                                      : (checked) => setState(() {
+                                            if (checked == true) {
+                                              _selected.add(student.id);
+                                            } else {
+                                              _selected.remove(student.id);
+                                            }
+                                          }),
+                              title: Text(student.nickname),
+                              subtitle: Text(
+                                _assignedStudentIds.contains(student.id)
+                                    ? '배포됨'
+                                    : student.email,
+                              ),
+                              secondary:
+                                  _assignedStudentIds.contains(student.id)
+                                      ? const Icon(
+                                          Icons.check_circle,
+                                          color: Colors.green,
+                                        )
+                                      : null,
+                            ),
+                        ],
+                      ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: _saving || _selected.isEmpty ? null : _assign,
+          child: Text(_saving ? '배포 중...' : '선택 학생에게 배포'),
+        ),
+      ],
     );
   }
 }

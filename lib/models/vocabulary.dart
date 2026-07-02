@@ -164,6 +164,63 @@ class VocabularyAttemptResult {
   }
 }
 
+class VocabularyAssignment {
+  const VocabularyAssignment({
+    required this.id,
+    required this.studentId,
+    required this.studentName,
+    required this.status,
+    this.assignedAt,
+  });
+
+  final int id;
+  final int studentId;
+  final String studentName;
+  final String status;
+  final String? assignedAt;
+
+  factory VocabularyAssignment.fromJson(Map<String, dynamic> json) {
+    return VocabularyAssignment(
+      id: _asInt(json['assignment_id'] ?? json['id']),
+      studentId: _asInt(json['student_id']),
+      studentName: _asString(
+        json['student_username'],
+        fallback: '학생 ${_asInt(json['student_id'])}',
+      ),
+      status: _asString(json['status'], fallback: 'assigned'),
+      assignedAt: _nullableString(json['assigned_at']),
+    );
+  }
+
+  static List<VocabularyAssignment> listFromJson(dynamic value) {
+    if (value is! List) return const [];
+    return value
+        .whereType<Map>()
+        .map(
+          (item) =>
+              VocabularyAssignment.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList();
+  }
+}
+
+class VocabularyAssignResult {
+  const VocabularyAssignResult({
+    required this.assignedCount,
+    required this.skippedCount,
+  });
+
+  final int assignedCount;
+  final int skippedCount;
+
+  factory VocabularyAssignResult.fromJson(Map<String, dynamic> json) {
+    return VocabularyAssignResult(
+      assignedCount: _asInt(json['assigned_count']),
+      skippedCount: _asInt(json['skipped_count']),
+    );
+  }
+}
+
 int _asInt(dynamic value, {int fallback = 0}) {
   if (value is int) return value;
   if (value is double) return value.toInt();

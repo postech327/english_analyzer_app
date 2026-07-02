@@ -39,7 +39,27 @@ class _StudentVocabularyListScreenState
           }
           final items = snapshot.data ?? const [];
           if (items.isEmpty) {
-            return const Center(child: Text('공개된 단어장이 없습니다.'));
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.inbox_outlined, size: 44),
+                    SizedBox(height: 12),
+                    Text(
+                      '배포된 단어장이 없습니다.',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                    SizedBox(height: 6),
+                    Text(
+                      '선생님이 배포한 단어장이 여기에 표시됩니다.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            );
           }
           return ListView.separated(
             padding: const EdgeInsets.all(16),

@@ -398,7 +398,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           _LearningActionTile(
             icon: Icons.translate_rounded,
             title: '단어장 학습',
-            subtitle: '모의고사와 부교재 핵심 단어를 학습해요.',
+            subtitle: '선생님이 배포한 단어를 카드와 퀴즈로 복습해요.',
             color: const Color(0xFF0F766E),
             onTap: () => Navigator.push(
               context,
