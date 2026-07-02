@@ -16,6 +16,7 @@ class _TeacherVocabularyListScreenState
     extends State<TeacherVocabularyListScreen> {
   final _service = const VocabularyService();
   final _searchController = TextEditingController();
+  final Set<int> _changingStatus = {};
   String _status = 'all';
   late Future<List<VocabularySet>> _future;
 
@@ -73,6 +74,36 @@ class _TeacherVocabularyListScreenState
       if (mounted) setState(_reload);
     } catch (error) {
       if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+
+  Future<void> _togglePublished(VocabularySet vocabularySet) async {
+    if (_changingStatus.contains(vocabularySet.id)) return;
+    final nextStatus =
+        vocabularySet.status == 'published' ? 'draft' : 'published';
+    setState(() => _changingStatus.add(vocabularySet.id));
+    try {
+      await _service.updateSet(
+        vocabularySet.id,
+        {'status': nextStatus},
+      );
+      if (!mounted) return;
+      setState(() {
+        _changingStatus.remove(vocabularySet.id);
+        _reload();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            nextStatus == 'published' ? '단어장을 게시했습니다.' : '단어장을 초안으로 전환했습니다.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _changingStatus.remove(vocabularySet.id));
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('$error')));
     }
@@ -152,33 +183,87 @@ class _TeacherVocabularyListScreenState
                   itemBuilder: (context, index) {
                     final item = items[index];
                     return Card(
-                      child: ListTile(
-                        leading: const CircleAvatar(
-                          child: Icon(Icons.translate_rounded),
-                        ),
-                        title: Text(
-                          item.title,
-                          style: const TextStyle(fontWeight: FontWeight.w900),
-                        ),
-                        subtitle: Text(
-                          [
-                            item.sourceLabel,
-                            item.unitLabel,
-                            '${item.itemCount}개',
-                            _statusLabel(item.status),
-                          ].whereType<String>().join(' · '),
-                        ),
-                        onTap: () => _openEditor(item),
-                        trailing: PopupMenuButton<String>(
-                          onSelected: (value) {
-                            if (value == 'edit') _openEditor(item);
-                            if (value == 'delete') _delete(item);
-                          },
-                          itemBuilder: (_) => const [
-                            PopupMenuItem(value: 'edit', child: Text('상세/편집')),
-                            PopupMenuItem(value: 'delete', child: Text('삭제')),
-                          ],
-                        ),
+                      child: Column(
+                        children: [
+                          ListTile(
+                            leading: const CircleAvatar(
+                              child: Icon(Icons.translate_rounded),
+                            ),
+                            title: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    item.title,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ),
+                                _VocabularyStatusBadge(status: item.status),
+                              ],
+                            ),
+                            subtitle: Text(
+                              [
+                                item.sourceLabel,
+                                item.unitLabel,
+                                '${item.itemCount}개',
+                              ].whereType<String>().join(' · '),
+                            ),
+                            onTap: () => _openEditor(item),
+                            trailing: PopupMenuButton<String>(
+                              onSelected: (value) {
+                                if (value == 'edit') _openEditor(item);
+                                if (value == 'delete') _delete(item);
+                              },
+                              itemBuilder: (_) => const [
+                                PopupMenuItem(
+                                  value: 'edit',
+                                  child: Text('상세/편집'),
+                                ),
+                                PopupMenuItem(
+                                  value: 'delete',
+                                  child: Text('삭제'),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (item.status != 'archived')
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                              child: SizedBox(
+                                width: double.infinity,
+                                child: item.status == 'published'
+                                    ? OutlinedButton.icon(
+                                        onPressed:
+                                            _changingStatus.contains(item.id)
+                                                ? null
+                                                : () => _togglePublished(item),
+                                        icon: const Icon(
+                                          Icons.visibility_off_outlined,
+                                        ),
+                                        label: Text(
+                                          _changingStatus.contains(item.id)
+                                              ? '변경 중...'
+                                              : '초안으로 전환',
+                                        ),
+                                      )
+                                    : FilledButton.icon(
+                                        onPressed:
+                                            _changingStatus.contains(item.id)
+                                                ? null
+                                                : () => _togglePublished(item),
+                                        icon: const Icon(
+                                          Icons.publish_rounded,
+                                        ),
+                                        label: Text(
+                                          _changingStatus.contains(item.id)
+                                              ? '변경 중...'
+                                              : '게시하기',
+                                        ),
+                                      ),
+                              ),
+                            ),
+                        ],
                       ),
                     );
                   },
@@ -348,10 +433,14 @@ class _TeacherVocabularyEditorScreenState
           DropdownButtonFormField<String>(
             value: _status,
             decoration: const InputDecoration(labelText: '상태'),
-            items: const [
-              DropdownMenuItem(value: 'draft', child: Text('초안')),
-              DropdownMenuItem(value: 'published', child: Text('게시')),
-              DropdownMenuItem(value: 'archived', child: Text('보관')),
+            items: [
+              const DropdownMenuItem(value: 'draft', child: Text('초안')),
+              const DropdownMenuItem(value: 'published', child: Text('게시')),
+              if (widget.vocabularySet != null)
+                const DropdownMenuItem(
+                  value: 'archived',
+                  child: Text('보관'),
+                ),
             ],
             onChanged: (value) => setState(() => _status = value ?? 'draft'),
           ),
@@ -404,6 +493,37 @@ class _TeacherVocabularyEditorScreenState
             label: Text(_saving ? '저장 중...' : '단어장 저장'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _VocabularyStatusBadge extends StatelessWidget {
+  const _VocabularyStatusBadge({required this.status});
+
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (status) {
+      'published' => const Color(0xFF15803D),
+      'archived' => const Color(0xFF64748B),
+      _ => const Color(0xFFB45309),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        _statusLabel(status),
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
       ),
     );
   }
