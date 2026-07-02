@@ -953,60 +953,190 @@ class _VocabularyAssignmentDialogState
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text('${widget.vocabularySet.title} 배포'),
-      content: SizedBox(
-        width: 440,
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-                ? Text(_error!)
-                : _students.isEmpty
-                    ? const Text('배포할 학생이 없습니다.')
-                    : ListView(
-                        shrinkWrap: true,
-                        children: [
-                          for (final student in _students)
-                            CheckboxListTile(
-                              value: _assignedStudentIds.contains(student.id) ||
-                                  _selected.contains(student.id),
-                              onChanged:
-                                  _assignedStudentIds.contains(student.id)
-                                      ? null
-                                      : (checked) => setState(() {
-                                            if (checked == true) {
-                                              _selected.add(student.id);
-                                            } else {
-                                              _selected.remove(student.id);
-                                            }
-                                          }),
-                              title: Text(student.nickname),
-                              subtitle: Text(
-                                _assignedStudentIds.contains(student.id)
-                                    ? '배포됨'
-                                    : student.email,
+    final availableCount = _students.length - _assignedStudentIds.length;
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 580, maxHeight: 720),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(22),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF6D5CE7), Color(0xFF8B7CF6)],
+                ),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Icon(
+                      Icons.send_rounded,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.vocabularySet.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          '배포할 학생을 선택해 주세요.',
+                          style: TextStyle(color: Color(0xFFEDE9FE)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (!_loading && _error == null && _students.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _AssignmentSummaryPill(
+                      label: '선택',
+                      count: _selected.length,
+                      color: _vocabularyPurple,
+                    ),
+                    _AssignmentSummaryPill(
+                      label: '배포됨',
+                      count: _assignedStudentIds.length,
+                      color: const Color(0xFF16A34A),
+                    ),
+                    _AssignmentSummaryPill(
+                      label: '배포 가능',
+                      count: availableCount,
+                      color: const Color(0xFF2563EB),
+                    ),
+                  ],
+                ),
+              ),
+            Flexible(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _error != null
+                        ? _AssignmentDialogMessage(
+                            icon: Icons.error_outline,
+                            message: _error!,
+                          )
+                        : _students.isEmpty
+                            ? const _AssignmentDialogMessage(
+                                icon: Icons.group_off_outlined,
+                                message: '배포할 학생이 없습니다.',
+                              )
+                            : ListView.separated(
+                                shrinkWrap: true,
+                                itemCount: _students.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(height: 9),
+                                itemBuilder: (context, index) {
+                                  final student = _students[index];
+                                  final assigned =
+                                      _assignedStudentIds.contains(student.id);
+                                  final selected =
+                                      _selected.contains(student.id);
+                                  return _AssignmentStudentRow(
+                                    student: student,
+                                    assigned: assigned,
+                                    selected: selected,
+                                    onTap: assigned
+                                        ? null
+                                        : () => setState(() {
+                                              if (selected) {
+                                                _selected.remove(student.id);
+                                              } else {
+                                                _selected.add(student.id);
+                                              }
+                                            }),
+                                  );
+                                },
                               ),
-                              secondary:
-                                  _assignedStudentIds.contains(student.id)
-                                      ? const Icon(
-                                          Icons.check_circle,
-                                          color: Colors.green,
-                                        )
-                                      : null,
-                            ),
-                        ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
+              decoration: const BoxDecoration(
+                color: Color(0xFFFAFAFD),
+                borderRadius:
+                    BorderRadius.vertical(bottom: Radius.circular(28)),
+                border: Border(top: BorderSide(color: Color(0xFFE7E5F4))),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (!_loading && _error == null && availableCount == 0) ...[
+                    const Text(
+                      '모든 학생에게 이미 배포되었습니다.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: _vocabularyMuted,
+                        fontWeight: FontWeight.w700,
                       ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed:
+                              _saving ? null : () => Navigator.pop(context),
+                          child: const Text('취소'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        flex: 2,
+                        child: FilledButton.icon(
+                          onPressed:
+                              _saving || _selected.isEmpty ? null : _assign,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _vocabularyPurple,
+                            minimumSize: const Size.fromHeight(48),
+                          ),
+                          icon: const Icon(Icons.send_rounded),
+                          label: Text(
+                            _saving
+                                ? '배포 중...'
+                                : '선택 ${_selected.length}명에게 배포',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _saving ? null : () => Navigator.pop(context),
-          child: const Text('취소'),
-        ),
-        FilledButton(
-          onPressed: _saving || _selected.isEmpty ? null : _assign,
-          child: Text(_saving ? '배포 중...' : '선택 학생에게 배포'),
-        ),
-      ],
     );
   }
 }
@@ -1036,6 +1166,177 @@ class _VocabularyStatusBadge extends StatelessWidget {
           color: color,
           fontSize: 12,
           fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _AssignmentSummaryPill extends StatelessWidget {
+  const _AssignmentSummaryPill({
+    required this.label,
+    required this.count,
+    required this.color,
+  });
+
+  final String label;
+  final int count;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.26)),
+      ),
+      child: Text(
+        '$label $count명',
+        style:
+            TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w900),
+      ),
+    );
+  }
+}
+
+class _AssignmentStudentRow extends StatelessWidget {
+  const _AssignmentStudentRow({
+    required this.student,
+    required this.assigned,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final AssignableStudent student;
+  final bool assigned;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = assigned
+        ? const Color(0xFF16A34A)
+        : selected
+            ? _vocabularyPurple
+            : const Color(0xFF94A3B8);
+    return Material(
+      color: assigned
+          ? const Color(0xFFF0FDF4)
+          : selected
+              ? const Color(0xFFF3F0FF)
+              : Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: accent.withValues(alpha: assigned || selected ? 0.6 : 0.3),
+              width: assigned || selected ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: accent.withValues(alpha: 0.13),
+                child: Text(
+                  student.nickname.isEmpty
+                      ? '?'
+                      : student.nickname.characters.first.toUpperCase(),
+                  style: TextStyle(color: accent, fontWeight: FontWeight.w900),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      student.nickname,
+                      style: const TextStyle(
+                        color: _vocabularyInk,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      student.email,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: _vocabularyMuted,
+                        fontSize: 12.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  assigned
+                      ? '배포됨'
+                      : selected
+                          ? '선택됨'
+                          : '선택 가능',
+                  style: TextStyle(
+                    color: accent,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                assigned
+                    ? Icons.check_circle
+                    : selected
+                        ? Icons.check_box_rounded
+                        : Icons.check_box_outline_blank_rounded,
+                color: accent,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AssignmentDialogMessage extends StatelessWidget {
+  const _AssignmentDialogMessage({
+    required this.icon,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 42, color: _vocabularyMuted),
+            const SizedBox(height: 10),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: _vocabularyMuted),
+            ),
+          ],
         ),
       ),
     );

@@ -30,7 +30,15 @@ class _StudentVocabularyListScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('단어장 학습')),
+      backgroundColor: _studentVocabSurface,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        title: const Text(
+          '단어장 학습',
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
+      ),
       body: FutureBuilder<List<VocabularySet>>(
         future: _future,
         builder: (context, snapshot) {
@@ -48,7 +56,11 @@ class _StudentVocabularyListScreenState
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.inbox_outlined, size: 44),
+                    Icon(
+                      Icons.auto_stories_outlined,
+                      size: 52,
+                      color: _studentVocabPurple,
+                    ),
                     SizedBox(height: 12),
                     Text(
                       '배포된 단어장이 없습니다.',
@@ -64,41 +76,243 @@ class _StudentVocabularyListScreenState
               ),
             );
           }
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: items.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
-              final item = items[index];
-              return Card(
-                child: ListTile(
-                  leading: const CircleAvatar(
-                    child: Icon(Icons.translate_rounded),
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF6D5CE7), Color(0xFF8B7CF6)],
                   ),
-                  title: Text(
-                    item.title,
-                    style: const TextStyle(fontWeight: FontWeight.w900),
-                  ),
-                  subtitle: Text(
-                    [
-                      item.sourceLabel,
-                      item.unitLabel,
-                      '${item.itemCount}개 단어',
-                    ].whereType<String>().join(' · '),
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(17),
+                      ),
+                      child: const Icon(
+                        Icons.translate_rounded,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '오늘의 단어 학습',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 19,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '선생님이 배포한 단어장 ${items.length}개가 준비되어 있어요.',
+                            style: const TextStyle(
+                              color: Color(0xFFEDE9FE),
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 22),
+              const Text(
+                '내 단어장',
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 10),
+              for (var index = 0; index < items.length; index++) ...[
+                _StudentVocabularySetCard(
+                  vocabularySet: items[index],
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (_) =>
-                          StudentVocabularyDetailScreen(setId: item.id),
+                          StudentVocabularyDetailScreen(setId: items[index].id),
                     ),
                   ),
                 ),
-              );
-            },
+                if (index < items.length - 1) const SizedBox(height: 12),
+              ],
+            ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _StudentVocabularySetCard extends StatelessWidget {
+  const _StudentVocabularySetCard({
+    required this.vocabularySet,
+    required this.onTap,
+  });
+
+  final VocabularySet vocabularySet;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: const Color(0xFFE3E0F0)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x0D0F172A),
+                blurRadius: 16,
+                offset: Offset(0, 7),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: _studentVocabPurple.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Icon(
+                      Icons.menu_book_rounded,
+                      color: _studentVocabPurple,
+                    ),
+                  ),
+                  const SizedBox(width: 13),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          vocabularySet.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFF1F2937),
+                            fontSize: 17,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        if ((vocabularySet.description ?? '').isNotEmpty) ...[
+                          const SizedBox(height: 5),
+                          Text(
+                            vocabularySet.description!,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF526077),
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 7,
+                runSpacing: 7,
+                children: [
+                  if ((vocabularySet.sourceLabel ?? '').isNotEmpty)
+                    _StudentInfoPill(
+                      icon: Icons.library_books_outlined,
+                      text: vocabularySet.sourceLabel!,
+                    ),
+                  if ((vocabularySet.unitLabel ?? '').isNotEmpty)
+                    _StudentInfoPill(
+                      icon: Icons.bookmark_outline_rounded,
+                      text: vocabularySet.unitLabel!,
+                    ),
+                  if ((vocabularySet.gradeLabel ?? '').isNotEmpty)
+                    _StudentInfoPill(
+                      icon: Icons.school_outlined,
+                      text: vocabularySet.gradeLabel!,
+                    ),
+                  _StudentInfoPill(
+                    icon: Icons.format_list_numbered_rounded,
+                    text: '${vocabularySet.itemCount}개 단어',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: onTap,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _studentVocabPurple,
+                    minimumSize: const Size.fromHeight(46),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                  ),
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: const Text('학습하기'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StudentInfoPill extends StatelessWidget {
+  const _StudentInfoPill({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F0FA),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: _studentVocabPurple),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: const TextStyle(
+              color: Color(0xFF4B5563),
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
       ),
     );
   }
