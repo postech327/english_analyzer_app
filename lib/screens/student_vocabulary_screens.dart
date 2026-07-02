@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 import '../models/vocabulary.dart';
 import '../services/vocabulary_service.dart';
 
+const _studentVocabPurple = Color(0xFF6D5CE7);
+const _studentVocabSurface = Color(0xFFF7F6FC);
+
 class StudentVocabularyListScreen extends StatefulWidget {
   const StudentVocabularyListScreen({super.key});
 
@@ -109,7 +112,15 @@ class StudentVocabularyDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('단어장')),
+      backgroundColor: _studentVocabSurface,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        title: const Text(
+          '단어장',
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
+      ),
       body: FutureBuilder<VocabularySet>(
         future: const VocabularyService().fetchStudentSet(setId),
         builder: (context, snapshot) {
@@ -123,28 +134,78 @@ class StudentVocabularyDetailScreen extends StatelessWidget {
           return ListView(
             padding: const EdgeInsets.all(18),
             children: [
-              Text(
-                vocabularySet.title,
-                style:
-                    const TextStyle(fontSize: 25, fontWeight: FontWeight.w900),
+              Container(
+                padding: const EdgeInsets.all(22),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF6D5CE7), Color(0xFF8B7CF6)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(26),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x336D5CE7),
+                      blurRadius: 22,
+                      offset: Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.translate_rounded,
+                      color: Colors.white,
+                      size: 34,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      vocabularySet.title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 25,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final text in [
+                          vocabularySet.sourceLabel,
+                          vocabularySet.unitLabel,
+                          '${vocabularySet.items.length}개 단어',
+                        ].whereType<String>())
+                          _SummaryPill(text: text),
+                      ],
+                    ),
+                    if ((vocabularySet.description ?? '').isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      Text(
+                        vocabularySet.description!,
+                        style: const TextStyle(
+                          color: Color(0xFFEDE9FE),
+                          height: 1.45,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
-              const SizedBox(height: 6),
-              Text(
-                [
-                  vocabularySet.sourceLabel,
-                  vocabularySet.unitLabel,
-                  '${vocabularySet.items.length}개 단어',
-                ].whereType<String>().join(' · '),
-              ),
-              if ((vocabularySet.description ?? '').isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Text(vocabularySet.description!),
-              ],
               const SizedBox(height: 24),
+              const Text(
+                '학습 모드',
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 10),
               _ModeCard(
                 icon: Icons.style_rounded,
                 title: '카드 학습',
                 subtitle: '단어를 한 장씩 넘기며 뜻을 확인해요.',
+                color: const Color(0xFF2563EB),
                 onTap: vocabularySet.items.isEmpty
                     ? null
                     : () => Navigator.push(
@@ -161,6 +222,7 @@ class StudentVocabularyDetailScreen extends StatelessWidget {
                 icon: Icons.quiz_rounded,
                 title: '뜻 맞히기',
                 subtitle: '보기에서 알맞은 우리말 뜻을 선택해요.',
+                color: _studentVocabPurple,
                 onTap: vocabularySet.items.length < 2
                     ? null
                     : () => Navigator.push(
@@ -190,24 +252,69 @@ class _ModeCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
+    required this.color,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback? onTap;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
     return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+        side: const BorderSide(color: Color(0xFFE7E5F4)),
+      ),
       child: ListTile(
-        contentPadding: const EdgeInsets.all(18),
-        leading: CircleAvatar(child: Icon(icon)),
+        contentPadding: const EdgeInsets.all(20),
+        leading: Container(
+          width: 50,
+          height: 50,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(17),
+          ),
+          child: Icon(icon, color: color),
+        ),
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
-        subtitle: Text(subtitle),
-        trailing: const Icon(Icons.arrow_forward_rounded),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 5),
+          child: Text(subtitle, style: const TextStyle(height: 1.4)),
+        ),
+        trailing: Icon(Icons.arrow_forward_rounded, color: color),
         enabled: onTap != null,
         onTap: onTap,
+      ),
+    );
+  }
+}
+
+class _SummaryPill extends StatelessWidget {
+  const _SummaryPill({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
       ),
     );
   }
@@ -390,67 +497,226 @@ class _StudentVocabularyMeaningQuizScreenState
     final selected = _answers[item.id];
     final answered = selected != null;
     return Scaffold(
-      appBar: AppBar(title: const Text('뜻 맞히기')),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            LinearProgressIndicator(value: (_index + 1) / _questions.length),
-            const SizedBox(height: 8),
-            Text('${_index + 1} / ${_questions.length}'),
-            const Spacer(),
-            Text(
-              item.word,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 36, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 28),
-            for (final choice in _choices[item.id]!)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: OutlinedButton(
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(52),
-                    backgroundColor: !answered
-                        ? null
-                        : choice == item.meaningKo
-                            ? Colors.green.withValues(alpha: 0.16)
-                            : choice == selected
-                                ? Colors.red.withValues(alpha: 0.14)
-                                : null,
+      backgroundColor: _studentVocabSurface,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        title: const Text(
+          '뜻 맞히기',
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
+      ),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: LinearProgressIndicator(
+                            value: (_index + 1) / _questions.length,
+                            minHeight: 10,
+                            color: _studentVocabPurple,
+                            backgroundColor: const Color(0xFFE7E5F4),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        '${_index + 1} / ${_questions.length}',
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ],
                   ),
-                  onPressed: answered
-                      ? null
-                      : () => setState(() => _answers[item.id] = choice),
-                  child: Text(choice),
-                ),
-              ),
-            if (answered)
-              Text(
-                selected == item.meaningKo ? '정답입니다!' : '정답: ${item.meaningKo}',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: selected == item.meaningKo ? Colors.green : Colors.red,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            const Spacer(),
-            FilledButton(
-              onPressed: !answered || _submitting
-                  ? null
-                  : _index == _questions.length - 1
-                      ? _finish
-                      : () => setState(() => _index++),
-              child: Text(
-                _submitting
-                    ? '결과 저장 중...'
-                    : _index == _questions.length - 1
-                        ? '제출하고 결과 보기'
-                        : '다음 문제',
+                  const SizedBox(height: 22),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 28,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(26),
+                      border: Border.all(color: const Color(0xFFE7E5F4)),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x120F172A),
+                          blurRadius: 20,
+                          offset: Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        const Text(
+                          '알맞은 뜻을 선택하세요',
+                          style: TextStyle(
+                            color: Color(0xFF64748B),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          item.word,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 38,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF1F2937),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  for (final choice in _choices[item.id]!)
+                    _QuizChoiceTile(
+                      text: choice,
+                      selected: choice == selected,
+                      correct: answered && choice == item.meaningKo,
+                      wrong: answered &&
+                          choice == selected &&
+                          choice != item.meaningKo,
+                      onTap: answered
+                          ? null
+                          : () => setState(() => _answers[item.id] = choice),
+                    ),
+                  if (answered)
+                    Container(
+                      margin: const EdgeInsets.only(top: 4),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: selected == item.meaningKo
+                            ? const Color(0xFFDCFCE7)
+                            : const Color(0xFFFEE2E2),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Text(
+                        selected == item.meaningKo
+                            ? '정답입니다!'
+                            : '오답입니다. 정답: ${item.meaningKo}',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: selected == item.meaningKo
+                              ? const Color(0xFF15803D)
+                              : const Color(0xFFB91C1C),
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  const Spacer(),
+                  FilledButton(
+                    onPressed: !answered || _submitting
+                        ? null
+                        : _index == _questions.length - 1
+                            ? _finish
+                            : () => setState(() => _index++),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _studentVocabPurple,
+                      minimumSize: const Size.fromHeight(54),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
+                    child: Text(
+                      _submitting
+                          ? '결과 저장 중...'
+                          : _index == _questions.length - 1
+                              ? '제출하고 결과 보기'
+                              : '다음 문제',
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QuizChoiceTile extends StatelessWidget {
+  const _QuizChoiceTile({
+    required this.text,
+    required this.selected,
+    required this.correct,
+    required this.wrong,
+    required this.onTap,
+  });
+
+  final String text;
+  final bool selected;
+  final bool correct;
+  final bool wrong;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final background = correct
+        ? const Color(0xFFDCFCE7)
+        : wrong
+            ? const Color(0xFFFEE2E2)
+            : selected
+                ? const Color(0xFFEDE9FE)
+                : Colors.white;
+    final border = correct
+        ? const Color(0xFF22C55E)
+        : wrong
+            ? const Color(0xFFEF4444)
+            : selected
+                ? _studentVocabPurple
+                : const Color(0xFFD8D5E8);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: background,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 56),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: border, width: selected ? 1.5 : 1),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    text,
+                    style: const TextStyle(
+                      color: Color(0xFF1F2937),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                if (correct)
+                  const Icon(Icons.check_circle, color: Color(0xFF16A34A))
+                else if (wrong)
+                  const Icon(Icons.cancel, color: Color(0xFFDC2626))
+                else
+                  Icon(
+                    selected
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                    color: selected
+                        ? _studentVocabPurple
+                        : const Color(0xFF94A3B8),
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
     );
