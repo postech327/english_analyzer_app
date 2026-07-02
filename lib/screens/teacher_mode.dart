@@ -13,6 +13,7 @@ import 'teacher_mock_student_report_list_screen.dart';
 import 'teacher_problem_sets_screen.dart';
 import 'teacher_question_maker_screen.dart';
 import 'teacher_workbook_list_screen.dart';
+import 'teacher_vocabulary_list_screen.dart';
 import 'text_analysis_hub_screen.dart';
 
 class TeacherModePage extends StatelessWidget {
@@ -953,6 +954,16 @@ class _TeacherFeatureMenuSection extends StatelessWidget {
               onTap: () => TeacherModePage.openPage(
                 context,
                 const TeacherWorkbookListScreen(),
+              ),
+            ),
+            _TeacherToolCard(
+              title: '단어장 관리',
+              subtitle: '핵심 단어와 뜻을 등록하고 학생용 단어장을 게시합니다.',
+              icon: Icons.translate_rounded,
+              color: const Color(0xFF7C3AED),
+              onTap: () => TeacherModePage.openPage(
+                context,
+                const TeacherVocabularyListScreen(),
               ),
             ),
           ],

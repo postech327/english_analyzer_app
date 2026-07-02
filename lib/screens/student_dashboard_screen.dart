@@ -11,6 +11,7 @@ import 'student/mock_exam_list_screen.dart';
 import 'student/student_exam_list_screen.dart';
 import 'student/student_results_hub_screen.dart';
 import 'student_learning_assignments_screen.dart';
+import 'student_vocabulary_screens.dart';
 
 class StudentDashboardScreen extends StatefulWidget {
   const StudentDashboardScreen({super.key});
@@ -392,6 +393,19 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
             subtitle: '20문항 실전 모의고사를 풀고 결과를 확인해요.',
             color: const Color(0xFF0891B2),
             onTap: _openMockExam,
+          ),
+          const SizedBox(height: 10),
+          _LearningActionTile(
+            icon: Icons.translate_rounded,
+            title: '단어장 학습',
+            subtitle: '선생님이 배포한 단어를 카드와 퀴즈로 복습해요.',
+            color: const Color(0xFF0F766E),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const StudentVocabularyListScreen(),
+              ),
+            ),
           ),
         ],
       ),

@@ -3,6 +3,199 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:english_analyzer_app/utils/workbook_import_parser.dart';
 
 void main() {
+  test('removes trailing inline-choice answer footnotes from passage', () {
+    final candidate = parseWorkbookImportText('''
+Unit 1 Gateway
+To Whom It May Concern,
+
+I recently [visited/ignored] visited the history foundation and viewed its
+[exhibition/office] exhibition about the local gold rush.
+
+visited
+exhibition (office: a place to work)
+''').single;
+
+    expect(candidate.questionType, 'inline_choice');
+    expect(candidate.passageText, isNot(contains('\nvisited\n')));
+    expect(candidate.passageText, isNot(contains('office: a place to work')));
+    expect(candidate.answer['items'][0]['answer'], 'visited');
+    expect(candidate.answer['items'][1]['answer'], 'exhibition');
+    expect(candidate.infoMessages, isNotEmpty);
+  });
+
+  test('removes several standalone answer footnotes', () {
+    final result = cleanStudentPassageText(
+      'A sufficiently long student passage remains visible after cleanup.\n\n'
+      'visited\narriving\navailable',
+      const ['visited', 'arriving', 'available'],
+    );
+
+    expect(result.cleanedText, endsWith('after cleanup.'));
+    expect(result.removedLineCount, 3);
+  });
+
+  test('keeps a normal answer-like word in the middle of passage', () {
+    const passage = 'The class discussed the following word.\nvisited\n'
+        'After that discussion, the lesson continued with another paragraph.';
+    final result = cleanStudentPassageText(passage, const ['visited']);
+
+    expect(result.cleanedText, passage);
+    expect(result.removedLineCount, 0);
+  });
+
+  test('removes trailing answer lines containing parenthetical explanation',
+      () {
+    final result = cleanStudentPassageText(
+      'A sufficiently long passage appears before the appended teacher notes.\n'
+      'exhibition (concealment: explanation)\n'
+      'collection (separation: explanation)',
+      const ['exhibition', 'collection'],
+    );
+
+    expect(result.cleanedText, endsWith('teacher notes.'));
+    expect(result.removedLineCount, 2);
+  });
+
+  test('removes a realistic long trailing answer-note block', () {
+    const answers = [
+      'during',
+      'enjoyable',
+      'noticed',
+      'that',
+      'enjoy',
+      'due to',
+      'restoration',
+      'plan',
+      'accurately',
+      'accept',
+    ];
+    final result = cleanStudentPassageText(
+      'Dear Blue Dot Travel Book Editor,\n\n'
+      'I recently used your travel book during my trip and found it helpful. '
+      'The information should be updated so future readers can plan accurately '
+      'and avoid confusion.\n\n'
+      'during\n\n'
+      'enjoyable.\n'
+      'noticed (neglected 무시하다)\n'
+      'that\n'
+      'that\n'
+      'enjoy\n'
+      'during\n'
+      'that\n'
+      'due to\n'
+      'restoration (destruction 파괴)\n'
+      'plan\n'
+      'accurately\n'
+      'accept',
+      answers,
+    );
+
+    expect(result.cleanedText, endsWith('avoid confusion.'));
+    expect(result.cleanedText, isNot(contains('noticed (neglected')));
+    expect(result.cleanedText, isNot(contains('\ndue to\n')));
+    expect(result.removedLineCount, 13);
+  });
+
+  test('does not remove answer-like lines followed by normal prose', () {
+    const passage =
+        'A long passage begins with enough context for a safe cleanup check.\n'
+        'during\n'
+        'that\n'
+        'This is a normal sentence that continues the passage after those '
+        'short lines and must remain visible to the student.';
+    final result = cleanStudentPassageText(
+      passage,
+      const ['during', 'that', 'accurately'],
+    );
+
+    expect(result.cleanedText, passage);
+    expect(result.removedLineCount, 0);
+  });
+
+  test('normalizes commas and parenthetical notes in trailing block', () {
+    final result = cleanStudentPassageText(
+      'The graph passage is long enough to preserve the student-facing body '
+      'while removing only the appended answer-note block.\n\n'
+      'maintaining\n\n'
+      'gradually (intensely 격렬하게)\n\n'
+      'reaching\n\n'
+      'remained (perished 소멸되다)\n\n'
+      'increase, (decrease 하락)\n\n'
+      'rise, (decline 감소)',
+      const [
+        'maintaining',
+        'gradually',
+        'reaching',
+        'remained',
+        'increase',
+        'rise',
+      ],
+    );
+
+    expect(result.cleanedText, endsWith('answer-note block.'));
+    expect(result.cleanedText, isNot(contains('\nmaintaining')));
+    expect(result.cleanedText, isNot(contains('increase, (decrease')));
+    expect(result.cleanedText, isNot(contains('rise, (decline')));
+    expect(result.removedLineCount, 6);
+  });
+
+  test('keeps inline-choice metadata when comma footnotes are removed', () {
+    final candidate = parseWorkbookImportText('''
+Unit 4 Gateway
+The graph shows people [maintaining/abandoning] maintaining routines,
+[gradually/immediately] gradually reaching goals, and sales
+[increase/decrease] increase while prices [rise/decline] rise.
+
+maintaining
+gradually (immediately: explanation)
+increase, (decrease: explanation)
+rise, (decline: explanation)
+''').single;
+
+    expect(candidate.passageText, isNot(contains('\nmaintaining')));
+    expect(candidate.passageText, isNot(contains('increase, (decrease')));
+    expect(
+      candidate.answer['items'].map((item) => item['answer']),
+      containsAll(['maintaining', 'gradually', 'increase', 'rise']),
+    );
+  });
+
+  test('removes a long-choice block with generic unmatched words', () {
+    final result = cleanStudentPassageText(
+      'Changes in closeness are discussed in a sufficiently long passage with '
+      'eighteen blanks, and this complete sentence must remain visible to the '
+      'student after import cleanup.\n\n'
+      'are\n\n'
+      'important (insignificant 중요하지 않은)\n\n'
+      'emotional (physical 물리적인)\n\n'
+      'induced\n\n'
+      'important (insignificant 중요하지 않은)\n\n'
+      'real.\n\n'
+      'set\n\n'
+      'with whom\n\n'
+      'it',
+      const [
+        'important',
+        'insignificant',
+        'emotional',
+        'physical',
+        'real',
+        'with whom',
+        'familiar',
+        'fictional',
+        'interaction',
+        'violence',
+      ],
+    );
+
+    expect(result.cleanedText, endsWith('after import cleanup.'));
+    expect(result.cleanedText, isNot(contains('\nare\n')));
+    expect(result.cleanedText, isNot(contains('important (insignificant')));
+    expect(result.cleanedText, isNot(contains('\nwith whom\n')));
+    expect(result.cleanedText, isNot(endsWith('\nit')));
+    expect(result.removedLineCount, 9);
+  });
+
   test('parses seven tagged workbook question candidates', () {
     final candidates =
         parseWorkbookImportText(_sample, workbookSource: '수특 · 5강');
