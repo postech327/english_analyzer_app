@@ -7,15 +7,27 @@ import 'dart:typed_data';
 import 'picked_upload_file.dart';
 
 Future<PickedUploadFile?> pickVocabularyImportFile() async {
+  final files = await pickVocabularyImportFiles();
+  return files.isEmpty ? null : files.first;
+}
+
+Future<List<PickedUploadFile>> pickVocabularyImportFiles() async {
   final input = html.FileUploadInputElement()
     ..accept = '.hwpx,.txt,.hwp,text/plain,application/zip'
-    ..multiple = false;
+    ..multiple = true;
   input.click();
   await input.onChange.first;
   final files = input.files ?? const <html.File>[];
-  if (files.isEmpty) return null;
+  if (files.isEmpty) return const [];
 
-  final file = files.first;
+  final picked = <PickedUploadFile>[];
+  for (final file in files.take(5)) {
+    picked.add(await _readVocabularyFile(file));
+  }
+  return picked;
+}
+
+Future<PickedUploadFile> _readVocabularyFile(html.File file) {
   final reader = html.FileReader();
   final completer = Completer<PickedUploadFile>();
   reader.onError.first.then((_) {

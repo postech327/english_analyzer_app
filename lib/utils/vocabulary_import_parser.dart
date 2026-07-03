@@ -4,14 +4,17 @@ class VocabularyImportRow {
     required this.word,
     required this.meaningKo,
     this.warning,
+    this.source,
   });
 
   final int lineNumber;
   final String word;
   final String meaningKo;
   final String? warning;
+  final String? source;
 
   bool get isValid => word.isNotEmpty && meaningKo.isNotEmpty;
+  bool get isSavable => isValid && warning == null;
 }
 
 class VocabularyImportResult {
@@ -21,6 +24,8 @@ class VocabularyImportResult {
 
   List<VocabularyImportRow> get validRows =>
       rows.where((row) => row.isValid).toList();
+  List<VocabularyImportRow> get savableRows =>
+      rows.where((row) => row.isSavable).toList();
   int get warningCount =>
       rows.where((row) => (row.warning ?? '').isNotEmpty).length;
 }

@@ -7,6 +7,7 @@ import '../services/vocabulary_file_picker.dart';
 import '../services/vocabulary_service.dart';
 import '../utils/vocabulary_file_text_extractor.dart';
 import '../utils/vocabulary_import_parser.dart';
+import '../utils/vocabulary_multi_file_import.dart';
 
 const _vocabularyPurple = Color(0xFF6D5CE7);
 const _vocabularySurface = Color(0xFFF6F5FC);
@@ -406,6 +407,7 @@ class _TeacherVocabularyEditorScreenState
   String? _importedFileName;
   String? _fileImportMessage;
   bool _fileImportFailed = false;
+  List<VocabularyImportFileCandidate> _importFiles = const [];
 
   @override
   void initState() {
@@ -475,7 +477,7 @@ class _TeacherVocabularyEditorScreenState
       return;
     }
     final parsed = parseVocabularyPaste(_paste.text);
-    if (parsed.validRows.isEmpty) {
+    if (parsed.savableRows.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('저장할 단어를 분석해 주세요.')),
       );
@@ -501,7 +503,7 @@ class _TeacherVocabularyEditorScreenState
       await _service.bulkSaveItems(
         saved.id,
         [
-          for (final row in parsed.validRows)
+          for (final row in parsed.savableRows)
             {'word': row.word, 'meaning_ko': row.meaningKo},
         ],
       );
@@ -522,23 +524,36 @@ class _TeacherVocabularyEditorScreenState
       _fileImportFailed = false;
     });
     try {
-      final picked = await pickVocabularyImportFile();
-      if (picked == null) {
+      final pickedFiles = await pickVocabularyImportFiles();
+      if (pickedFiles.isEmpty) {
         if (mounted) setState(() => _pickingFile = false);
         return;
       }
-      if (mounted) setState(() => _importedFileName = picked.name);
-      final extracted = extractVocabularyFileText(picked.name, picked.bytes);
-      final parsed = parseVocabularyPaste(extracted.text);
+      final candidates = <VocabularyImportFileCandidate>[];
+      for (final picked in pickedFiles) {
+        final extracted = extractVocabularyFileText(picked.name, picked.bytes);
+        candidates.add(
+          VocabularyImportFileCandidate(
+            name: picked.name,
+            text: extracted.text,
+            format: extracted.format,
+            inferredRole: inferVocabularyFileRole(
+              picked.name,
+              extracted.text,
+            ),
+          ),
+        );
+      }
       if (!mounted) return;
-      _paste.text = extracted.text;
       setState(() {
         _pickingFile = false;
-        _importedFileName = picked.name;
-        _parsed = parsed;
-        _fileImportMessage = '${extracted.format} 텍스트 추출 완료 · '
-            '정상 ${parsed.validRows.length}개 · 경고 ${parsed.warningCount}개';
+        _importFiles = candidates;
+        _importedFileName = candidates.length == 1
+            ? candidates.first.name
+            : '${candidates.length}개 파일';
+        _fileImportMessage = '파일별 역할을 확인한 뒤 분석해 주세요.';
       });
+      _analyzeImportFiles();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -548,6 +563,37 @@ class _TeacherVocabularyEditorScreenState
             error is FormatException ? error.message : '파일을 가져오지 못했습니다: $error';
       });
     }
+  }
+
+  void _analyzeImportFiles() {
+    final parsed = analyzeVocabularyImportFiles(_importFiles);
+    final pairedCount = _importFiles
+        .where((file) => file.effectiveRole == VocabularyFileRole.paired)
+        .length;
+    final englishCount = _importFiles
+        .where((file) => file.effectiveRole == VocabularyFileRole.englishOnly)
+        .length;
+    final koreanCount = _importFiles
+        .where((file) => file.effectiveRole == VocabularyFileRole.koreanOnly)
+        .length;
+    _paste.text = parsed.validRows
+        .map((row) => '${row.word}\t${row.meaningKo}')
+        .join('\n');
+    setState(() {
+      _parsed = parsed;
+      _fileImportFailed = parsed.savableRows.isEmpty;
+      _fileImportMessage = '파일 ${_importFiles.length}개 · 영어+뜻 $pairedCount · '
+          '영어 $englishCount · 한글 $koreanCount\n'
+          '저장 가능 ${parsed.savableRows.length}개 · '
+          '경고 ${parsed.warningCount}개';
+    });
+  }
+
+  void _changeImportFileRole(int index, VocabularyFileRole role) {
+    final next = [..._importFiles];
+    next[index] = next[index].copyWith(role: role);
+    setState(() => _importFiles = next);
+    _analyzeImportFiles();
   }
 
   @override
@@ -752,9 +798,92 @@ class _TeacherVocabularyEditorScreenState
                                   label: Text(
                                     _pickingFile
                                         ? '파일 읽는 중...'
-                                        : 'HWPX/TXT 파일 선택',
+                                        : 'HWPX/TXT 파일 선택 (최대 5개)',
                                   ),
                                 ),
+                                if (_importFiles.isNotEmpty) ...[
+                                  const SizedBox(height: 14),
+                                  for (var index = 0;
+                                      index < _importFiles.length;
+                                      index++)
+                                    Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(15),
+                                        border: Border.all(
+                                          color: const Color(0xFFD8D5E8),
+                                        ),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          const Icon(
+                                            Icons.description_outlined,
+                                            color: _vocabularyPurple,
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  _importFiles[index].name,
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w900,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  '${_importFiles[index].format} · '
+                                                  '자동 추정: '
+                                                  '${vocabularyFileRoleLabel(_importFiles[index].inferredRole)}',
+                                                  style: const TextStyle(
+                                                    color: _vocabularyMuted,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          DropdownButton<VocabularyFileRole>(
+                                            value: _importFiles[index].role,
+                                            items: [
+                                              for (final role
+                                                  in VocabularyFileRole.values)
+                                                DropdownMenuItem(
+                                                  value: role,
+                                                  child: Text(
+                                                    vocabularyFileRoleLabel(
+                                                      role,
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                            onChanged: (role) {
+                                              if (role != null) {
+                                                _changeImportFileRole(
+                                                  index,
+                                                  role,
+                                                );
+                                              }
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  OutlinedButton.icon(
+                                    onPressed: _analyzeImportFiles,
+                                    icon: const Icon(
+                                      Icons.merge_type_rounded,
+                                    ),
+                                    label: const Text('현재 역할로 다시 분석'),
+                                  ),
+                                ],
                                 if (_importedFileName != null ||
                                     _fileImportMessage != null) ...[
                                   const SizedBox(height: 12),
@@ -1144,6 +1273,16 @@ class _VocabularyAnalysisRow extends StatelessWidget {
                         : const Color(0xFFC2410C),
                   ),
                 ),
+                if ((row.source ?? '').isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    '출처: ${row.source}',
+                    style: const TextStyle(
+                      color: _vocabularyMuted,
+                      fontSize: 11.5,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
