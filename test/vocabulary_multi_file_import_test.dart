@@ -78,4 +78,28 @@ void main() {
     expect(result.savableRows.length, 2);
     expect(result.rows.first.source, '단어목록.txt');
   });
+
+  test('removes preamble independently from English and Korean files', () {
+    final result = analyzeVocabularyImportFiles(const [
+      VocabularyImportFileCandidate(
+        name: 'english.hwpx',
+        text: 'cafe.naver.com/test\n단어 시험 자료입니다.\n'
+            'Unit 1 Gateway\nfoundation\nexhibition\ndocument',
+        inferredRole: VocabularyFileRole.englishOnly,
+      ),
+      VocabularyImportFileCandidate(
+        name: 'korean.hwpx',
+        text: '수능특강 자료입니다.\nUnit 1 Gateway\n재단\n전시회\n문서',
+        inferredRole: VocabularyFileRole.koreanOnly,
+      ),
+    ]);
+
+    expect(result.savableRows.length, 3);
+    expect(result.savableRows.first.word, 'foundation');
+    expect(result.savableRows.first.meaningKo, '재단');
+    expect(
+      result.rows.any((row) => row.word.toLowerCase().contains('cafe')),
+      isFalse,
+    );
+  });
 }

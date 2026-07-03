@@ -30,10 +30,51 @@ class VocabularyImportResult {
       rows.where((row) => (row.warning ?? '').isNotEmpty).length;
 }
 
+class VocabularyPreambleCleanupResult {
+  const VocabularyPreambleCleanupResult({
+    required this.text,
+    required this.removedLineCount,
+    this.startHeader,
+  });
+
+  final String text;
+  final int removedLineCount;
+  final String? startHeader;
+
+  bool get removedPreamble => removedLineCount > 0;
+}
+
+VocabularyPreambleCleanupResult trimVocabularyPreamble(String source) {
+  final lines = source.split(RegExp(r'\r?\n'));
+  var headerIndex = -1;
+  String? startHeader;
+  for (var index = 0; index < lines.length; index++) {
+    final line = lines[index].trim();
+    if (_isVocabularyStartHeader(line)) {
+      headerIndex = index;
+      startHeader = line;
+      break;
+    }
+  }
+  if (headerIndex < 0) {
+    return VocabularyPreambleCleanupResult(
+      text: source,
+      removedLineCount: 0,
+    );
+  }
+  return VocabularyPreambleCleanupResult(
+    text: lines.skip(headerIndex + 1).join('\n').trim(),
+    removedLineCount:
+        lines.take(headerIndex).where((line) => line.trim().isNotEmpty).length,
+    startHeader: startHeader,
+  );
+}
+
 VocabularyImportResult parseVocabularyPaste(String source) {
+  final cleanedSource = trimVocabularyPreamble(source).text;
   final rows = <VocabularyImportRow>[];
   final seen = <String>{};
-  final lines = source.split(RegExp(r'\r?\n'));
+  final lines = cleanedSource.split(RegExp(r'\r?\n'));
   for (var index = 0; index < lines.length; index++) {
     var line = lines[index].trim();
     if (line.isEmpty) continue;
@@ -89,4 +130,23 @@ VocabularyImportResult parseVocabularyPaste(String source) {
     );
   }
   return VocabularyImportResult(rows);
+}
+
+bool _isVocabularyStartHeader(String line) {
+  if (line.isEmpty) return false;
+  return RegExp(
+    r'^(?:'
+    r'Unit\s+\d+\b.*|'
+    r'(?:Chapter|Ch\.)\s*\d+\b.*|'
+    r'(?:제\s*)?\d+\s*강.*|'
+    r'Lesson\s+\d+\b.*|'
+    r'Day\s+\d+\b.*|'
+    r'Test\s+\d+\b.*|'
+    r'단어\s*목록(?:\s*\([^)]*\))?.*|'
+    r'Words?\b.*|'
+    r'Vocabulary\b.*|'
+    r'Voca\b.*'
+    r')$',
+    caseSensitive: false,
+  ).hasMatch(line);
 }

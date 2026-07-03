@@ -15,6 +15,8 @@ class VocabularyImportFileCandidate {
     this.role = VocabularyFileRole.auto,
     this.inferredRole = VocabularyFileRole.auto,
     this.format = '',
+    this.removedPreambleLineCount = 0,
+    this.startHeader,
   });
 
   final String name;
@@ -22,6 +24,8 @@ class VocabularyImportFileCandidate {
   final VocabularyFileRole role;
   final VocabularyFileRole inferredRole;
   final String format;
+  final int removedPreambleLineCount;
+  final String? startHeader;
 
   VocabularyFileRole get effectiveRole =>
       role == VocabularyFileRole.auto ? inferredRole : role;
@@ -33,6 +37,8 @@ class VocabularyImportFileCandidate {
       role: role ?? this.role,
       inferredRole: inferredRole,
       format: format,
+      removedPreambleLineCount: removedPreambleLineCount,
+      startHeader: startHeader,
     );
   }
 }
@@ -49,7 +55,8 @@ VocabularyFileRole inferVocabularyFileRole(String fileName, String text) {
     return VocabularyFileRole.koreanOnly;
   }
 
-  final lines = _cleanLines(text).take(30).toList();
+  final lines =
+      _cleanLines(trimVocabularyPreamble(text).text).take(30).toList();
   final paired = lines
       .where((line) =>
           RegExp(r'[A-Za-z]').hasMatch(line) && RegExp(r'[가-힣]').hasMatch(line))
@@ -136,7 +143,7 @@ VocabularyImportResult analyzeVocabularyImportFiles(
 
 List<_LineCandidate> _englishCandidates(VocabularyImportFileCandidate file) {
   final result = <_LineCandidate>[];
-  for (final line in _cleanLines(file.text)) {
+  for (final line in _cleanLines(trimVocabularyPreamble(file.text).text)) {
     if (!RegExp(r'[A-Za-z]').hasMatch(line)) continue;
     final match = RegExp(r"[A-Za-z][A-Za-z\s\-'/]*").firstMatch(line);
     final value = match?.group(0)?.trim() ?? '';
@@ -147,7 +154,7 @@ List<_LineCandidate> _englishCandidates(VocabularyImportFileCandidate file) {
 
 List<_LineCandidate> _koreanCandidates(VocabularyImportFileCandidate file) {
   final result = <_LineCandidate>[];
-  for (final line in _cleanLines(file.text)) {
+  for (final line in _cleanLines(trimVocabularyPreamble(file.text).text)) {
     final match = RegExp(r'[가-힣]').firstMatch(line);
     if (match == null) continue;
     final value = line.substring(match.start).trim();

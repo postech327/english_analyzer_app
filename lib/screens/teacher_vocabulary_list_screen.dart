@@ -532,14 +532,17 @@ class _TeacherVocabularyEditorScreenState
       final candidates = <VocabularyImportFileCandidate>[];
       for (final picked in pickedFiles) {
         final extracted = extractVocabularyFileText(picked.name, picked.bytes);
+        final cleaned = trimVocabularyPreamble(extracted.text);
         candidates.add(
           VocabularyImportFileCandidate(
             name: picked.name,
-            text: extracted.text,
+            text: cleaned.text,
             format: extracted.format,
+            removedPreambleLineCount: cleaned.removedLineCount,
+            startHeader: cleaned.startHeader,
             inferredRole: inferVocabularyFileRole(
               picked.name,
-              extracted.text,
+              cleaned.text,
             ),
           ),
         );
@@ -846,6 +849,19 @@ class _TeacherVocabularyEditorScreenState
                                                     fontSize: 12,
                                                   ),
                                                 ),
+                                                if (_importFiles[index]
+                                                        .startHeader !=
+                                                    null)
+                                                  Text(
+                                                    '${_importFiles[index].startHeader} 이후 분석 · '
+                                                    '소개글 ${_importFiles[index].removedPreambleLineCount}줄 제외',
+                                                    style: const TextStyle(
+                                                      color: Color(0xFF15803D),
+                                                      fontSize: 11.5,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
+                                                  ),
                                               ],
                                             ),
                                           ),
