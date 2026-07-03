@@ -9,14 +9,16 @@ recently    최근에
 design, 설계하다
 provide 제공하다
 grassy (잔디의)
+□ ensure 보장하다
 ''');
 
-    expect(result.validRows.length, 5);
+    expect(result.validRows.length, 6);
     expect(result.validRows.map((row) => row.word), contains('goal'));
     expect(
       result.validRows.firstWhere((row) => row.word == 'grassy').meaningKo,
       '잔디의',
     );
+    expect(result.validRows.any((row) => row.word == 'ensure'), isTrue);
   });
 
   test('warns for duplicate and invalid lines', () {

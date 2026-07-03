@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../models/vocabulary.dart';
 import '../models/learning_assignment.dart';
 import '../services/learning_assignment_service.dart';
+import '../services/vocabulary_file_picker.dart';
 import '../services/vocabulary_service.dart';
+import '../utils/vocabulary_file_text_extractor.dart';
 import '../utils/vocabulary_import_parser.dart';
 
 const _vocabularyPurple = Color(0xFF6D5CE7);
@@ -400,6 +402,10 @@ class _TeacherVocabularyEditorScreenState
   bool _saving = false;
   bool _loadingDetail = false;
   String? _detailError;
+  bool _pickingFile = false;
+  String? _importedFileName;
+  String? _fileImportMessage;
+  bool _fileImportFailed = false;
 
   @override
   void initState() {
@@ -505,6 +511,42 @@ class _TeacherVocabularyEditorScreenState
       setState(() => _saving = false);
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+
+  Future<void> _pickImportFile() async {
+    if (_pickingFile) return;
+    setState(() {
+      _pickingFile = true;
+      _fileImportMessage = null;
+      _fileImportFailed = false;
+    });
+    try {
+      final picked = await pickVocabularyImportFile();
+      if (picked == null) {
+        if (mounted) setState(() => _pickingFile = false);
+        return;
+      }
+      if (mounted) setState(() => _importedFileName = picked.name);
+      final extracted = extractVocabularyFileText(picked.name, picked.bytes);
+      final parsed = parseVocabularyPaste(extracted.text);
+      if (!mounted) return;
+      _paste.text = extracted.text;
+      setState(() {
+        _pickingFile = false;
+        _importedFileName = picked.name;
+        _parsed = parsed;
+        _fileImportMessage = '${extracted.format} 텍스트 추출 완료 · '
+            '정상 ${parsed.validRows.length}개 · 경고 ${parsed.warningCount}개';
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _pickingFile = false;
+        _fileImportFailed = true;
+        _fileImportMessage =
+            error is FormatException ? error.message : '파일을 가져오지 못했습니다: $error';
+      });
     }
   }
 
@@ -648,6 +690,126 @@ class _TeacherVocabularyEditorScreenState
                                   onChanged: (value) => setState(
                                       () => _status = value ?? 'draft'),
                                 ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          _EditorSectionCard(
+                            icon: Icons.upload_file_rounded,
+                            title: '파일에서 가져오기',
+                            subtitle: 'HWPX 또는 UTF-8 TXT 파일을 브라우저에서만 읽습니다.',
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: const Color(0xFFD8D5E8),
+                                    ),
+                                  ),
+                                  child: const Row(
+                                    children: [
+                                      Icon(
+                                        Icons.lock_outline_rounded,
+                                        color: _vocabularyPurple,
+                                      ),
+                                      SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          '원본 파일은 서버에 업로드하지 않습니다. '
+                                          '최대 30MB까지 가져올 수 있어요.',
+                                          style: TextStyle(
+                                            color: _vocabularyMuted,
+                                            height: 1.4,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                FilledButton.icon(
+                                  onPressed:
+                                      _pickingFile ? null : _pickImportFile,
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: _vocabularyPurple,
+                                    minimumSize: const Size.fromHeight(50),
+                                  ),
+                                  icon: _pickingFile
+                                      ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(
+                                          Icons.file_open_rounded,
+                                        ),
+                                  label: Text(
+                                    _pickingFile
+                                        ? '파일 읽는 중...'
+                                        : 'HWPX/TXT 파일 선택',
+                                  ),
+                                ),
+                                if (_importedFileName != null ||
+                                    _fileImportMessage != null) ...[
+                                  const SizedBox(height: 12),
+                                  Container(
+                                    padding: const EdgeInsets.all(13),
+                                    decoration: BoxDecoration(
+                                      color: _fileImportFailed
+                                          ? const Color(0xFFFEF2F2)
+                                          : const Color(0xFFF0FDF4),
+                                      borderRadius: BorderRadius.circular(15),
+                                      border: Border.all(
+                                        color: _fileImportFailed
+                                            ? const Color(0xFFFECACA)
+                                            : const Color(0xFFBBF7D0),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Icon(
+                                          _fileImportFailed
+                                              ? Icons.error_outline_rounded
+                                              : Icons.check_circle_outline,
+                                          color: _fileImportFailed
+                                              ? const Color(0xFFDC2626)
+                                              : const Color(0xFF16A34A),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              if (_importedFileName != null)
+                                                Text(
+                                                  _importedFileName!,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w900,
+                                                  ),
+                                                ),
+                                              if (_fileImportMessage != null)
+                                                Text(
+                                                  _fileImportMessage!,
+                                                  style: const TextStyle(
+                                                    height: 1.4,
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),

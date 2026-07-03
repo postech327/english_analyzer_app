@@ -33,7 +33,7 @@ VocabularyImportResult parseVocabularyPaste(String source) {
     var line = lines[index].trim();
     if (line.isEmpty) continue;
     line = line.replaceFirst(
-      RegExp(r'^\s*(?:\d+\s*[.)]|[-•·])\s*'),
+      RegExp(r'^\s*(?:\d+\s*[.)]|[-•·□☐✓✔])\s*'),
       '',
     );
 
