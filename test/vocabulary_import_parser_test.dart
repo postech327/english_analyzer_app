@@ -91,4 +91,26 @@ provide 제공하다
     expect(cleanup.startHeader, isNull);
     expect(result.savableRows.length, 2);
   });
+
+  test('keeps all Korean meanings after the first Korean character', () {
+    final result = parseVocabularyPaste('''
+appreciate 감사하다, 고마워하다
+refund 환급, 환불
+boarding gate 탑승구
+mining industry 광업
+''');
+
+    expect(result.savableRows.map((row) => row.word), [
+      'appreciate',
+      'refund',
+      'boarding gate',
+      'mining industry',
+    ]);
+    expect(result.savableRows.map((row) => row.meaningKo), [
+      '감사하다, 고마워하다',
+      '환급, 환불',
+      '탑승구',
+      '광업',
+    ]);
+  });
 }

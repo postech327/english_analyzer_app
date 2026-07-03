@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/vocabulary.dart';
 import '../services/vocabulary_service.dart';
+import '../utils/vocabulary_learning_utils.dart';
 
 const _studentVocabPurple = Color(0xFF6D5CE7);
 const _studentVocabSurface = Color(0xFFF7F6FC);
@@ -323,6 +324,54 @@ class StudentVocabularyDetailScreen extends StatelessWidget {
 
   final int setId;
 
+  Future<List<VocabularyItem>?> _selectLearningItems(
+    BuildContext context,
+    List<VocabularyItem> items,
+  ) async {
+    if (items.length <= 30) return items;
+    final selected = await showModalBottomSheet<VocabularyLearningRange>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _VocabularyRangeSheet(items: items),
+    );
+    return selected?.select(items);
+  }
+
+  Future<void> _startCardStudy(
+    BuildContext context,
+    VocabularySet vocabularySet,
+  ) async {
+    final items = await _selectLearningItems(context, vocabularySet.items);
+    if (items == null || !context.mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StudentVocabularyCardStudyScreen(
+          vocabularySet: vocabularySet,
+          items: items,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _startMeaningQuiz(
+    BuildContext context,
+    VocabularySet vocabularySet,
+  ) async {
+    final items = await _selectLearningItems(context, vocabularySet.items);
+    if (items == null || !context.mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StudentVocabularyMeaningQuizScreen(
+          vocabularySet: vocabularySet,
+          items: items,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -422,14 +471,7 @@ class StudentVocabularyDetailScreen extends StatelessWidget {
                 color: const Color(0xFF2563EB),
                 onTap: vocabularySet.items.isEmpty
                     ? null
-                    : () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => StudentVocabularyCardStudyScreen(
-                              vocabularySet: vocabularySet,
-                            ),
-                          ),
-                        ),
+                    : () => _startCardStudy(context, vocabularySet),
               ),
               const SizedBox(height: 12),
               _ModeCard(
@@ -439,14 +481,7 @@ class StudentVocabularyDetailScreen extends StatelessWidget {
                 color: _studentVocabPurple,
                 onTap: vocabularySet.items.length < 2
                     ? null
-                    : () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => StudentVocabularyMeaningQuizScreen(
-                              vocabularySet: vocabularySet,
-                            ),
-                          ),
-                        ),
+                    : () => _startMeaningQuiz(context, vocabularySet),
               ),
               if (vocabularySet.items.length < 2) ...[
                 const SizedBox(height: 8),
@@ -455,6 +490,114 @@ class StudentVocabularyDetailScreen extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _VocabularyRangeSheet extends StatelessWidget {
+  const _VocabularyRangeSheet({required this.items});
+
+  final List<VocabularyItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final ranges = buildVocabularyLearningRanges(items.length);
+    return SafeArea(
+      child: Container(
+        constraints: const BoxConstraints(maxHeight: 620),
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD8D5E8),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              '학습할 범위를 선택하세요',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              '많은 단어는 나누어 학습할 수 있어요.',
+              style: TextStyle(color: Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: ListView.separated(
+                itemCount: ranges.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 9),
+                itemBuilder: (context, index) {
+                  final range = ranges[index];
+                  return Material(
+                    color: range.isAll
+                        ? const Color(0xFFF5F3FF)
+                        : const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(18),
+                    child: InkWell(
+                      onTap: () => Navigator.pop(context, range),
+                      borderRadius: BorderRadius.circular(18),
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(
+                            color: range.isAll
+                                ? _studentVocabPurple
+                                : const Color(0xFFE2E8F0),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              range.isAll
+                                  ? Icons.auto_awesome_rounded
+                                  : Icons.layers_rounded,
+                              color: _studentVocabPurple,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    range.label,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  Text(
+                                    '${range.rangeLabel} · ${range.count}개',
+                                    style: const TextStyle(
+                                      color: Color(0xFF64748B),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(Icons.arrow_forward_rounded),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -538,9 +681,11 @@ class StudentVocabularyCardStudyScreen extends StatefulWidget {
   const StudentVocabularyCardStudyScreen({
     super.key,
     required this.vocabularySet,
+    required this.items,
   });
 
   final VocabularySet vocabularySet;
+  final List<VocabularyItem> items;
 
   @override
   State<StudentVocabularyCardStudyScreen> createState() =>
@@ -554,7 +699,7 @@ class _StudentVocabularyCardStudyScreenState
 
   @override
   Widget build(BuildContext context) {
-    final items = widget.vocabularySet.items;
+    final items = widget.items;
     final item = items[_index];
     return Scaffold(
       appBar: AppBar(title: Text(widget.vocabularySet.title)),
@@ -587,7 +732,9 @@ class _StudentVocabularyCardStudyScreenState
                           ),
                           const SizedBox(height: 22),
                           Text(
-                            _showMeaning ? item.meaningKo : '눌러서 뜻 보기',
+                            _showMeaning
+                                ? displayVocabularyMeaning(item.meaningKo)
+                                : '눌러서 뜻 보기',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: _showMeaning ? 24 : 16,
@@ -642,9 +789,11 @@ class StudentVocabularyMeaningQuizScreen extends StatefulWidget {
   const StudentVocabularyMeaningQuizScreen({
     super.key,
     required this.vocabularySet,
+    required this.items,
   });
 
   final VocabularySet vocabularySet;
+  final List<VocabularyItem> items;
 
   @override
   State<StudentVocabularyMeaningQuizScreen> createState() =>
@@ -663,10 +812,10 @@ class _StudentVocabularyMeaningQuizScreenState
   void initState() {
     super.initState();
     final random = Random();
-    _questions = [...widget.vocabularySet.items]..shuffle(random);
+    _questions = [...widget.items]..shuffle(random);
     _choices = {
       for (final item in _questions)
-        item.id: _buildChoices(item, widget.vocabularySet.items, random),
+        item.id: _buildChoices(item, widget.items, random),
     };
   }
 
@@ -724,130 +873,142 @@ class _StudentVocabularyMeaningQuizScreenState
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 720),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(999),
-                          child: LinearProgressIndicator(
-                            value: (_index + 1) / _questions.length,
-                            minHeight: 10,
-                            color: _studentVocabPurple,
-                            backgroundColor: const Color(0xFFE7E5F4),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        '${_index + 1} / ${_questions.length}',
-                        style: const TextStyle(fontWeight: FontWeight.w900),
-                      ),
-                    ],
+            child: LayoutBuilder(
+              builder: (context, constraints) => SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: constraints.maxHeight - 40,
                   ),
-                  const SizedBox(height: 22),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 28,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(26),
-                      border: Border.all(color: const Color(0xFFE7E5F4)),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x120F172A),
-                          blurRadius: 20,
-                          offset: Offset(0, 8),
-                        ),
-                      ],
-                    ),
+                  child: IntrinsicHeight(
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        const Text(
-                          '알맞은 뜻을 선택하세요',
-                          style: TextStyle(
-                            color: Color(0xFF64748B),
-                            fontWeight: FontWeight.w700,
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(999),
+                                child: LinearProgressIndicator(
+                                  value: (_index + 1) / _questions.length,
+                                  minHeight: 10,
+                                  color: _studentVocabPurple,
+                                  backgroundColor: const Color(0xFFE7E5F4),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              '${_index + 1} / ${_questions.length}',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 22),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 28,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(26),
+                            border: Border.all(color: const Color(0xFFE7E5F4)),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x120F172A),
+                                blurRadius: 20,
+                                offset: Offset(0, 8),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            children: [
+                              const Text(
+                                '알맞은 뜻을 선택하세요',
+                                style: TextStyle(
+                                  color: Color(0xFF64748B),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                item.word,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 38,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFF1F2937),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        Text(
-                          item.word,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 38,
-                            fontWeight: FontWeight.w900,
-                            color: Color(0xFF1F2937),
+                        const SizedBox(height: 20),
+                        for (final choice in _choices[item.id]!)
+                          _QuizChoiceTile(
+                            text: displayVocabularyMeaning(choice),
+                            selected: choice == selected,
+                            correct: answered && choice == item.meaningKo,
+                            wrong: answered &&
+                                choice == selected &&
+                                choice != item.meaningKo,
+                            onTap: answered
+                                ? null
+                                : () =>
+                                    setState(() => _answers[item.id] = choice),
+                          ),
+                        if (answered)
+                          Container(
+                            margin: const EdgeInsets.only(top: 4),
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: selected == item.meaningKo
+                                  ? const Color(0xFFDCFCE7)
+                                  : const Color(0xFFFEE2E2),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Text(
+                              selected == item.meaningKo
+                                  ? '정답입니다!'
+                                  : '오답입니다. 정답: '
+                                      '${displayVocabularyMeaning(item.meaningKo)}',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: selected == item.meaningKo
+                                    ? const Color(0xFF15803D)
+                                    : const Color(0xFFB91C1C),
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        const Spacer(),
+                        FilledButton(
+                          onPressed: !answered || _submitting
+                              ? null
+                              : _index == _questions.length - 1
+                                  ? _finish
+                                  : () => setState(() => _index++),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _studentVocabPurple,
+                            minimumSize: const Size.fromHeight(54),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                          ),
+                          child: Text(
+                            _submitting
+                                ? '결과 저장 중...'
+                                : _index == _questions.length - 1
+                                    ? '제출하고 결과 보기'
+                                    : '다음 문제',
                           ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 20),
-                  for (final choice in _choices[item.id]!)
-                    _QuizChoiceTile(
-                      text: choice,
-                      selected: choice == selected,
-                      correct: answered && choice == item.meaningKo,
-                      wrong: answered &&
-                          choice == selected &&
-                          choice != item.meaningKo,
-                      onTap: answered
-                          ? null
-                          : () => setState(() => _answers[item.id] = choice),
-                    ),
-                  if (answered)
-                    Container(
-                      margin: const EdgeInsets.only(top: 4),
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: selected == item.meaningKo
-                            ? const Color(0xFFDCFCE7)
-                            : const Color(0xFFFEE2E2),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Text(
-                        selected == item.meaningKo
-                            ? '정답입니다!'
-                            : '오답입니다. 정답: ${item.meaningKo}',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: selected == item.meaningKo
-                              ? const Color(0xFF15803D)
-                              : const Color(0xFFB91C1C),
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                  const Spacer(),
-                  FilledButton(
-                    onPressed: !answered || _submitting
-                        ? null
-                        : _index == _questions.length - 1
-                            ? _finish
-                            : () => setState(() => _index++),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: _studentVocabPurple,
-                      minimumSize: const Size.fromHeight(54),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                    ),
-                    child: Text(
-                      _submitting
-                          ? '결과 저장 중...'
-                          : _index == _questions.length - 1
-                              ? '제출하고 결과 보기'
-                              : '다음 문제',
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
@@ -979,7 +1140,8 @@ class StudentVocabularyResultScreen extends StatelessWidget {
                   style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
                 subtitle: Text(
-                  '내 답: ${result.studentAnswer}\n정답: ${result.correctAnswer}',
+                  '내 답: ${displayVocabularyMeaning(result.studentAnswer)}\n'
+                  '정답: ${displayVocabularyMeaning(result.correctAnswer)}',
                 ),
               ),
             ),

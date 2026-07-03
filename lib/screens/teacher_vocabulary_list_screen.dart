@@ -7,6 +7,7 @@ import '../services/vocabulary_file_picker.dart';
 import '../services/vocabulary_service.dart';
 import '../utils/vocabulary_file_text_extractor.dart';
 import '../utils/vocabulary_import_parser.dart';
+import '../utils/vocabulary_learning_utils.dart';
 import '../utils/vocabulary_multi_file_import.dart';
 
 const _vocabularyPurple = Color(0xFF6D5CE7);
@@ -1282,7 +1283,7 @@ class _VocabularyAnalysisRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  row.warning ?? row.meaningKo,
+                  row.warning ?? displayVocabularyMeaning(row.meaningKo),
                   style: TextStyle(
                     color: row.warning == null
                         ? _vocabularyMuted

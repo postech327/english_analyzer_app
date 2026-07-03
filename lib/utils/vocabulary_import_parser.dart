@@ -92,18 +92,26 @@ VocabularyImportResult parseVocabularyPaste(String source) {
       word = parenthetical.group(1)!.trim();
       meaning = parenthetical.group(2)!.trim();
     } else {
-      final separated =
-          RegExp(r'^(.+?)(?:\t+|\s{2,}|,\s*)(.+)$').firstMatch(line);
-      if (separated != null) {
-        word = separated.group(1)!.trim();
-        meaning = separated.group(2)!.trim();
+      final koreanMeaning = RegExp(
+        r"^([A-Za-z][A-Za-z\s\-'/]*?)\s+([가-힣].*)$",
+      ).firstMatch(line);
+      if (koreanMeaning != null) {
+        word = koreanMeaning.group(1)!.trim();
+        meaning = koreanMeaning.group(2)!.trim();
       } else {
-        final simple = RegExp(
-          r"^([A-Za-z][A-Za-z\-'/]*(?:\s+[A-Za-z][A-Za-z\-'/]*)*)\s+(.+)$",
-        ).firstMatch(line);
-        if (simple != null) {
-          word = simple.group(1)!.trim();
-          meaning = simple.group(2)!.trim();
+        final separated =
+            RegExp(r'^(.+?)(?:\t+|\s{2,}|,\s*)(.+)$').firstMatch(line);
+        if (separated != null) {
+          word = separated.group(1)!.trim();
+          meaning = separated.group(2)!.trim();
+        } else {
+          final simple = RegExp(
+            r"^([A-Za-z][A-Za-z\-'/]*(?:\s+[A-Za-z][A-Za-z\-'/]*)*)\s+(.+)$",
+          ).firstMatch(line);
+          if (simple != null) {
+            word = simple.group(1)!.trim();
+            meaning = simple.group(2)!.trim();
+          }
         }
       }
     }
