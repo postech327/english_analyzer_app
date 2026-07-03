@@ -398,6 +398,8 @@ class _TeacherVocabularyEditorScreenState
   String _status = 'draft';
   VocabularyImportResult? _parsed;
   bool _saving = false;
+  bool _loadingDetail = false;
+  String? _detailError;
 
   @override
   void initState() {
@@ -410,19 +412,39 @@ class _TeacherVocabularyEditorScreenState
       _unit.text = item.unitLabel ?? '';
       _grade.text = item.gradeLabel ?? '';
       _status = item.status;
+      _loadingDetail = true;
       _loadDetail(item.id);
     }
   }
 
   Future<void> _loadDetail(int id) async {
+    setState(() {
+      _loadingDetail = true;
+      _detailError = null;
+    });
     try {
       final detail = await _service.fetchTeacherSet(id);
       if (!mounted) return;
+      _title.text = detail.title;
+      _description.text = detail.description ?? '';
+      _source.text = detail.sourceLabel ?? '';
+      _unit.text = detail.unitLabel ?? '';
+      _grade.text = detail.gradeLabel ?? '';
+      _status = detail.status;
       _paste.text = detail.items
           .map((item) => '${item.word}\t${item.meaningKo}')
           .join('\n');
-      setState(() => _parsed = parseVocabularyPaste(_paste.text));
-    } catch (_) {}
+      setState(() {
+        _parsed = parseVocabularyPaste(_paste.text);
+        _loadingDetail = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loadingDetail = false;
+        _detailError = '$error';
+      });
+    }
   }
 
   @override
@@ -496,144 +518,194 @@ class _TeacherVocabularyEditorScreenState
         surfaceTintColor: Colors.white,
         title: Text(widget.vocabularySet == null ? '새 단어장' : '단어장 편집'),
       ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 920),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 18, 16, 110),
-            children: [
-              _EditorSectionCard(
-                icon: Icons.info_outline_rounded,
-                title: '기본 정보',
-                subtitle: '학생에게 보일 단어장 정보를 입력해 주세요.',
-                child: Column(
-                  children: [
-                    TextField(
-                      controller: _title,
-                      decoration: _editorInputDecoration('제목 *'),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _description,
-                      maxLines: 2,
-                      decoration: _editorInputDecoration('설명'),
-                    ),
-                    const SizedBox(height: 12),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final narrow = constraints.maxWidth < 640;
-                        final fields = [
-                          TextField(
-                            controller: _source,
-                            decoration: _editorInputDecoration('교재/출처'),
-                          ),
-                          TextField(
-                            controller: _unit,
-                            decoration: _editorInputDecoration('단원/강'),
-                          ),
-                          TextField(
-                            controller: _grade,
-                            decoration: _editorInputDecoration('학년'),
-                          ),
-                        ];
-                        return narrow
-                            ? Column(
-                                children: [
-                                  for (var i = 0; i < fields.length; i++) ...[
-                                    fields[i],
-                                    if (i < fields.length - 1)
-                                      const SizedBox(height: 10),
-                                  ],
-                                ],
-                              )
-                            : Row(
-                                children: [
-                                  for (var i = 0; i < fields.length; i++) ...[
-                                    Expanded(child: fields[i]),
-                                    if (i < fields.length - 1)
-                                      const SizedBox(width: 10),
-                                  ],
-                                ],
-                              );
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: _status,
-                      decoration: _editorInputDecoration('상태'),
-                      items: [
-                        const DropdownMenuItem(
-                          value: 'draft',
-                          child: Text('초안'),
-                        ),
-                        const DropdownMenuItem(
-                          value: 'published',
-                          child: Text('게시'),
-                        ),
-                        if (widget.vocabularySet != null)
-                          const DropdownMenuItem(
-                            value: 'archived',
-                            child: Text('보관'),
-                          ),
-                      ],
-                      onChanged: (value) =>
-                          setState(() => _status = value ?? 'draft'),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              _EditorSectionCard(
-                icon: Icons.content_paste_go_rounded,
-                title: '단어 붙여넣기',
-                subtitle: '한 줄에 영어 단어와 우리말 뜻을 함께 입력하세요.',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    TextField(
-                      controller: _paste,
-                      minLines: 8,
-                      maxLines: 16,
-                      decoration: _editorInputDecoration(
-                        '단어 목록',
-                        hint: '예: goal 목표\n예: recently 최근에\n예: provide 제공하다',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    FilledButton.icon(
-                      onPressed: () => setState(
-                        () => _parsed = parseVocabularyPaste(_paste.text),
-                      ),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: _vocabularyPurple,
-                        minimumSize: const Size.fromHeight(50),
-                      ),
-                      icon: const Icon(Icons.auto_fix_high),
-                      label: const Text('붙여넣은 단어 분석하기'),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              _EditorSectionCard(
-                icon: Icons.fact_check_outlined,
-                title: '분석 결과',
-                subtitle: rows.isEmpty
-                    ? '분석하기를 누르면 저장할 단어를 미리 확인할 수 있어요.'
-                    : '정상 ${_parsed!.validRows.length}개 · 경고 ${_parsed!.warningCount}개',
-                child: rows.isEmpty
-                    ? const _AnalysisEmptyState()
-                    : Column(
+      body: _loadingDetail
+          ? const Center(child: CircularProgressIndicator())
+          : _detailError != null
+              ? _EditorLoadError(
+                  message: _detailError!,
+                  onRetry: () => _loadDetail(widget.vocabularySet!.id),
+                )
+              : LayoutBuilder(
+                  builder: (context, constraints) => Align(
+                    alignment: Alignment.topCenter,
+                    child: SizedBox(
+                      width: constraints.maxWidth > 920
+                          ? 920
+                          : constraints.maxWidth,
+                      height: constraints.maxHeight,
+                      child: ListView(
+                        padding: const EdgeInsets.fromLTRB(16, 18, 16, 110),
                         children: [
-                          for (final row in rows)
-                            _VocabularyAnalysisRow(row: row),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(4, 2, 4, 16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  widget.vocabularySet == null
+                                      ? '학생용 단어장을 만들어 보세요'
+                                      : '단어장 정보와 단어 목록을 수정합니다',
+                                  style: const TextStyle(
+                                    color: _vocabularyInk,
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                Text(
+                                  widget.vocabularySet == null
+                                      ? '단어를 붙여넣어 빠르게 학습 자료를 구성할 수 있어요.'
+                                      : '기존 내용을 확인하고 필요한 부분을 편집해 주세요.',
+                                  style: const TextStyle(
+                                    color: _vocabularyMuted,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          _EditorSectionCard(
+                            icon: Icons.info_outline_rounded,
+                            title: '기본 정보',
+                            subtitle: '학생에게 보일 단어장 정보를 입력해 주세요.',
+                            child: Column(
+                              children: [
+                                TextField(
+                                  controller: _title,
+                                  decoration: _editorInputDecoration('제목 *'),
+                                ),
+                                const SizedBox(height: 12),
+                                TextField(
+                                  controller: _description,
+                                  maxLines: 2,
+                                  decoration: _editorInputDecoration('설명'),
+                                ),
+                                const SizedBox(height: 12),
+                                LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    final narrow = constraints.maxWidth < 640;
+                                    final fields = [
+                                      TextField(
+                                        controller: _source,
+                                        decoration:
+                                            _editorInputDecoration('교재/출처'),
+                                      ),
+                                      TextField(
+                                        controller: _unit,
+                                        decoration:
+                                            _editorInputDecoration('단원/강'),
+                                      ),
+                                      TextField(
+                                        controller: _grade,
+                                        decoration:
+                                            _editorInputDecoration('학년'),
+                                      ),
+                                    ];
+                                    return narrow
+                                        ? Column(
+                                            children: [
+                                              for (var i = 0;
+                                                  i < fields.length;
+                                                  i++) ...[
+                                                fields[i],
+                                                if (i < fields.length - 1)
+                                                  const SizedBox(height: 10),
+                                              ],
+                                            ],
+                                          )
+                                        : Row(
+                                            children: [
+                                              for (var i = 0;
+                                                  i < fields.length;
+                                                  i++) ...[
+                                                Expanded(child: fields[i]),
+                                                if (i < fields.length - 1)
+                                                  const SizedBox(width: 10),
+                                              ],
+                                            ],
+                                          );
+                                  },
+                                ),
+                                const SizedBox(height: 12),
+                                DropdownButtonFormField<String>(
+                                  value: _status,
+                                  decoration: _editorInputDecoration('상태'),
+                                  items: [
+                                    const DropdownMenuItem(
+                                      value: 'draft',
+                                      child: Text('초안'),
+                                    ),
+                                    const DropdownMenuItem(
+                                      value: 'published',
+                                      child: Text('게시'),
+                                    ),
+                                    if (widget.vocabularySet != null)
+                                      const DropdownMenuItem(
+                                        value: 'archived',
+                                        child: Text('보관'),
+                                      ),
+                                  ],
+                                  onChanged: (value) => setState(
+                                      () => _status = value ?? 'draft'),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          _EditorSectionCard(
+                            icon: Icons.content_paste_go_rounded,
+                            title: '단어 붙여넣기',
+                            subtitle: '한 줄에 영어 단어와 우리말 뜻을 함께 입력하세요.',
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                TextField(
+                                  controller: _paste,
+                                  minLines: 8,
+                                  maxLines: 16,
+                                  decoration: _editorInputDecoration(
+                                    '단어 목록',
+                                    hint:
+                                        '예: goal 목표\n예: recently 최근에\n예: provide 제공하다',
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                FilledButton.icon(
+                                  onPressed: () => setState(
+                                    () => _parsed =
+                                        parseVocabularyPaste(_paste.text),
+                                  ),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: _vocabularyPurple,
+                                    minimumSize: const Size.fromHeight(50),
+                                  ),
+                                  icon: const Icon(Icons.auto_fix_high),
+                                  label: const Text('붙여넣은 단어 분석하기'),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          _EditorSectionCard(
+                            icon: Icons.fact_check_outlined,
+                            title: '분석 결과',
+                            subtitle: rows.isEmpty
+                                ? '분석하기를 누르면 저장할 단어를 미리 확인할 수 있어요.'
+                                : '정상 ${_parsed!.validRows.length}개 · 경고 ${_parsed!.warningCount}개',
+                            child: rows.isEmpty
+                                ? const _AnalysisEmptyState()
+                                : Column(
+                                    children: [
+                                      for (final row in rows)
+                                        _VocabularyAnalysisRow(row: row),
+                                    ],
+                                  ),
+                          ),
                         ],
                       ),
-              ),
-            ],
-          ),
-        ),
-      ),
+                    ),
+                  ),
+                ),
       bottomNavigationBar: SafeArea(
         top: false,
         child: Container(
@@ -642,7 +714,9 @@ class _TeacherVocabularyEditorScreenState
             color: Colors.white,
             border: Border(top: BorderSide(color: Color(0xFFE7E5F4))),
           ),
-          child: Center(
+          child: Align(
+            alignment: Alignment.center,
+            heightFactor: 1,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 888),
               child: SizedBox(
@@ -660,7 +734,13 @@ class _TeacherVocabularyEditorScreenState
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.save_rounded),
-                  label: Text(_saving ? '저장 중...' : '단어장 저장'),
+                  label: Text(
+                    _saving
+                        ? '저장 중...'
+                        : widget.vocabularySet == null
+                            ? '단어장 저장'
+                            : '변경사항 저장',
+                  ),
                 ),
               ),
             ),
@@ -787,6 +867,63 @@ class _AnalysisEmptyState extends StatelessWidget {
             Text(
               '아직 분석된 단어가 없습니다.',
               style: TextStyle(color: _vocabularyMuted),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EditorLoadError extends StatelessWidget {
+  const _EditorLoadError({
+    required this.message,
+    required this.onRetry,
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 440),
+        margin: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: const Color(0xFFFECACA)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.error_outline_rounded,
+              color: Color(0xFFDC2626),
+              size: 42,
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              '단어장을 불러오지 못했습니다.',
+              style: TextStyle(
+                color: _vocabularyInk,
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 7),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: _vocabularyMuted),
+            ),
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('다시 시도'),
             ),
           ],
         ),
