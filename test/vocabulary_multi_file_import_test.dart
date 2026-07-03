@@ -102,4 +102,26 @@ void main() {
       isFalse,
     );
   });
+
+  test('keeps English-file groups when merging English and Korean files', () {
+    final result = analyzeVocabularyImportFiles(const [
+      VocabularyImportFileCandidate(
+        name: 'english.txt',
+        text: 'Unit 1 Gateway\nfoundation\nexhibition\n'
+            'Unit 1 No. 1\nrecently',
+        inferredRole: VocabularyFileRole.englishOnly,
+      ),
+      VocabularyImportFileCandidate(
+        name: 'korean.txt',
+        text: 'Unit 1 Gateway\n재단\n전시회\nUnit 1 No. 1\n최근에',
+        inferredRole: VocabularyFileRole.koreanOnly,
+      ),
+    ]);
+
+    expect(result.savableRows.map((row) => row.groupLabel), [
+      'Unit 1 Gateway',
+      'Unit 1 Gateway',
+      'Unit 1 No. 1',
+    ]);
+  });
 }

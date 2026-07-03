@@ -94,6 +94,8 @@ VocabularyImportResult analyzeVocabularyImportFiles(
             meaningKo: row.meaningKo,
             warning: row.warning,
             source: file.name,
+            groupLabel: row.groupLabel,
+            groupKey: row.groupKey,
           ),
       ]);
     }
@@ -135,6 +137,8 @@ VocabularyImportResult analyzeVocabularyImportFiles(
         source: warning == null
             ? '2파일 병합'
             : (englishLine?.fileName ?? koreanLine?.fileName),
+        groupLabel: englishLine?.groupLabel ?? koreanLine?.groupLabel,
+        groupKey: englishLine?.groupKey ?? koreanLine?.groupKey,
       ),
     );
   }
@@ -143,34 +147,57 @@ VocabularyImportResult analyzeVocabularyImportFiles(
 
 List<_LineCandidate> _englishCandidates(VocabularyImportFileCandidate file) {
   final result = <_LineCandidate>[];
+  String? groupLabel;
+  String? groupKey;
   for (final line in _cleanLines(trimVocabularyPreamble(file.text).text)) {
+    if (isVocabularyGroupHeader(line)) {
+      groupLabel = normalizeVocabularyGroupLabel(line);
+      groupKey = vocabularyGroupKey(groupLabel);
+      continue;
+    }
     if (!RegExp(r'[A-Za-z]').hasMatch(line)) continue;
     final match = RegExp(r"[A-Za-z][A-Za-z\s\-'/]*").firstMatch(line);
     final value = match?.group(0)?.trim() ?? '';
-    if (value.isNotEmpty) result.add(_LineCandidate(value, file.name));
+    if (value.isNotEmpty) {
+      result.add(_LineCandidate(value, file.name, groupLabel, groupKey));
+    }
   }
   return result;
 }
 
 List<_LineCandidate> _koreanCandidates(VocabularyImportFileCandidate file) {
   final result = <_LineCandidate>[];
+  String? groupLabel;
+  String? groupKey;
   for (final line in _cleanLines(trimVocabularyPreamble(file.text).text)) {
+    if (isVocabularyGroupHeader(line)) {
+      groupLabel = normalizeVocabularyGroupLabel(line);
+      groupKey = vocabularyGroupKey(groupLabel);
+      continue;
+    }
     final match = RegExp(r'[가-힣]').firstMatch(line);
     if (match == null) continue;
     final value = line.substring(match.start).trim();
-    if (value.isNotEmpty) result.add(_LineCandidate(value, file.name));
+    if (value.isNotEmpty) {
+      result.add(_LineCandidate(value, file.name, groupLabel, groupKey));
+    }
   }
   return result;
 }
 
 Iterable<String> _cleanLines(String text) sync* {
   for (var line in text.split(RegExp(r'\r?\n'))) {
-    line = line.trim().replaceFirst(
-          RegExp(
-            r'^\s*(?:(?:\d+\s*[.)]?)|[①②③④⑤⑥⑦⑧⑨⑩]|[-•·□☐✓✔])\s*',
-          ),
-          '',
-        );
+    line = line.trim();
+    if (isVocabularyGroupHeader(line)) {
+      yield normalizeVocabularyGroupLabel(line);
+      continue;
+    }
+    line = line.replaceFirst(
+      RegExp(
+        r'^\s*(?:(?:\d+\s*[.)]?)|[①②③④⑤⑥⑦⑧⑨⑩]|[-•·□☐✓✔])\s*',
+      ),
+      '',
+    );
     if (line.isEmpty || RegExp(r'^\d+$').hasMatch(line)) continue;
     yield line;
   }
@@ -187,6 +214,8 @@ VocabularyImportResult _markDuplicates(List<VocabularyImportRow> rows) {
           meaningKo: row.meaningKo,
           warning: '중복 단어입니다.',
           source: row.source,
+          groupLabel: row.groupLabel,
+          groupKey: row.groupKey,
         )
       else
         row,
@@ -197,10 +226,17 @@ bool _containsAny(String value, List<String> needles) =>
     needles.any(value.contains);
 
 class _LineCandidate {
-  const _LineCandidate(this.value, this.fileName);
+  const _LineCandidate(
+    this.value,
+    this.fileName,
+    this.groupLabel,
+    this.groupKey,
+  );
 
   final String value;
   final String fileName;
+  final String? groupLabel;
+  final String? groupKey;
 }
 
 String vocabularyFileRoleLabel(VocabularyFileRole role) => switch (role) {

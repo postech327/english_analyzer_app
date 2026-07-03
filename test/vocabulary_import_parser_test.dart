@@ -113,4 +113,54 @@ mining industry 광업
       '광업',
     ]);
   });
+
+  test('assigns Unit and Gateway headers to following vocabulary rows', () {
+    final result = parseVocabularyPaste('''
+Unit 1 Gateway
+foundation 재단
+exhibition 전시회
+
+Unit 1 No. 1
+recently 최근에
+design 설계하다
+
+Unit 1 Gateway 2
+provide 제공하다
+''');
+
+    expect(result.savableRows.map((row) => row.groupLabel), [
+      'Unit 1 Gateway',
+      'Unit 1 Gateway',
+      'Unit 1 No. 1',
+      'Unit 1 No. 1',
+      'Unit 1 Gateway 2',
+    ]);
+    expect(result.savableRows.last.groupKey, 'unit_1_gateway_2');
+  });
+
+  test('supports Korean lesson and chapter-style group headers', () {
+    final result = parseVocabularyPaste('''
+1강
+goal 목표
+제2강
+recently 최근에
+Chapter 3
+design 설계하다
+Lesson 4
+provide 제공하다
+Day 5
+ensure 보장하다
+Test 6
+submit 제출하다
+''');
+
+    expect(result.savableRows.map((row) => row.groupLabel), [
+      '1강',
+      '제2강',
+      'Chapter 3',
+      'Lesson 4',
+      'Day 5',
+      'Test 6',
+    ]);
+  });
 }

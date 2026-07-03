@@ -53,6 +53,8 @@ class VocabularyItem {
     required this.id,
     required this.word,
     required this.meaningKo,
+    this.groupLabel,
+    this.groupKey,
     this.exampleSentence,
     this.synonym,
     this.antonym,
@@ -63,6 +65,8 @@ class VocabularyItem {
   final int id;
   final String word;
   final String meaningKo;
+  final String? groupLabel;
+  final String? groupKey;
   final String? exampleSentence;
   final String? synonym;
   final String? antonym;
@@ -74,6 +78,8 @@ class VocabularyItem {
       id: _asInt(json['item_id'] ?? json['id']),
       word: _asString(json['word']),
       meaningKo: _asString(json['meaning_ko']),
+      groupLabel: _nullableString(json['group_label']),
+      groupKey: _nullableString(json['group_key']),
       exampleSentence: _nullableString(json['example_sentence']),
       synonym: _nullableString(json['synonym']),
       antonym: _nullableString(json['antonym']),
@@ -85,6 +91,8 @@ class VocabularyItem {
   Map<String, dynamic> toSaveJson() => {
         'word': word,
         'meaning_ko': meaningKo,
+        if ((groupLabel ?? '').isNotEmpty) 'group_label': groupLabel,
+        if ((groupKey ?? '').isNotEmpty) 'group_key': groupKey,
         if ((exampleSentence ?? '').isNotEmpty)
           'example_sentence': exampleSentence,
         if ((synonym ?? '').isNotEmpty) 'synonym': synonym,

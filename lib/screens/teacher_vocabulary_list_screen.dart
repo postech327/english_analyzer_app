@@ -15,6 +15,22 @@ const _vocabularySurface = Color(0xFFF6F5FC);
 const _vocabularyInk = Color(0xFF1F2937);
 const _vocabularyMuted = Color(0xFF64748B);
 
+String _vocabularyRowsToPasteText(Iterable<VocabularyImportRow> rows) {
+  final lines = <String>[];
+  String? previousGroup;
+  for (final row in rows) {
+    if (!row.isValid) continue;
+    final group = (row.groupLabel ?? '').trim();
+    if (group.isNotEmpty && group != previousGroup) {
+      if (lines.isNotEmpty) lines.add('');
+      lines.add(group);
+    }
+    lines.add('${row.word}\t${row.meaningKo}');
+    previousGroup = group;
+  }
+  return lines.join('\n');
+}
+
 class TeacherVocabularyListScreen extends StatefulWidget {
   const TeacherVocabularyListScreen({super.key});
 
@@ -440,9 +456,17 @@ class _TeacherVocabularyEditorScreenState
       _unit.text = detail.unitLabel ?? '';
       _grade.text = detail.gradeLabel ?? '';
       _status = detail.status;
-      _paste.text = detail.items
-          .map((item) => '${item.word}\t${item.meaningKo}')
-          .join('\n');
+      _paste.text = _vocabularyRowsToPasteText(
+        detail.items.map(
+          (item) => VocabularyImportRow(
+            lineNumber: item.orderIndex,
+            word: item.word,
+            meaningKo: item.meaningKo,
+            groupLabel: item.groupLabel,
+            groupKey: item.groupKey,
+          ),
+        ),
+      );
       setState(() {
         _parsed = parseVocabularyPaste(_paste.text);
         _loadingDetail = false;
@@ -505,7 +529,13 @@ class _TeacherVocabularyEditorScreenState
         saved.id,
         [
           for (final row in parsed.savableRows)
-            {'word': row.word, 'meaning_ko': row.meaningKo},
+            {
+              'word': row.word,
+              'meaning_ko': row.meaningKo,
+              if ((row.groupLabel ?? '').isNotEmpty)
+                'group_label': row.groupLabel,
+              if ((row.groupKey ?? '').isNotEmpty) 'group_key': row.groupKey,
+            },
         ],
       );
       if (mounted) Navigator.pop(context, true);
@@ -580,9 +610,7 @@ class _TeacherVocabularyEditorScreenState
     final koreanCount = _importFiles
         .where((file) => file.effectiveRole == VocabularyFileRole.koreanOnly)
         .length;
-    _paste.text = parsed.validRows
-        .map((row) => '${row.word}\t${row.meaningKo}')
-        .join('\n');
+    _paste.text = _vocabularyRowsToPasteText(parsed.validRows);
     setState(() {
       _parsed = parsed;
       _fileImportFailed = parsed.savableRows.isEmpty;
@@ -1277,6 +1305,27 @@ class _VocabularyAnalysisRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if ((row.groupLabel ?? '').isNotEmpty) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEDE9FE),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      row.groupLabel!,
+                      style: const TextStyle(
+                        color: _vocabularyPurple,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                ],
                 Text(
                   row.isValid ? row.word : '파싱 실패',
                   style: const TextStyle(fontWeight: FontWeight.w900),

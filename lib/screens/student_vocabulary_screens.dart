@@ -328,14 +328,13 @@ class StudentVocabularyDetailScreen extends StatelessWidget {
     BuildContext context,
     List<VocabularyItem> items,
   ) async {
-    if (items.length <= 30) return items;
-    final selected = await showModalBottomSheet<VocabularyLearningRange>(
+    if (items.length <= 30 && !hasVocabularyGroups(items)) return items;
+    return showModalBottomSheet<List<VocabularyItem>>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => _VocabularyRangeSheet(items: items),
     );
-    return selected?.select(items);
   }
 
   Future<void> _startCardStudy(
@@ -495,17 +494,31 @@ class StudentVocabularyDetailScreen extends StatelessWidget {
   }
 }
 
-class _VocabularyRangeSheet extends StatelessWidget {
+class _VocabularyRangeSheet extends StatefulWidget {
   const _VocabularyRangeSheet({required this.items});
 
   final List<VocabularyItem> items;
 
   @override
+  State<_VocabularyRangeSheet> createState() => _VocabularyRangeSheetState();
+}
+
+class _VocabularyRangeSheetState extends State<_VocabularyRangeSheet> {
+  var _showGroups = false;
+  var _chunkSize = 20;
+
+  @override
   Widget build(BuildContext context) {
-    final ranges = buildVocabularyLearningRanges(items.length);
+    final items = widget.items;
+    final hasGroups = hasVocabularyGroups(items);
+    final ranges = buildVocabularyLearningRanges(
+      items.length,
+      chunkSize: _chunkSize,
+    );
+    final groups = buildVocabularyLearningGroups(items);
     return SafeArea(
       child: Container(
-        constraints: const BoxConstraints(maxHeight: 620),
+        constraints: const BoxConstraints(maxHeight: 680),
         padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
         decoration: const BoxDecoration(
           color: Colors.white,
@@ -535,68 +548,142 @@ class _VocabularyRangeSheet extends StatelessWidget {
               style: TextStyle(color: Color(0xFF64748B)),
             ),
             const SizedBox(height: 16),
+            if (hasGroups)
+              SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(
+                    value: false,
+                    icon: Icon(Icons.numbers_rounded),
+                    label: Text('단어 수 기준'),
+                  ),
+                  ButtonSegment(
+                    value: true,
+                    icon: Icon(Icons.menu_book_rounded),
+                    label: Text('강/챕터 기준'),
+                  ),
+                ],
+                selected: {_showGroups},
+                onSelectionChanged: (value) =>
+                    setState(() => _showGroups = value.first),
+              ),
+            if (hasGroups) const SizedBox(height: 12),
+            if (!_showGroups && items.length > 30) ...[
+              const Text(
+                '세트 단위',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final size in const [20, 30, 40, 50])
+                    ChoiceChip(
+                      label: Text('$size개씩'),
+                      selected: _chunkSize == size,
+                      onSelected: (_) => setState(() => _chunkSize = size),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ],
             Expanded(
               child: ListView.separated(
-                itemCount: ranges.length,
+                itemCount: _showGroups ? groups.length + 1 : ranges.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 9),
                 itemBuilder: (context, index) {
+                  if (_showGroups) {
+                    if (index == 0) {
+                      return _LearningOptionCard(
+                        icon: Icons.auto_awesome_rounded,
+                        title: '전체',
+                        subtitle: '${items.length}단어',
+                        emphasized: true,
+                        onTap: () => Navigator.pop(context, items),
+                      );
+                    }
+                    final group = groups[index - 1];
+                    return _LearningOptionCard(
+                      icon: group.label == '미분류'
+                          ? Icons.help_outline_rounded
+                          : Icons.bookmark_outline_rounded,
+                      title: group.label,
+                      subtitle: '${group.count}단어',
+                      onTap: () => Navigator.pop(context, group.items),
+                    );
+                  }
                   final range = ranges[index];
-                  return Material(
-                    color: range.isAll
-                        ? const Color(0xFFF5F3FF)
-                        : const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(18),
-                    child: InkWell(
-                      onTap: () => Navigator.pop(context, range),
-                      borderRadius: BorderRadius.circular(18),
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(
-                            color: range.isAll
-                                ? _studentVocabPurple
-                                : const Color(0xFFE2E8F0),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              range.isAll
-                                  ? Icons.auto_awesome_rounded
-                                  : Icons.layers_rounded,
-                              color: _studentVocabPurple,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    range.label,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
-                                  Text(
-                                    '${range.rangeLabel} · ${range.count}개',
-                                    style: const TextStyle(
-                                      color: Color(0xFF64748B),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const Icon(Icons.arrow_forward_rounded),
-                          ],
-                        ),
-                      ),
-                    ),
+                  return _LearningOptionCard(
+                    icon: range.isAll
+                        ? Icons.auto_awesome_rounded
+                        : Icons.layers_rounded,
+                    title: range.label,
+                    subtitle: '${range.rangeLabel} · ${range.count}개',
+                    emphasized: range.isAll,
+                    onTap: () => Navigator.pop(context, range.select(items)),
                   );
                 },
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LearningOptionCard extends StatelessWidget {
+  const _LearningOptionCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.emphasized = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: emphasized ? const Color(0xFFF5F3FF) : const Color(0xFFF8FAFC),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: emphasized ? _studentVocabPurple : const Color(0xFFE2E8F0),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: _studentVocabPurple),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.arrow_forward_rounded),
+            ],
+          ),
         ),
       ),
     );

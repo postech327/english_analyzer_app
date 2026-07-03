@@ -5,6 +5,8 @@ class VocabularyImportRow {
     required this.meaningKo,
     this.warning,
     this.source,
+    this.groupLabel,
+    this.groupKey,
   });
 
   final int lineNumber;
@@ -12,6 +14,8 @@ class VocabularyImportRow {
   final String meaningKo;
   final String? warning;
   final String? source;
+  final String? groupLabel;
+  final String? groupKey;
 
   bool get isValid => word.isNotEmpty && meaningKo.isNotEmpty;
   bool get isSavable => isValid && warning == null;
@@ -63,7 +67,7 @@ VocabularyPreambleCleanupResult trimVocabularyPreamble(String source) {
     );
   }
   return VocabularyPreambleCleanupResult(
-    text: lines.skip(headerIndex + 1).join('\n').trim(),
+    text: lines.skip(headerIndex).join('\n').trim(),
     removedLineCount:
         lines.take(headerIndex).where((line) => line.trim().isNotEmpty).length,
     startHeader: startHeader,
@@ -75,9 +79,16 @@ VocabularyImportResult parseVocabularyPaste(String source) {
   final rows = <VocabularyImportRow>[];
   final seen = <String>{};
   final lines = cleanedSource.split(RegExp(r'\r?\n'));
+  String? currentGroupLabel;
+  String? currentGroupKey;
   for (var index = 0; index < lines.length; index++) {
     var line = lines[index].trim();
     if (line.isEmpty) continue;
+    if (isVocabularyGroupHeader(line)) {
+      currentGroupLabel = normalizeVocabularyGroupLabel(line);
+      currentGroupKey = vocabularyGroupKey(currentGroupLabel);
+      continue;
+    }
     line = line.replaceFirst(
       RegExp(r'^\s*(?:\d+\s*[.)]|[-•·□☐✓✔])\s*'),
       '',
@@ -134,13 +145,17 @@ VocabularyImportResult parseVocabularyPaste(String source) {
         word: word,
         meaningKo: meaning,
         warning: warning,
+        groupLabel: currentGroupLabel,
+        groupKey: currentGroupKey,
       ),
     );
   }
   return VocabularyImportResult(rows);
 }
 
-bool _isVocabularyStartHeader(String line) {
+bool _isVocabularyStartHeader(String line) => isVocabularyGroupHeader(line);
+
+bool isVocabularyGroupHeader(String line) {
   if (line.isEmpty) return false;
   return RegExp(
     r'^(?:'
@@ -157,4 +172,19 @@ bool _isVocabularyStartHeader(String line) {
     r')$',
     caseSensitive: false,
   ).hasMatch(line);
+}
+
+String normalizeVocabularyGroupLabel(String line) =>
+    line.trim().replaceAll(RegExp(r'\s+'), ' ');
+
+String vocabularyGroupKey(String? label) {
+  if (label == null || label.trim().isEmpty) return '';
+  final normalized = label
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'^제(?=\d+\s*강$)'), '')
+      .replaceAll(RegExp(r'(\d+)\s*강$'), r'lesson_$1')
+      .replaceAll(RegExp(r'[^a-z0-9가-힣]+'), '_')
+      .replaceAll(RegExp(r'^_+|_+$'), '');
+  return normalized;
 }

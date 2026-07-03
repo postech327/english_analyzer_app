@@ -59,3 +59,31 @@ List<VocabularyLearningRange> buildVocabularyLearningRanges(
   }
   return ranges;
 }
+
+class VocabularyLearningGroup {
+  const VocabularyLearningGroup({
+    required this.label,
+    required this.items,
+  });
+
+  final String label;
+  final List<VocabularyItem> items;
+  int get count => items.length;
+}
+
+List<VocabularyLearningGroup> buildVocabularyLearningGroups(
+  List<VocabularyItem> items,
+) {
+  final grouped = <String, List<VocabularyItem>>{};
+  for (final item in items) {
+    final label = (item.groupLabel ?? '').trim();
+    grouped.putIfAbsent(label.isEmpty ? '미분류' : label, () => []).add(item);
+  }
+  return [
+    for (final entry in grouped.entries)
+      VocabularyLearningGroup(label: entry.key, items: entry.value),
+  ];
+}
+
+bool hasVocabularyGroups(List<VocabularyItem> items) =>
+    items.any((item) => (item.groupLabel ?? '').trim().isNotEmpty);
