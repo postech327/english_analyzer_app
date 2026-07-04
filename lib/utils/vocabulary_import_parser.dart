@@ -179,11 +179,15 @@ String normalizeVocabularyGroupLabel(String line) =>
 
 String vocabularyGroupKey(String? label) {
   if (label == null || label.trim().isEmpty) return '';
+  final koreanLesson = RegExp(
+    r'^제?\s*0*(\d+)\s*강$',
+  ).firstMatch(label.trim());
+  if (koreanLesson != null) {
+    return 'unit_${int.parse(koreanLesson.group(1)!)}';
+  }
   final normalized = label
       .trim()
       .toLowerCase()
-      .replaceAll(RegExp(r'^제(?=\d+\s*강$)'), '')
-      .replaceAll(RegExp(r'(\d+)\s*강$'), r'lesson_$1')
       .replaceAll(RegExp(r'[^a-z0-9가-힣]+'), '_')
       .replaceAll(RegExp(r'^_+|_+$'), '');
   return normalized;

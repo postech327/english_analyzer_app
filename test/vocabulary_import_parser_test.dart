@@ -162,5 +162,17 @@ submit 제출하다
       'Day 5',
       'Test 6',
     ]);
+    expect(result.savableRows[0].groupKey, 'unit_1');
+    expect(result.savableRows[1].groupKey, 'unit_2');
+  });
+
+  test('normalizes zero-padded Korean lesson keys', () {
+    final result = parseVocabularyPaste('''
+01강
+goal 목표
+''');
+
+    expect(result.savableRows.single.groupLabel, '01강');
+    expect(result.savableRows.single.groupKey, 'unit_1');
   });
 }
