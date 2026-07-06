@@ -664,6 +664,17 @@ class _TeacherVocabularyEditorScreenState
   @override
   Widget build(BuildContext context) {
     final rows = _parsed?.rows ?? const <VocabularyImportRow>[];
+    final groupedRows = <String, List<VocabularyImportRow>>{};
+    for (final row in rows) {
+      final label = (row.groupLabel ?? '').trim();
+      groupedRows.putIfAbsent(label.isEmpty ? '미분류' : label, () => []).add(row);
+    }
+    final removedPreambleLines = _importFiles.fold<int>(
+      0,
+      (sum, file) => sum + file.removedPreambleLineCount,
+    );
+    final savableCount = _parsed?.savableRows.length ?? 0;
+    final warningCount = _parsed?.warningCount ?? 0;
     return Scaffold(
       backgroundColor: _vocabularySurface,
       appBar: AppBar(
@@ -672,11 +683,24 @@ class _TeacherVocabularyEditorScreenState
         title: Text(widget.vocabularySet == null ? '새 단어장' : '단어장 편집'),
       ),
       body: _loadingDetail
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 12),
+                  Text(
+                    '단어장 정보를 불러오는 중입니다.',
+                    style: TextStyle(color: _vocabularyMuted),
+                  ),
+                ],
+              ),
+            )
           : _detailError != null
               ? _EditorLoadError(
                   message: _detailError!,
                   onRetry: () => _loadDetail(widget.vocabularySet!.id),
+                  onBack: () => Navigator.pop(context),
                 )
               : LayoutBuilder(
                   builder: (context, constraints) => Align(
@@ -689,34 +713,17 @@ class _TeacherVocabularyEditorScreenState
                       child: ListView(
                         padding: const EdgeInsets.fromLTRB(16, 18, 16, 110),
                         children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(4, 2, 4, 16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  widget.vocabularySet == null
-                                      ? '학생용 단어장을 만들어 보세요'
-                                      : '단어장 정보와 단어 목록을 수정합니다',
-                                  style: const TextStyle(
-                                    color: _vocabularyInk,
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                                const SizedBox(height: 5),
-                                Text(
-                                  widget.vocabularySet == null
-                                      ? '단어를 붙여넣어 빠르게 학습 자료를 구성할 수 있어요.'
-                                      : '기존 내용을 확인하고 필요한 부분을 편집해 주세요.',
-                                  style: const TextStyle(
-                                    color: _vocabularyMuted,
-                                    height: 1.4,
-                                  ),
-                                ),
-                              ],
-                            ),
+                          _VocabularyEditorHero(
+                            isNew: widget.vocabularySet == null,
+                            title: _title.text.trim(),
+                            status: _status,
+                            source: _source.text.trim(),
+                            unit: _unit.text.trim(),
+                            grade: _grade.text.trim(),
+                            wordCount: savableCount,
+                            groupCount: groupedRows.length,
                           ),
+                          const SizedBox(height: 16),
                           _EditorSectionCard(
                             icon: Icons.info_outline_rounded,
                             title: '기본 정보',
@@ -725,6 +732,7 @@ class _TeacherVocabularyEditorScreenState
                               children: [
                                 TextField(
                                   controller: _title,
+                                  onChanged: (_) => setState(() {}),
                                   decoration: _editorInputDecoration('제목 *'),
                                 ),
                                 const SizedBox(height: 12),
@@ -740,16 +748,19 @@ class _TeacherVocabularyEditorScreenState
                                     final fields = [
                                       TextField(
                                         controller: _source,
+                                        onChanged: (_) => setState(() {}),
                                         decoration:
                                             _editorInputDecoration('교재/출처'),
                                       ),
                                       TextField(
                                         controller: _unit,
+                                        onChanged: (_) => setState(() {}),
                                         decoration:
                                             _editorInputDecoration('단원/강'),
                                       ),
                                       TextField(
                                         controller: _grade,
+                                        onChanged: (_) => setState(() {}),
                                         decoration:
                                             _editorInputDecoration('학년'),
                                       ),
@@ -807,8 +818,8 @@ class _TeacherVocabularyEditorScreenState
                           const SizedBox(height: 16),
                           _EditorSectionCard(
                             icon: Icons.upload_file_rounded,
-                            title: '파일에서 가져오기',
-                            subtitle: 'HWPX 또는 UTF-8 TXT 파일을 브라우저에서만 읽습니다.',
+                            title: '단어 가져오기',
+                            subtitle: 'HWPX/TXT 파일을 선택하거나 아래에 단어를 붙여넣으세요.',
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
@@ -842,6 +853,22 @@ class _TeacherVocabularyEditorScreenState
                                   ),
                                 ),
                                 const SizedBox(height: 12),
+                                if (_importFiles.isEmpty)
+                                  Container(
+                                    margin: const EdgeInsets.only(bottom: 12),
+                                    padding: const EdgeInsets.all(14),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF5F3FF),
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: const Text(
+                                      '선택된 파일이 없습니다. 파일을 선택하거나 직접 붙여넣을 수 있어요.',
+                                      style: TextStyle(
+                                        color: _vocabularyPurple,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
                                 FilledButton.icon(
                                   onPressed:
                                       _pickingFile ? null : _pickImportFile,
@@ -1034,8 +1061,9 @@ class _TeacherVocabularyEditorScreenState
                                   maxLines: 16,
                                   decoration: _editorInputDecoration(
                                     '단어 목록',
-                                    hint:
-                                        '예: goal 목표\n예: recently 최근에\n예: provide 제공하다',
+                                    hint: 'goal 목표\nrecently 최근에\n'
+                                        'appreciate 감사하다, 고마워하다\n'
+                                        'boarding gate 탑승구',
                                   ),
                                 ),
                                 const SizedBox(height: 12),
@@ -1059,14 +1087,53 @@ class _TeacherVocabularyEditorScreenState
                             icon: Icons.fact_check_outlined,
                             title: '분석 결과',
                             subtitle: rows.isEmpty
-                                ? '분석하기를 누르면 저장할 단어를 미리 확인할 수 있어요.'
-                                : '정상 ${_parsed!.validRows.length}개 · 경고 ${_parsed!.warningCount}개',
+                                ? '단어를 붙여넣거나 파일을 선택한 뒤 분석하기를 눌러 주세요.'
+                                : '저장 전 단어와 그룹을 확인해 주세요.',
                             child: rows.isEmpty
                                 ? const _AnalysisEmptyState()
                                 : Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
                                     children: [
-                                      for (final row in rows)
-                                        _VocabularyAnalysisRow(row: row),
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        children: [
+                                          _AnalysisSummaryBadge(
+                                            label: '정상',
+                                            value: savableCount,
+                                            color: const Color(0xFF16A34A),
+                                          ),
+                                          _AnalysisSummaryBadge(
+                                            label: '경고',
+                                            value: warningCount,
+                                            color: const Color(0xFFF97316),
+                                          ),
+                                          _AnalysisSummaryBadge(
+                                            label: '그룹',
+                                            value: groupedRows.length,
+                                            color: _vocabularyPurple,
+                                          ),
+                                          _AnalysisSummaryBadge(
+                                            label: '소개글 제외',
+                                            value: removedPreambleLines,
+                                            suffix: '줄',
+                                            color: const Color(0xFF2563EB),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 14),
+                                      for (var index = 0;
+                                          index < groupedRows.length;
+                                          index++)
+                                        _VocabularyAnalysisGroup(
+                                          label:
+                                              groupedRows.keys.elementAt(index),
+                                          rows: groupedRows.values
+                                              .elementAt(index),
+                                          initiallyExpanded:
+                                              rows.length < 50 || index == 0,
+                                        ),
                                     ],
                                   ),
                           ),
@@ -1088,29 +1155,74 @@ class _TeacherVocabularyEditorScreenState
             heightFactor: 1,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 888),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _saving ? null : _save,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: _vocabularyPurple,
-                    minimumSize: const Size.fromHeight(52),
-                  ),
-                  icon: _saving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final narrow = constraints.maxWidth < 600;
+                  final summary = Text(
+                    savableCount == 0
+                        ? '분석된 정상 단어가 없습니다.'
+                        : '정상 $savableCount개를 저장합니다.'
+                            '${warningCount > 0 ? ' 경고 $warningCount개는 제외됩니다.' : ''}',
+                    style: const TextStyle(
+                      color: _vocabularyMuted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  );
+                  final actions = Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      OutlinedButton(
+                        onPressed:
+                            _saving ? null : () => Navigator.pop(context),
+                        child: const Text('목록으로'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton.icon(
+                        onPressed: _saving ? null : _save,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _vocabularyPurple,
+                          minimumSize: const Size(180, 52),
+                        ),
+                        icon: _saving
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.save_rounded),
+                        label: Text(
+                          _saving
+                              ? '저장 중...'
+                              : widget.vocabularySet == null
+                                  ? '단어장 저장'
+                                  : '변경사항 저장',
+                        ),
+                      ),
+                    ],
+                  );
+                  return narrow
+                      ? Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            summary,
+                            const SizedBox(height: 8),
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerRight,
+                              child: actions,
+                            ),
+                          ],
                         )
-                      : const Icon(Icons.save_rounded),
-                  label: Text(
-                    _saving
-                        ? '저장 중...'
-                        : widget.vocabularySet == null
-                            ? '단어장 저장'
-                            : '변경사항 저장',
-                  ),
-                ),
+                      : Row(
+                          children: [
+                            Expanded(child: summary),
+                            actions,
+                          ],
+                        );
+                },
               ),
             ),
           ),
@@ -1149,6 +1261,162 @@ InputDecoration _editorInputDecoration(String label, {String? hint}) {
       borderSide: const BorderSide(color: _vocabularyPurple, width: 1.5),
     ),
   );
+}
+
+class _VocabularyEditorHero extends StatelessWidget {
+  const _VocabularyEditorHero({
+    required this.isNew,
+    required this.title,
+    required this.status,
+    required this.source,
+    required this.unit,
+    required this.grade,
+    required this.wordCount,
+    required this.groupCount,
+  });
+
+  final bool isNew;
+  final String title;
+  final String status;
+  final String source;
+  final String unit;
+  final String grade;
+  final int wordCount;
+  final int groupCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final displayTitle =
+        title.isEmpty ? (isNew ? '단어장 제목을 입력해 주세요' : '제목 없는 단어장') : title;
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFF5F3FF), Color(0xFFEFF6FF)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: const Color(0xFFDDD6FE)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: const Icon(
+              Icons.menu_book_rounded,
+              color: _vocabularyPurple,
+              size: 30,
+            ),
+          ),
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isNew ? '새 단어장 만들기' : '단어장 편집',
+                  style: const TextStyle(
+                    color: _vocabularyPurple,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  displayTitle,
+                  style: const TextStyle(
+                    color: _vocabularyInk,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                if ([source, unit, grade].any((value) => value.isNotEmpty)) ...[
+                  const SizedBox(height: 5),
+                  Text(
+                    [source, unit, grade]
+                        .where((value) => value.isNotEmpty)
+                        .join(' · '),
+                    style: const TextStyle(
+                      color: Color(0xFF475569),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _HeroPill(
+                      icon: Icons.translate_rounded,
+                      label: '$wordCount개 단어',
+                    ),
+                    _HeroPill(
+                      icon: Icons.folder_copy_outlined,
+                      label: '$groupCount개 그룹',
+                    ),
+                    _HeroPill(
+                      icon: Icons.circle,
+                      label: _statusLabel(status),
+                      color: switch (status) {
+                        'published' => const Color(0xFF15803D),
+                        'archived' => const Color(0xFF64748B),
+                        _ => _vocabularyPurple,
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeroPill extends StatelessWidget {
+  const _HeroPill({
+    required this.icon,
+    required this.label,
+    this.color = _vocabularyPurple,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _EditorSectionCard extends StatelessWidget {
@@ -1221,6 +1489,106 @@ class _EditorSectionCard extends StatelessWidget {
   }
 }
 
+class _AnalysisSummaryBadge extends StatelessWidget {
+  const _AnalysisSummaryBadge({
+    required this.label,
+    required this.value,
+    required this.color,
+    this.suffix = '개',
+  });
+
+  final String label;
+  final int value;
+  final Color color;
+  final String suffix;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '$label $value$suffix',
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _VocabularyAnalysisGroup extends StatelessWidget {
+  const _VocabularyAnalysisGroup({
+    required this.label,
+    required this.rows,
+    required this.initiallyExpanded,
+  });
+
+  final String label;
+  final List<VocabularyImportRow> rows;
+  final bool initiallyExpanded;
+
+  @override
+  Widget build(BuildContext context) {
+    final warningCount =
+        rows.where((row) => (row.warning ?? '').isNotEmpty).length;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAFAFD),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: ExpansionTile(
+        initiallyExpanded: initiallyExpanded,
+        shape: const Border(),
+        collapsedShape: const Border(),
+        tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+        leading: Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: label == '미분류'
+                ? const Color(0xFFF1F5F9)
+                : const Color(0xFFEDE9FE),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(
+            label == '미분류'
+                ? Icons.help_outline_rounded
+                : Icons.folder_copy_outlined,
+            size: 20,
+            color: label == '미분류' ? const Color(0xFF64748B) : _vocabularyPurple,
+          ),
+        ),
+        title: Text(
+          '$label · ${rows.length}단어',
+          style: const TextStyle(
+            color: _vocabularyInk,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        subtitle: warningCount == 0
+            ? null
+            : Text(
+                '경고 $warningCount개',
+                style: const TextStyle(color: Color(0xFFC2410C)),
+              ),
+        children: [
+          for (final row in rows)
+            _VocabularyAnalysisRow(row: row, showGroup: false),
+        ],
+      ),
+    );
+  }
+}
+
 class _AnalysisEmptyState extends StatelessWidget {
   const _AnalysisEmptyState();
 
@@ -1248,10 +1616,12 @@ class _EditorLoadError extends StatelessWidget {
   const _EditorLoadError({
     required this.message,
     required this.onRetry,
+    required this.onBack,
   });
 
   final String message;
   final VoidCallback onRetry;
+  final VoidCallback onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -1289,10 +1659,20 @@ class _EditorLoadError extends StatelessWidget {
               style: const TextStyle(color: _vocabularyMuted),
             ),
             const SizedBox(height: 14),
-            FilledButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('다시 시도'),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                OutlinedButton(
+                  onPressed: onBack,
+                  child: const Text('목록으로'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('다시 시도'),
+                ),
+              ],
             ),
           ],
         ),
@@ -1302,9 +1682,13 @@ class _EditorLoadError extends StatelessWidget {
 }
 
 class _VocabularyAnalysisRow extends StatelessWidget {
-  const _VocabularyAnalysisRow({required this.row});
+  const _VocabularyAnalysisRow({
+    required this.row,
+    this.showGroup = true,
+  });
 
   final VocabularyImportRow row;
+  final bool showGroup;
 
   @override
   Widget build(BuildContext context) {
@@ -1338,7 +1722,7 @@ class _VocabularyAnalysisRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if ((row.groupLabel ?? '').isNotEmpty) ...[
+                if (showGroup && (row.groupLabel ?? '').isNotEmpty) ...[
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 8,
