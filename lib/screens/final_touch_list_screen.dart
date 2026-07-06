@@ -1709,6 +1709,9 @@ class _FinalTouchDetailScreenState extends State<FinalTouchDetailScreen> {
                     : item.passage,
                 plainBody: item.passage,
                 sentenceDetails: item.sentenceDetails,
+                topic: _preferredAnalysisText(item.topicKo, item.topicEn),
+                title: _preferredAnalysisText(item.titleKo, item.titleEn),
+                gist: _preferredAnalysisText(item.gistKo, item.gistEn),
               ),
               const SizedBox(height: 14),
               SizedBox(
@@ -2811,6 +2814,12 @@ class _DetailHeader extends StatelessWidget {
       ),
     );
   }
+}
+
+String _preferredAnalysisText(String korean, String english) {
+  final primary = korean.trim();
+  if (primary.isNotEmpty) return primary;
+  return english.trim();
 }
 
 class _FlowSection extends StatelessWidget {

@@ -104,11 +104,17 @@ class FinalTouchFullBracketedPassage extends StatefulWidget {
     required this.body,
     this.plainBody = '',
     this.sentenceDetails = const [],
+    this.topic = '',
+    this.title = '',
+    this.gist = '',
   });
 
   final String body;
   final String plainBody;
   final List<FinalTouchSentenceDetail> sentenceDetails;
+  final String topic;
+  final String title;
+  final String gist;
 
   @override
   State<FinalTouchFullBracketedPassage> createState() =>
@@ -129,6 +135,9 @@ class _FinalTouchFullBracketedPassageState
       showBrackets: _showBrackets,
     );
     final visibleRows = _expanded ? rows : rows.take(3).toList();
+    final translationRows = _translationRows(widget.sentenceDetails);
+    final visibleTranslations =
+        _expanded ? translationRows : translationRows.take(3).toList();
 
     return Container(
       width: double.infinity,
@@ -206,6 +215,12 @@ class _FinalTouchFullBracketedPassageState
               ],
             ),
             const SizedBox(height: 16),
+            _PassageSummaryPanel(
+              topic: widget.topic,
+              title: widget.title,
+              gist: widget.gist,
+            ),
+            const SizedBox(height: 16),
             Wrap(
               spacing: 10,
               runSpacing: 10,
@@ -232,26 +247,58 @@ class _FinalTouchFullBracketedPassageState
               ],
             ),
             const SizedBox(height: 16),
-            AnimatedSize(
-              duration: const Duration(milliseconds: 180),
-              child: Column(
-                children: [
-                  for (var index = 0; index < visibleRows.length; index++) ...[
-                    _FullPassageSentenceRow(row: visibleRows[index]),
-                    if (index != visibleRows.length - 1)
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide = constraints.maxWidth >= 900;
+                final englishPanel = _PassageLanguagePanel(
+                  icon: Icons.translate_rounded,
+                  title: '영어 전체 지문',
+                  child: _PassageRows(
+                    rows: visibleRows,
+                    emptyMessage: '표시할 영어 지문이 없습니다.',
+                  ),
+                );
+                final translationPanel = _PassageLanguagePanel(
+                  icon: Icons.menu_book_outlined,
+                  title: '한국어 해석',
+                  child: _PassageRows(
+                    rows: visibleTranslations,
+                    emptyMessage: '해석이 아직 준비되지 않았습니다.',
+                    isTranslation: true,
+                  ),
+                );
+
+                if (!isWide) {
+                  return Column(
+                    children: [
+                      englishPanel,
                       const SizedBox(height: 14),
-                  ],
-                ],
-              ),
+                      translationPanel,
+                    ],
+                  );
+                }
+                return IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(child: englishPanel),
+                      const SizedBox(width: 14),
+                      Expanded(child: translationPanel),
+                    ],
+                  ),
+                );
+              },
             ),
-            if (!_expanded && rows.length > visibleRows.length) ...[
+            if (!_expanded &&
+                (rows.length > visibleRows.length ||
+                    translationRows.length > visibleTranslations.length)) ...[
               const SizedBox(height: 12),
               Align(
                 alignment: Alignment.center,
                 child: TextButton.icon(
                   onPressed: () => setState(() => _expanded = true),
                   icon: const Icon(Icons.expand_more_rounded),
-                  label: Text('나머지 ${rows.length - visibleRows.length}문장 보기'),
+                  label: const Text('전체 지문과 해석 보기'),
                 ),
               ),
             ],
@@ -262,10 +309,177 @@ class _FinalTouchFullBracketedPassageState
   }
 }
 
+class _PassageSummaryPanel extends StatelessWidget {
+  const _PassageSummaryPanel({
+    required this.topic,
+    required this.title,
+    required this.gist,
+  });
+
+  final String topic;
+  final String title;
+  final String gist;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFC7D2FE)),
+      ),
+      child: Column(
+        children: [
+          _SummaryLine(label: '주제', value: topic),
+          const Divider(height: 22, color: Color(0xFFE2E8F0)),
+          _SummaryLine(label: '제목', value: title),
+          const Divider(height: 22, color: Color(0xFFE2E8F0)),
+          _SummaryLine(label: '요지', value: gist),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryLine extends StatelessWidget {
+  const _SummaryLine({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 48,
+          padding: const EdgeInsets.symmetric(vertical: 5),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: const Color(0xFFE0E7FF),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF4338CA),
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            value.trim().isEmpty ? '분석 준비 중' : value.trim(),
+            style: const TextStyle(
+              color: Color(0xFF1E293B),
+              fontSize: 14,
+              height: 1.55,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PassageLanguagePanel extends StatelessWidget {
+  const _PassageLanguagePanel({
+    required this.icon,
+    required this.title,
+    required this.child,
+  });
+
+  final IconData icon;
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.82),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFDCE4F2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 19, color: const Color(0xFF4F46E5)),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Color(0xFF25324A),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _PassageRows extends StatelessWidget {
+  const _PassageRows({
+    required this.rows,
+    required this.emptyMessage,
+    this.isTranslation = false,
+  });
+
+  final List<({int? number, String text})> rows;
+  final String emptyMessage;
+  final bool isTranslation;
+
+  @override
+  Widget build(BuildContext context) {
+    if (rows.isEmpty) {
+      return Text(
+        emptyMessage,
+        style: const TextStyle(
+          color: Color(0xFF64748B),
+          height: 1.6,
+        ),
+      );
+    }
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 180),
+      child: Column(
+        children: [
+          for (var index = 0; index < rows.length; index++) ...[
+            _FullPassageSentenceRow(
+              row: rows[index],
+              isTranslation: isTranslation,
+            ),
+            if (index != rows.length - 1) const SizedBox(height: 10),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _FullPassageSentenceRow extends StatelessWidget {
-  const _FullPassageSentenceRow({required this.row});
+  const _FullPassageSentenceRow({
+    required this.row,
+    this.isTranslation = false,
+  });
 
   final ({int? number, String text}) row;
+  final bool isTranslation;
 
   @override
   Widget build(BuildContext context) {
@@ -273,9 +487,11 @@ class _FullPassageSentenceRow extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFDCE4F2)),
+        color: isTranslation
+            ? const Color(0xFFFAFAFF)
+            : Colors.white.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -287,7 +503,7 @@ class _FullPassageSentenceRow extends StatelessWidget {
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: const Color(0xFF4F46E5),
-                borderRadius: BorderRadius.circular(9),
+                borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
                 '${row.number}',
@@ -315,6 +531,23 @@ class _FullPassageSentenceRow extends StatelessWidget {
       ),
     );
   }
+}
+
+List<({int? number, String text})> _translationRows(
+  List<FinalTouchSentenceDetail> details,
+) {
+  return details
+      .map((detail) {
+        final translation = detail.translationBracketed.trim().isNotEmpty
+            ? detail.translationBracketed
+            : detail.translation;
+        return (
+          number: detail.sentenceNo > 0 ? detail.sentenceNo : null,
+          text: translation.trim(),
+        );
+      })
+      .where((row) => row.text.isNotEmpty)
+      .toList();
 }
 
 List<({int? number, String text})> _passageRows({

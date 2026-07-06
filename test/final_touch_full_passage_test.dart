@@ -10,8 +10,8 @@ void main() {
       FinalTouchSentenceDetail(
         sentenceNo: 1,
         original: 'First plain sentence.',
-        translation: '',
-        translationBracketed: '',
+        translation: '첫 번째 일반 해석.',
+        translationBracketed: '[첫 번째 구조 해석].',
         bracketed: '[First bracketed sentence].',
         spans: [],
         sentenceRole: '',
@@ -24,7 +24,7 @@ void main() {
       FinalTouchSentenceDetail(
         sentenceNo: 2,
         original: 'Second plain sentence.',
-        translation: '',
+        translation: '두 번째 일반 해석.',
         translationBracketed: '',
         bracketed: '{Second bracketed sentence}.',
         spans: [],
@@ -45,6 +45,9 @@ void main() {
               body: '[First bracketed sentence]. {Second bracketed sentence}.',
               plainBody: 'First plain sentence. Second plain sentence.',
               sentenceDetails: details,
+              topic: '테스트 주제',
+              title: '테스트 제목',
+              gist: '테스트 요지',
             ),
           ),
         ),
@@ -52,9 +55,16 @@ void main() {
     );
 
     expect(find.text('전체 지문 한눈에 보기'), findsOneWidget);
-    expect(find.text('1'), findsOneWidget);
-    expect(find.text('2'), findsOneWidget);
+    expect(find.text('테스트 주제'), findsOneWidget);
+    expect(find.text('테스트 제목'), findsOneWidget);
+    expect(find.text('테스트 요지'), findsOneWidget);
+    expect(find.text('영어 전체 지문'), findsOneWidget);
+    expect(find.text('한국어 해석'), findsOneWidget);
+    expect(find.text('1'), findsNWidgets(2));
+    expect(find.text('2'), findsNWidgets(2));
     expect(find.textContaining('First bracketed sentence'), findsOneWidget);
+    expect(find.textContaining('첫 번째 구조 해석'), findsOneWidget);
+    expect(find.textContaining('두 번째 일반 해석'), findsOneWidget);
     expect(find.text('[ ] 절'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('final-touch-bracket-toggle')));
