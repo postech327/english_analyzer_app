@@ -300,6 +300,27 @@ class _TeacherVocabularyListScreenState
                             ),
                             onTap: () => _openEditor(item),
                             trailing: PopupMenuButton<String>(
+                              tooltip: '단어장 메뉴',
+                              color: Colors.white,
+                              surfaceTintColor: Colors.white,
+                              shadowColor: const Color(0x330F172A),
+                              elevation: 14,
+                              position: PopupMenuPosition.under,
+                              offset: const Offset(0, 8),
+                              constraints: const BoxConstraints(
+                                minWidth: 210,
+                                maxWidth: 240,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                                side: const BorderSide(
+                                  color: Color(0xFFE7E5F4),
+                                ),
+                              ),
+                              icon: const Icon(
+                                Icons.more_horiz_rounded,
+                                color: Color(0xFF475569),
+                              ),
                               onSelected: (value) {
                                 if (value == 'edit') _openEditor(item);
                                 if (value == 'results') _openResults(item);
@@ -308,32 +329,31 @@ class _TeacherVocabularyListScreenState
                               itemBuilder: (_) => const [
                                 PopupMenuItem(
                                   value: 'edit',
-                                  child: ListTile(
-                                    leading: Icon(Icons.edit_outlined),
-                                    title: Text('상세/편집'),
-                                    contentPadding: EdgeInsets.zero,
+                                  height: 54,
+                                  child: _VocabularyMenuAction(
+                                    icon: Icons.edit_outlined,
+                                    label: '상세/편집',
+                                    subtitle: '정보와 단어를 수정합니다',
                                   ),
                                 ),
                                 PopupMenuItem(
                                   value: 'results',
-                                  child: ListTile(
-                                    leading: Icon(Icons.bar_chart_rounded),
-                                    title: Text('결과 보기'),
-                                    contentPadding: EdgeInsets.zero,
+                                  height: 54,
+                                  child: _VocabularyMenuAction(
+                                    icon: Icons.bar_chart_rounded,
+                                    label: '결과 보기',
+                                    subtitle: '학생별 학습 결과를 확인합니다',
                                   ),
                                 ),
+                                PopupMenuDivider(height: 12),
                                 PopupMenuItem(
                                   value: 'delete',
-                                  child: ListTile(
-                                    leading: Icon(
-                                      Icons.delete_outline,
-                                      color: Colors.red,
-                                    ),
-                                    title: Text(
-                                      '삭제',
-                                      style: TextStyle(color: Colors.red),
-                                    ),
-                                    contentPadding: EdgeInsets.zero,
+                                  height: 54,
+                                  child: _VocabularyMenuAction(
+                                    icon: Icons.delete_outline_rounded,
+                                    label: '삭제',
+                                    subtitle: '단어장을 영구 삭제합니다',
+                                    danger: true,
                                   ),
                                 ),
                               ],
@@ -437,6 +457,72 @@ class TeacherVocabularyEditorScreen extends StatefulWidget {
   @override
   State<TeacherVocabularyEditorScreen> createState() =>
       _TeacherVocabularyEditorScreenState();
+}
+
+class _VocabularyMenuAction extends StatelessWidget {
+  const _VocabularyMenuAction({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    this.danger = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = danger ? const Color(0xFFDC2626) : const Color(0xFF334155);
+    final iconBackground =
+        danger ? const Color(0xFFFEF2F2) : const Color(0xFFF5F3FF);
+    return Row(
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: iconBackground,
+            borderRadius: BorderRadius.circular(11),
+          ),
+          child: Icon(
+            icon,
+            size: 19,
+            color: danger ? color : _vocabularyPurple,
+          ),
+        ),
+        const SizedBox(width: 11),
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: danger ? const Color(0xFFEF4444) : _vocabularyMuted,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _TeacherVocabularyEditorScreenState
