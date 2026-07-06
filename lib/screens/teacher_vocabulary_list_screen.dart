@@ -2468,7 +2468,7 @@ class TeacherVocabularyResultsScreen extends StatelessWidget {
   }
 }
 
-class TeacherVocabularyStudentResultsScreen extends StatelessWidget {
+class TeacherVocabularyStudentResultsScreen extends StatefulWidget {
   const TeacherVocabularyStudentResultsScreen({
     super.key,
     required this.vocabularySet,
@@ -2479,59 +2479,668 @@ class TeacherVocabularyStudentResultsScreen extends StatelessWidget {
   final VocabularyStudentResultSummary student;
 
   @override
+  State<TeacherVocabularyStudentResultsScreen> createState() =>
+      _TeacherVocabularyStudentResultsScreenState();
+}
+
+class _TeacherVocabularyStudentResultsScreenState
+    extends State<TeacherVocabularyStudentResultsScreen> {
+  late Future<List<VocabularyAttempt>> _future;
+  String _filter = 'all';
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  void _reload() {
+    _future = const VocabularyService().fetchTeacherStudentResults(
+      widget.vocabularySet.id,
+      widget.student.studentId,
+    );
+  }
+
+  List<VocabularyAttempt> _filtered(List<VocabularyAttempt> attempts) {
+    if (_filter == 'wrong') {
+      return attempts.where((attempt) => attempt.wrongCount > 0).toList();
+    }
+    if (_filter == 'review') {
+      return attempts
+          .where(
+            (attempt) =>
+                attempt.rangeType == 'review' ||
+                (attempt.rangeLabel ?? '').contains('오답'),
+          )
+          .toList();
+    }
+    return attempts;
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('${student.studentName} 결과')),
+      backgroundColor: _vocabularySurface,
+      appBar: AppBar(
+        title: Text('${widget.student.studentName} 결과'),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+      ),
       body: FutureBuilder<List<VocabularyAttempt>>(
-        future: const VocabularyService().fetchTeacherStudentResults(
-          vocabularySet.id,
-          student.studentId,
-        ),
+        future: _future,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 12),
+                  Text(
+                    '학생 결과를 불러오는 중입니다.',
+                    style: TextStyle(color: _vocabularyMuted),
+                  ),
+                ],
+              ),
+            );
           }
           if (snapshot.hasError) {
-            return Center(child: Text('${snapshot.error}'));
+            return _TeacherResultLoadError(
+              message: '${snapshot.error}',
+              onRetry: () => setState(_reload),
+              onBack: () => Navigator.pop(context),
+            );
           }
           final attempts = snapshot.data ?? const [];
-          return ListView.separated(
-            padding: const EdgeInsets.all(18),
-            itemCount: attempts.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
-              final attempt = attempts[index];
-              return Card(
-                child: ExpansionTile(
-                  title: Text(
-                    '${attempt.score.toStringAsFixed(1)}점'
-                    ' · ${attempt.correctCount}/${attempt.totalCount}',
-                    style: const TextStyle(fontWeight: FontWeight.w900),
+          if (attempts.isEmpty) {
+            return const _TeacherStudentResultEmptyState();
+          }
+          final filtered = _filtered(attempts);
+          final average =
+              attempts.fold<double>(0, (sum, item) => sum + item.score) /
+                  attempts.length;
+          final best = attempts
+              .map((attempt) => attempt.score)
+              .reduce((a, b) => a > b ? a : b);
+          final totalWrong = attempts.fold<int>(
+            0,
+            (sum, attempt) => sum + attempt.wrongCount,
+          );
+          return Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 960),
+              child: ListView(
+                padding: const EdgeInsets.all(18),
+                children: [
+                  _TeacherStudentResultHero(
+                    studentName: widget.student.studentName,
+                    vocabularyTitle: widget.vocabularySet.title,
+                    attemptCount: attempts.length,
+                    bestScore: best,
+                    latestScore: attempts.first.score,
+                    averageScore: average,
+                    latestDate: attempts.first.createdAt,
                   ),
-                  subtitle: Text(
-                    '${attempt.rangeLabel ?? '전체'}'
-                    ' · ${_teacherResultDate(attempt.createdAt)}',
+                  const SizedBox(height: 14),
+                  _TeacherResultStats(
+                    attemptCount: attempts.length,
+                    bestScore: best,
+                    averageScore: average,
+                    totalWrong: totalWrong,
                   ),
-                  children: [
-                    for (final answer in attempt.results)
-                      ListTile(
-                        leading: Icon(
-                          answer.isCorrect ? Icons.check_circle : Icons.cancel,
-                          color:
-                              answer.isCorrect ? Colors.green : Colors.orange,
-                        ),
-                        title: Text(answer.word),
-                        subtitle: Text(
-                          '학생 답: ${answer.studentAnswer}\n'
-                          '정답: ${answer.correctAnswer}',
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          '학습 결과',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                       ),
-                  ],
-                ),
-              );
-            },
+                      Text(
+                        '최신순 · ${filtered.length}건',
+                        style: const TextStyle(color: _vocabularyMuted),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      _filterChip('all', '전체'),
+                      _filterChip('wrong', '오답 있음'),
+                      _filterChip('review', '오답 복습'),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (filtered.isEmpty)
+                    const _TeacherFilteredResultEmptyState(),
+                  for (final attempt in filtered)
+                    _TeacherVocabularyAttemptCard(attempt: attempt),
+                ],
+              ),
+            ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _filterChip(String value, String label) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: _filter == value,
+      onSelected: (_) => setState(() => _filter = value),
+      selectedColor: const Color(0xFFEDE9FE),
+      labelStyle: TextStyle(
+        color: _filter == value ? _vocabularyPurple : _vocabularyInk,
+        fontWeight: FontWeight.w800,
+      ),
+    );
+  }
+}
+
+class _TeacherStudentResultHero extends StatelessWidget {
+  const _TeacherStudentResultHero({
+    required this.studentName,
+    required this.vocabularyTitle,
+    required this.attemptCount,
+    required this.bestScore,
+    required this.latestScore,
+    required this.averageScore,
+    required this.latestDate,
+  });
+
+  final String studentName;
+  final String vocabularyTitle;
+  final int attemptCount;
+  final double bestScore;
+  final double latestScore;
+  final double averageScore;
+  final String? latestDate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFF5F3FF), Color(0xFFEFF6FF)],
+        ),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: const Color(0xFFDDD6FE)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 26,
+                backgroundColor: Colors.white,
+                child: Text(
+                  studentName.isEmpty ? '?' : studentName.characters.first,
+                  style: const TextStyle(
+                    color: _vocabularyPurple,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$studentName 단어장 결과',
+                      style: const TextStyle(
+                        fontSize: 23,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    Text(
+                      vocabularyTitle,
+                      style: const TextStyle(
+                        color: Color(0xFF475569),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '${latestScore.toStringAsFixed(1)}점',
+                style: const TextStyle(
+                  color: _vocabularyPurple,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _TeacherResultPill(label: '응시 $attemptCount회'),
+              _TeacherResultPill(label: '최고 ${bestScore.toStringAsFixed(1)}점'),
+              _TeacherResultPill(
+                label: '평균 ${averageScore.toStringAsFixed(1)}점',
+              ),
+              _TeacherResultPill(
+                label: '최근 학습 ${_teacherResultDate(latestDate)}',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TeacherResultPill extends StatelessWidget {
+  const _TeacherResultPill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Color(0xFF475569),
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _TeacherResultStats extends StatelessWidget {
+  const _TeacherResultStats({
+    required this.attemptCount,
+    required this.bestScore,
+    required this.averageScore,
+    required this.totalWrong,
+  });
+
+  final int attemptCount;
+  final double bestScore;
+  final double averageScore;
+  final int totalWrong;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth >= 760
+            ? (constraints.maxWidth - 30) / 4
+            : (constraints.maxWidth - 10) / 2;
+        return Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            _TeacherResultStatCard(
+              width: width,
+              icon: Icons.assignment_turned_in_outlined,
+              label: '응시 횟수',
+              value: '$attemptCount회',
+              color: const Color(0xFF475569),
+            ),
+            _TeacherResultStatCard(
+              width: width,
+              icon: Icons.emoji_events_outlined,
+              label: '최고 점수',
+              value: '${bestScore.toStringAsFixed(1)}점',
+              color: const Color(0xFF059669),
+            ),
+            _TeacherResultStatCard(
+              width: width,
+              icon: Icons.insights_outlined,
+              label: '평균 점수',
+              value: '${averageScore.toStringAsFixed(1)}점',
+              color: _vocabularyPurple,
+            ),
+            _TeacherResultStatCard(
+              width: width,
+              icon: Icons.error_outline_rounded,
+              label: '누적 오답',
+              value: '$totalWrong개',
+              color: const Color(0xFFEA580C),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _TeacherResultStatCard extends StatelessWidget {
+  const _TeacherResultStatCard({
+    required this.width,
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final double width;
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE7E5F4)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: const TextStyle(color: _vocabularyMuted)),
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TeacherVocabularyAttemptCard extends StatelessWidget {
+  const _TeacherVocabularyAttemptCard({required this.attempt});
+
+  final VocabularyAttempt attempt;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _teacherScoreColor(attempt.score);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.24)),
+      ),
+      child: ExpansionTile(
+        shape: const Border(),
+        collapsedShape: const Border(),
+        tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        leading: CircleAvatar(
+          backgroundColor: color.withValues(alpha: 0.12),
+          child: Text(
+            '${attempt.score.round()}',
+            style: TextStyle(color: color, fontWeight: FontWeight.w900),
+          ),
+        ),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                '${attempt.correctCount} / ${attempt.totalCount} 정답',
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+            ),
+            _TeacherAttemptTypeBadge(attempt: attempt),
+          ],
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 5),
+          child: Text(
+            '${attempt.rangeLabel ?? '전체'} · 오답 ${attempt.wrongCount}개'
+            ' · ${_teacherResultDate(attempt.createdAt)}',
+          ),
+        ),
+        children: [
+          for (final answer in attempt.results)
+            _TeacherVocabularyAnswerRow(answer: answer),
+        ],
+      ),
+    );
+  }
+}
+
+class _TeacherAttemptTypeBadge extends StatelessWidget {
+  const _TeacherAttemptTypeBadge({required this.attempt});
+
+  final VocabularyAttempt attempt;
+
+  @override
+  Widget build(BuildContext context) {
+    final review = attempt.rangeType == 'review' ||
+        (attempt.rangeLabel ?? '').contains('오답');
+    final group = attempt.rangeType == 'group';
+    final label = review
+        ? '오답 복습'
+        : group
+            ? '강/챕터'
+            : '일반 학습';
+    final color = review
+        ? const Color(0xFFEA580C)
+        : group
+            ? const Color(0xFF2563EB)
+            : _vocabularyPurple;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _TeacherVocabularyAnswerRow extends StatelessWidget {
+  const _TeacherVocabularyAnswerRow({required this.answer});
+
+  final VocabularyAttemptResult answer;
+
+  @override
+  Widget build(BuildContext context) {
+    final color =
+        answer.isCorrect ? const Color(0xFF059669) : const Color(0xFFDC2626);
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: answer.isCorrect
+            ? const Color(0xFFF0FDF4)
+            : const Color(0xFFFEF2F2),
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            answer.isCorrect ? Icons.check_circle : Icons.cancel,
+            color: color,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  answer.word,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '내 답: ${displayVocabularyMeaning(answer.studentAnswer)}',
+                ),
+                Text(
+                  '정답: ${displayVocabularyMeaning(answer.correctAnswer)}',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            answer.isCorrect ? '정답' : '오답',
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Color _teacherScoreColor(double score) {
+  if (score >= 90) return const Color(0xFF059669);
+  if (score >= 70) return const Color(0xFFEA580C);
+  return const Color(0xFFDC2626);
+}
+
+class _TeacherStudentResultEmptyState extends StatelessWidget {
+  const _TeacherStudentResultEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.inbox_outlined, size: 52, color: _vocabularyPurple),
+            SizedBox(height: 12),
+            Text(
+              '아직 단어장 학습 결과가 없습니다.',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+            ),
+            SizedBox(height: 6),
+            Text(
+              '학생이 뜻 맞히기를 완료하면 결과가 여기에 표시됩니다.',
+              style: TextStyle(color: _vocabularyMuted),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TeacherFilteredResultEmptyState extends StatelessWidget {
+  const _TeacherFilteredResultEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 28),
+      child: Center(
+        child: Text(
+          '선택한 조건에 해당하는 결과가 없습니다.',
+          style: TextStyle(color: _vocabularyMuted),
+        ),
+      ),
+    );
+  }
+}
+
+class _TeacherResultLoadError extends StatelessWidget {
+  const _TeacherResultLoadError({
+    required this.message,
+    required this.onRetry,
+    required this.onBack,
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 460),
+        margin: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: const Color(0xFFFECACA)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.error_outline_rounded,
+              color: Color(0xFFDC2626),
+              size: 42,
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              '학생 결과를 불러오지 못했습니다.',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: _vocabularyMuted),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              children: [
+                OutlinedButton(
+                  onPressed: onBack,
+                  child: const Text('목록으로'),
+                ),
+                FilledButton.icon(
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('다시 시도'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
