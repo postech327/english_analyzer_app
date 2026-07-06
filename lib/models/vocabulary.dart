@@ -112,26 +112,52 @@ class VocabularyItem {
 class VocabularyAttempt {
   const VocabularyAttempt({
     required this.id,
+    required this.setId,
     required this.score,
     required this.totalCount,
     required this.correctCount,
     required this.results,
+    this.mode = 'meaning_quiz',
+    this.rangeLabel,
+    this.rangeType,
+    this.createdAt,
   });
 
   final int id;
+  final int setId;
   final double score;
   final int totalCount;
   final int correctCount;
   final List<VocabularyAttemptResult> results;
+  final String mode;
+  final String? rangeLabel;
+  final String? rangeType;
+  final String? createdAt;
+  int get wrongCount => totalCount - correctCount;
 
   factory VocabularyAttempt.fromJson(Map<String, dynamic> json) {
     return VocabularyAttempt(
       id: _asInt(json['attempt_id'] ?? json['id']),
+      setId: _asInt(json['set_id']),
       score: _asDouble(json['score']),
       totalCount: _asInt(json['total_count']),
       correctCount: _asInt(json['correct_count']),
       results: VocabularyAttemptResult.listFromJson(json['results']),
+      mode: _asString(json['mode'], fallback: 'meaning_quiz'),
+      rangeLabel: _nullableString(json['range_label']),
+      rangeType: _nullableString(json['range_type']),
+      createdAt: _nullableString(json['created_at']),
     );
+  }
+
+  static List<VocabularyAttempt> listFromJson(dynamic value) {
+    if (value is! List) return const [];
+    return value
+        .whereType<Map>()
+        .map(
+          (item) => VocabularyAttempt.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList();
   }
 }
 
@@ -167,6 +193,61 @@ class VocabularyAttemptResult {
         .map(
           (item) =>
               VocabularyAttemptResult.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList();
+  }
+}
+
+class VocabularyStudentResultSummary {
+  const VocabularyStudentResultSummary({
+    required this.studentId,
+    required this.studentName,
+    required this.attemptCount,
+    required this.bestScore,
+    required this.latestScore,
+    required this.latestCorrectCount,
+    required this.latestTotalCount,
+    required this.wrongCount,
+    this.latestAttemptAt,
+  });
+
+  final int studentId;
+  final String studentName;
+  final int attemptCount;
+  final double bestScore;
+  final double latestScore;
+  final int latestCorrectCount;
+  final int latestTotalCount;
+  final int wrongCount;
+  final String? latestAttemptAt;
+
+  factory VocabularyStudentResultSummary.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    return VocabularyStudentResultSummary(
+      studentId: _asInt(json['student_id']),
+      studentName: _asString(
+        json['student_username'],
+        fallback: '학생 ${_asInt(json['student_id'])}',
+      ),
+      attemptCount: _asInt(json['attempt_count']),
+      bestScore: _asDouble(json['best_score']),
+      latestScore: _asDouble(json['latest_score']),
+      latestCorrectCount: _asInt(json['latest_correct_count']),
+      latestTotalCount: _asInt(json['latest_total_count']),
+      wrongCount: _asInt(json['wrong_count']),
+      latestAttemptAt: _nullableString(json['latest_attempt_at']),
+    );
+  }
+
+  static List<VocabularyStudentResultSummary> listFromJson(dynamic value) {
+    if (value is! List) return const [];
+    return value
+        .whereType<Map>()
+        .map(
+          (item) => VocabularyStudentResultSummary.fromJson(
+            Map<String, dynamic>.from(item),
+          ),
         )
         .toList();
   }

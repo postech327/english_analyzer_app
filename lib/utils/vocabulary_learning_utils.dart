@@ -87,3 +87,14 @@ List<VocabularyLearningGroup> buildVocabularyLearningGroups(
 
 bool hasVocabularyGroups(List<VocabularyItem> items) =>
     items.any((item) => (item.groupLabel ?? '').trim().isNotEmpty);
+
+List<VocabularyItem> wrongVocabularyItems(
+  List<VocabularyItem> items,
+  Iterable<VocabularyAttemptResult> results,
+) {
+  final wrongIds = results
+      .where((result) => !result.isCorrect)
+      .map((result) => result.itemId)
+      .toSet();
+  return items.where((item) => wrongIds.contains(item.id)).toList();
+}

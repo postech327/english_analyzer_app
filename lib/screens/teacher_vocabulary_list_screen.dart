@@ -77,6 +77,16 @@ class _TeacherVocabularyListScreenState
     if (changed == true && mounted) setState(_reload);
   }
 
+  Future<void> _openResults(VocabularySet vocabularySet) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            TeacherVocabularyResultsScreen(vocabularySet: vocabularySet),
+      ),
+    );
+  }
+
   Future<void> _delete(VocabularySet vocabularySet) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -292,16 +302,39 @@ class _TeacherVocabularyListScreenState
                             trailing: PopupMenuButton<String>(
                               onSelected: (value) {
                                 if (value == 'edit') _openEditor(item);
+                                if (value == 'results') _openResults(item);
                                 if (value == 'delete') _delete(item);
                               },
                               itemBuilder: (_) => const [
                                 PopupMenuItem(
                                   value: 'edit',
-                                  child: Text('상세/편집'),
+                                  child: ListTile(
+                                    leading: Icon(Icons.edit_outlined),
+                                    title: Text('상세/편집'),
+                                    contentPadding: EdgeInsets.zero,
+                                  ),
+                                ),
+                                PopupMenuItem(
+                                  value: 'results',
+                                  child: ListTile(
+                                    leading: Icon(Icons.bar_chart_rounded),
+                                    title: Text('결과 보기'),
+                                    contentPadding: EdgeInsets.zero,
+                                  ),
                                 ),
                                 PopupMenuItem(
                                   value: 'delete',
-                                  child: Text('삭제'),
+                                  child: ListTile(
+                                    leading: Icon(
+                                      Icons.delete_outline,
+                                      color: Colors.red,
+                                    ),
+                                    title: Text(
+                                      '삭제',
+                                      style: TextStyle(color: Colors.red),
+                                    ),
+                                    contentPadding: EdgeInsets.zero,
+                                  ),
                                 ),
                               ],
                             ),
@@ -1845,6 +1878,200 @@ class _AssignmentDialogMessage extends StatelessWidget {
       ),
     );
   }
+}
+
+class TeacherVocabularyResultsScreen extends StatelessWidget {
+  const TeacherVocabularyResultsScreen({
+    super.key,
+    required this.vocabularySet,
+  });
+
+  final VocabularySet vocabularySet;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _vocabularySurface,
+      appBar: AppBar(
+        title: const Text('단어장 결과'),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+      ),
+      body: FutureBuilder<List<VocabularyStudentResultSummary>>(
+        future: const VocabularyService().fetchTeacherResults(vocabularySet.id),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text('${snapshot.error}'));
+          }
+          final results = snapshot.data ?? const [];
+          if (results.isEmpty) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.bar_chart_rounded,
+                      size: 52,
+                      color: _vocabularyPurple,
+                    ),
+                    SizedBox(height: 12),
+                    Text(
+                      '아직 제출된 결과가 없습니다.',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                    ),
+                    SizedBox(height: 6),
+                    Text(
+                      '학생이 뜻 맞히기를 완료하면 결과가 표시됩니다.',
+                      style: TextStyle(color: _vocabularyMuted),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+          return ListView(
+            padding: const EdgeInsets.all(18),
+            children: [
+              Text(
+                vocabularySet.title,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '응시 학생 ${results.length}명',
+                style: const TextStyle(color: _vocabularyMuted),
+              ),
+              const SizedBox(height: 16),
+              for (final result in results)
+                Card(
+                  elevation: 0,
+                  margin: const EdgeInsets.only(bottom: 10),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.all(16),
+                    leading: CircleAvatar(
+                      backgroundColor: const Color(0xFFEDE9FE),
+                      child: Text(
+                        result.studentName.isEmpty
+                            ? '?'
+                            : result.studentName.substring(0, 1),
+                      ),
+                    ),
+                    title: Text(
+                      result.studentName,
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                    subtitle: Text(
+                      '응시 ${result.attemptCount}회 · '
+                      '최근 ${result.latestScore.toStringAsFixed(1)}점 · '
+                      '최고 ${result.bestScore.toStringAsFixed(1)}점\n'
+                      '${result.latestCorrectCount}/${result.latestTotalCount} 정답'
+                      ' · 오답 ${result.wrongCount}개'
+                      ' · ${_teacherResultDate(result.latestAttemptAt)}',
+                    ),
+                    isThreeLine: true,
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => TeacherVocabularyStudentResultsScreen(
+                          vocabularySet: vocabularySet,
+                          student: result,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class TeacherVocabularyStudentResultsScreen extends StatelessWidget {
+  const TeacherVocabularyStudentResultsScreen({
+    super.key,
+    required this.vocabularySet,
+    required this.student,
+  });
+
+  final VocabularySet vocabularySet;
+  final VocabularyStudentResultSummary student;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('${student.studentName} 결과')),
+      body: FutureBuilder<List<VocabularyAttempt>>(
+        future: const VocabularyService().fetchTeacherStudentResults(
+          vocabularySet.id,
+          student.studentId,
+        ),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text('${snapshot.error}'));
+          }
+          final attempts = snapshot.data ?? const [];
+          return ListView.separated(
+            padding: const EdgeInsets.all(18),
+            itemCount: attempts.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final attempt = attempts[index];
+              return Card(
+                child: ExpansionTile(
+                  title: Text(
+                    '${attempt.score.toStringAsFixed(1)}점'
+                    ' · ${attempt.correctCount}/${attempt.totalCount}',
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                  subtitle: Text(
+                    '${attempt.rangeLabel ?? '전체'}'
+                    ' · ${_teacherResultDate(attempt.createdAt)}',
+                  ),
+                  children: [
+                    for (final answer in attempt.results)
+                      ListTile(
+                        leading: Icon(
+                          answer.isCorrect ? Icons.check_circle : Icons.cancel,
+                          color:
+                              answer.isCorrect ? Colors.green : Colors.orange,
+                        ),
+                        title: Text(answer.word),
+                        subtitle: Text(
+                          '학생 답: ${answer.studentAnswer}\n'
+                          '정답: ${answer.correctAnswer}',
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+String _teacherResultDate(String? value) {
+  final date = value == null ? null : DateTime.tryParse(value);
+  if (date == null) return '-';
+  return '${date.year}.${date.month.toString().padLeft(2, '0')}.'
+      '${date.day.toString().padLeft(2, '0')}';
 }
 
 String _statusLabel(String status) => switch (status) {

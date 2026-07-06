@@ -101,14 +101,18 @@ class VocabularyService {
 
   Future<VocabularyAttempt> submitMeaningQuiz(
     int setId,
-    Map<int, String> answers,
-  ) async {
+    Map<int, String> answers, {
+    String? rangeLabel,
+    String? rangeType,
+  }) async {
     final decoded = await _send(
       'POST',
       ApiConfig.u('/student/vocabulary-attempts/submit'),
       {
         'set_id': setId,
         'mode': 'meaning_quiz',
+        if ((rangeLabel ?? '').isNotEmpty) 'range_label': rangeLabel,
+        if ((rangeType ?? '').isNotEmpty) 'range_type': rangeType,
         'answers': [
           for (final entry in answers.entries)
             {'item_id': entry.key, 'student_answer': entry.value},
@@ -116,6 +120,45 @@ class VocabularyService {
       },
     );
     return VocabularyAttempt.fromJson(decoded as Map<String, dynamic>);
+  }
+
+  Future<List<VocabularyAttempt>> fetchStudentAttempts(int setId) async {
+    final decoded = await _get(
+      ApiConfig.u('/student/vocabulary-sets/$setId/attempts'),
+    );
+    return VocabularyAttempt.listFromJson(
+      decoded is Map<String, dynamic> ? decoded['items'] : decoded,
+    );
+  }
+
+  Future<VocabularyAttempt> fetchStudentAttempt(int attemptId) async {
+    final decoded = await _get(
+      ApiConfig.u('/student/vocabulary-attempts/$attemptId'),
+    );
+    return VocabularyAttempt.fromJson(decoded as Map<String, dynamic>);
+  }
+
+  Future<List<VocabularyStudentResultSummary>> fetchTeacherResults(
+    int setId,
+  ) async {
+    final decoded = await _get(
+      ApiConfig.u('/teacher/vocabulary-sets/$setId/results'),
+    );
+    return VocabularyStudentResultSummary.listFromJson(
+      decoded is Map<String, dynamic> ? decoded['items'] : decoded,
+    );
+  }
+
+  Future<List<VocabularyAttempt>> fetchTeacherStudentResults(
+    int setId,
+    int studentId,
+  ) async {
+    final decoded = await _get(
+      ApiConfig.u('/teacher/vocabulary-sets/$setId/results/$studentId'),
+    );
+    return VocabularyAttempt.listFromJson(
+      decoded is Map<String, dynamic> ? decoded['attempts'] : null,
+    );
   }
 
   Future<dynamic> _get(Uri uri) async {

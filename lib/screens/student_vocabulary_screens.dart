@@ -360,14 +360,40 @@ class StudentVocabularyDetailScreen extends StatelessWidget {
   ) async {
     final items = await _selectLearningItems(context, vocabularySet.items);
     if (items == null || !context.mounted) return;
+    final selection = _describeSelection(vocabularySet.items, items);
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => StudentVocabularyMeaningQuizScreen(
           vocabularySet: vocabularySet,
           items: items,
+          rangeLabel: selection.$1,
+          rangeType: selection.$2,
         ),
       ),
+    );
+  }
+
+  (String, String) _describeSelection(
+    List<VocabularyItem> all,
+    List<VocabularyItem> selected,
+  ) {
+    if (selected.length == all.length) return ('전체', 'all');
+    final labels = selected
+        .map((item) => (item.groupLabel ?? '').trim())
+        .where((label) => label.isNotEmpty)
+        .toSet();
+    if (labels.length == 1 &&
+        selected
+            .every((item) => (item.groupLabel ?? '').trim() == labels.first)) {
+      return (labels.first, 'group');
+    }
+    final start = all.indexOf(selected.first);
+    return (
+      start >= 0
+          ? '${start + 1}~${start + selected.length}'
+          : '${selected.length}단어',
+      'chunk',
     );
   }
 
@@ -456,6 +482,46 @@ class StudentVocabularyDetailScreen extends StatelessWidget {
                     ],
                   ],
                 ),
+              ),
+              const SizedBox(height: 24),
+              FutureBuilder<List<VocabularyAttempt>>(
+                future: const VocabularyService()
+                    .fetchStudentAttempts(vocabularySet.id),
+                builder: (context, attemptSnapshot) {
+                  final attempts = attemptSnapshot.data ?? const [];
+                  final latest = attempts.isEmpty ? null : attempts.first;
+                  return _RecentVocabularyResultCard(
+                    latest: latest,
+                    loading: attemptSnapshot.connectionState ==
+                        ConnectionState.waiting,
+                    onViewAll: attempts.isEmpty
+                        ? null
+                        : () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => StudentVocabularyAttemptsScreen(
+                                  vocabularySet: vocabularySet,
+                                ),
+                              ),
+                            ),
+                    onReview: latest == null || latest.wrongCount == 0
+                        ? null
+                        : () async {
+                            final detail = await const VocabularyService()
+                                .fetchStudentAttempt(latest.id);
+                            if (!context.mounted) return;
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => StudentVocabularyResultScreen(
+                                  attempt: detail,
+                                  vocabularySet: vocabularySet,
+                                ),
+                              ),
+                            );
+                          },
+                  );
+                },
               ),
               const SizedBox(height: 24),
               const Text(
@@ -877,10 +943,14 @@ class StudentVocabularyMeaningQuizScreen extends StatefulWidget {
     super.key,
     required this.vocabularySet,
     required this.items,
+    this.rangeLabel,
+    this.rangeType,
   });
 
   final VocabularySet vocabularySet;
   final List<VocabularyItem> items;
+  final String? rangeLabel;
+  final String? rangeType;
 
   @override
   State<StudentVocabularyMeaningQuizScreen> createState() =>
@@ -902,7 +972,7 @@ class _StudentVocabularyMeaningQuizScreenState
     _questions = [...widget.items]..shuffle(random);
     _choices = {
       for (final item in _questions)
-        item.id: _buildChoices(item, widget.items, random),
+        item.id: _buildChoices(item, widget.vocabularySet.items, random),
     };
   }
 
@@ -924,13 +994,20 @@ class _StudentVocabularyMeaningQuizScreenState
   Future<void> _finish() async {
     setState(() => _submitting = true);
     try {
-      final attempt = await const VocabularyService()
-          .submitMeaningQuiz(widget.vocabularySet.id, _answers);
+      final attempt = await const VocabularyService().submitMeaningQuiz(
+        widget.vocabularySet.id,
+        _answers,
+        rangeLabel: widget.rangeLabel,
+        rangeType: widget.rangeType,
+      );
       if (!mounted) return;
       await Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => StudentVocabularyResultScreen(attempt: attempt),
+          builder: (_) => StudentVocabularyResultScreen(
+            attempt: attempt,
+            vocabularySet: widget.vocabularySet,
+          ),
         ),
       );
     } catch (error) {
@@ -1185,14 +1262,235 @@ class _QuizChoiceTile extends StatelessWidget {
   }
 }
 
-class StudentVocabularyResultScreen extends StatelessWidget {
-  const StudentVocabularyResultScreen({super.key, required this.attempt});
+class _RecentVocabularyResultCard extends StatelessWidget {
+  const _RecentVocabularyResultCard({
+    required this.latest,
+    required this.loading,
+    required this.onViewAll,
+    required this.onReview,
+  });
 
-  final VocabularyAttempt attempt;
+  final VocabularyAttempt? latest;
+  final bool loading;
+  final VoidCallback? onViewAll;
+  final VoidCallback? onReview;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+        side: const BorderSide(color: Color(0xFFE7E5F4)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: loading
+            ? const Center(child: CircularProgressIndicator())
+            : latest == null
+                ? const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '최근 학습 결과',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      SizedBox(height: 8),
+                      Text('아직 학습 기록이 없습니다.'),
+                      Text(
+                        '뜻 맞히기를 풀면 결과가 여기에 표시됩니다.',
+                        style: TextStyle(color: Color(0xFF64748B)),
+                      ),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              '최근 학습 결과',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: onViewAll,
+                            child: const Text('결과 보기'),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        '${latest!.score.toStringAsFixed(1)}점',
+                        style: const TextStyle(
+                          color: _studentVocabPurple,
+                          fontSize: 30,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      Text(
+                        '${latest!.correctCount} / ${latest!.totalCount} 정답'
+                        ' · 오답 ${latest!.wrongCount}개',
+                      ),
+                      if ((latest!.rangeLabel ?? '').isNotEmpty)
+                        Text(
+                          '학습 범위: ${latest!.rangeLabel}',
+                          style: const TextStyle(color: Color(0xFF64748B)),
+                        ),
+                      if ((latest!.createdAt ?? '').isNotEmpty)
+                        Text(
+                          '최근 학습: ${_shortDate(latest!.createdAt)}',
+                          style: const TextStyle(color: Color(0xFF64748B)),
+                        ),
+                      if (latest!.wrongCount == 0)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: Text(
+                            '오답이 없습니다. 훌륭해요!',
+                            style: TextStyle(
+                              color: Color(0xFF15803D),
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        )
+                      else
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: OutlinedButton.icon(
+                            onPressed: onReview,
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: const Text('오답 복습'),
+                          ),
+                        ),
+                    ],
+                  ),
+      ),
+    );
+  }
+}
+
+class StudentVocabularyAttemptsScreen extends StatelessWidget {
+  const StudentVocabularyAttemptsScreen({
+    super.key,
+    required this.vocabularySet,
+  });
+
+  final VocabularySet vocabularySet;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(title: const Text('단어장 학습 결과')),
+      body: FutureBuilder<List<VocabularyAttempt>>(
+        future:
+            const VocabularyService().fetchStudentAttempts(vocabularySet.id),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text('${snapshot.error}'));
+          }
+          final attempts = snapshot.data ?? const [];
+          if (attempts.isEmpty) {
+            return const Center(child: Text('아직 학습 기록이 없습니다.'));
+          }
+          return ListView.separated(
+            padding: const EdgeInsets.all(18),
+            itemCount: attempts.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final attempt = attempts[index];
+              return Card(
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: const Color(0xFFEDE9FE),
+                    child: Text('${attempt.score.round()}'),
+                  ),
+                  title: Text(
+                    '${attempt.correctCount}/${attempt.totalCount} 정답'
+                    ' · 오답 ${attempt.wrongCount}개',
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                  subtitle: Text(
+                    '${attempt.rangeLabel ?? '전체'}'
+                    ' · ${_shortDate(attempt.createdAt)}',
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () async {
+                    final detail = await const VocabularyService()
+                        .fetchStudentAttempt(attempt.id);
+                    if (!context.mounted) return;
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => StudentVocabularyResultScreen(
+                          attempt: detail,
+                          vocabularySet: vocabularySet,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class StudentVocabularyResultScreen extends StatelessWidget {
+  const StudentVocabularyResultScreen({
+    super.key,
+    required this.attempt,
+    required this.vocabularySet,
+  });
+
+  final VocabularyAttempt attempt;
+  final VocabularySet vocabularySet;
+
+  List<VocabularyItem> get _attemptItems {
+    final ids = attempt.results.map((result) => result.itemId).toSet();
+    return vocabularySet.items.where((item) => ids.contains(item.id)).toList();
+  }
+
+  List<VocabularyItem> get _wrongItems {
+    return wrongVocabularyItems(vocabularySet.items, attempt.results);
+  }
+
+  void _openQuiz(
+    BuildContext context,
+    List<VocabularyItem> items,
+    String rangeLabel,
+  ) {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StudentVocabularyMeaningQuizScreen(
+          vocabularySet: vocabularySet,
+          items: items,
+          rangeLabel: rangeLabel,
+          rangeType: 'review',
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final wrongItems = _wrongItems;
+    final attemptItems = _attemptItems;
+    return Scaffold(
+      backgroundColor: _studentVocabSurface,
       appBar: AppBar(title: const Text('단어 테스트 결과')),
       body: ListView(
         padding: const EdgeInsets.all(18),
@@ -1210,6 +1508,13 @@ class StudentVocabularyResultScreen extends StatelessWidget {
                     ),
                   ),
                   Text('${attempt.correctCount} / ${attempt.totalCount} 정답'),
+                  const SizedBox(height: 8),
+                  Text(
+                    '맞은 단어 ${attempt.correctCount}개 · '
+                    '틀린 단어 ${attempt.wrongCount}개',
+                  ),
+                  if ((attempt.rangeLabel ?? '').isNotEmpty)
+                    Text('학습 범위: ${attempt.rangeLabel}'),
                 ],
               ),
             ),
@@ -1232,17 +1537,73 @@ class StudentVocabularyResultScreen extends StatelessWidget {
                 ),
               ),
             ),
+          if (wrongItems.isEmpty)
+            const Card(
+              color: Color(0xFFECFDF5),
+              child: Padding(
+                padding: EdgeInsets.all(18),
+                child: Text(
+                  '오답이 없습니다. 훌륭해요!',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Color(0xFF15803D),
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('단어장으로 돌아가기'),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton(
+                onPressed: attemptItems.isEmpty
+                    ? null
+                    : () => _openQuiz(context, attemptItems, '다시 풀기'),
+                child: const Text('다시 풀기'),
+              ),
+              FilledButton.tonal(
+                onPressed: wrongItems.isEmpty
+                    ? null
+                    : () => _openQuiz(context, wrongItems, '오답 복습'),
+                child: const Text('오답만 다시 풀기'),
+              ),
+              FilledButton.tonalIcon(
+                onPressed: wrongItems.isEmpty
+                    ? null
+                    : () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => StudentVocabularyCardStudyScreen(
+                              vocabularySet: vocabularySet,
+                              items: wrongItems,
+                            ),
+                          ),
+                        ),
+                icon: const Icon(Icons.style_rounded),
+                label: const Text('오답만 카드 학습'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('단어장으로 돌아가기'),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
+}
+
+String _shortDate(String? value) {
+  if (value == null || value.isEmpty) return '-';
+  final parsed = DateTime.tryParse(value);
+  if (parsed == null) return value;
+  return '${parsed.year}.${parsed.month.toString().padLeft(2, '0')}.'
+      '${parsed.day.toString().padLeft(2, '0')}';
 }

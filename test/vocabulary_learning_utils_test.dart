@@ -67,4 +67,30 @@ void main() {
     expect(groups.map((group) => group.count), [2, 1, 1]);
     expect(hasVocabularyGroups(items), isTrue);
   });
+
+  test('creates a review subset from wrong attempt answers only', () {
+    const items = [
+      VocabularyItem(id: 1, word: 'goal', meaningKo: '목표'),
+      VocabularyItem(id: 2, word: 'refund', meaningKo: '환불'),
+    ];
+    const results = [
+      VocabularyAttemptResult(
+        itemId: 1,
+        word: 'goal',
+        studentAnswer: '목표',
+        correctAnswer: '목표',
+        isCorrect: true,
+      ),
+      VocabularyAttemptResult(
+        itemId: 2,
+        word: 'refund',
+        studentAnswer: '구매',
+        correctAnswer: '환불',
+        isCorrect: false,
+      ),
+    ];
+
+    expect(wrongVocabularyItems(items, results).single.word, 'refund');
+    expect(wrongVocabularyItems(items, results), hasLength(1));
+  });
 }
