@@ -20,7 +20,8 @@ class TeacherFinalTouchImportScreen extends StatefulWidget {
 class _TeacherFinalTouchImportScreenState
     extends State<TeacherFinalTouchImportScreen> {
   final _service = const FinalTouchService();
-  FinalTouchImportDraft? _draft;
+  FinalTouchImportResult? _result;
+  final Set<int> _selectedIndexes = {};
   String? _fileName;
   String? _error;
   bool _reading = false;
@@ -45,16 +46,24 @@ class _TeacherFinalTouchImportScreenState
         throw const FormatException('30MB 이하의 HWPX 파일을 선택해 주세요.');
       }
       final extracted = extractWorkbookTextFromHwpx(file.bytes);
-      final draft = parseFinalTouchImportText(extracted.text);
+      final result = parseFinalTouchImportDrafts(extracted.text);
       if (!mounted) return;
       setState(() {
         _fileName = file.name;
-        _draft = draft;
+        _result = result;
+        _selectedIndexes
+          ..clear()
+          ..addAll(
+            result.drafts
+                .where((draft) => draft.canSave)
+                .map((draft) => draft.index),
+          );
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _draft = null;
+        _result = null;
+        _selectedIndexes.clear();
         _error = error is FormatException ? error.message : '$error';
       });
     } finally {
@@ -63,21 +72,68 @@ class _TeacherFinalTouchImportScreenState
   }
 
   Future<void> _save() async {
-    final draft = _draft;
-    if (draft == null || !draft.canSave || _saving) return;
+    final result = _result;
+    final selected = result?.drafts
+            .where(
+              (draft) =>
+                  draft.canSave && _selectedIndexes.contains(draft.index),
+            )
+            .toList() ??
+        const <FinalTouchImportDraft>[];
+    if (selected.isEmpty || _saving) return;
     setState(() => _saving = true);
+    final succeeded = <String>[];
+    final failed = <String>[];
     try {
-      await _service.createFromImport(draft, folderId: widget.folderId);
+      for (final draft in selected) {
+        try {
+          await _service.createFromImport(draft, folderId: widget.folderId);
+          succeeded.add(draft.displayLabel);
+        } catch (error) {
+          failed.add('${draft.displayLabel}: $error');
+        }
+      }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Final Touch 자료를 저장했습니다.')),
+      final close = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('저장 결과'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${succeeded.length}개 성공 · ${failed.length}개 실패',
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 12),
+                for (final label in succeeded)
+                  Text(
+                    '✓ $label 성공',
+                    style: const TextStyle(color: Color(0xFF047857)),
+                  ),
+                for (final message in failed)
+                  Text(
+                    '✕ $message',
+                    style: const TextStyle(color: Color(0xFFB91C1C)),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('계속 확인'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('목록으로'),
+            ),
+          ],
+        ),
       );
-      Navigator.pop(context, true);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$error')),
-      );
+      if (close == true && mounted) Navigator.pop(context, true);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -85,7 +141,15 @@ class _TeacherFinalTouchImportScreenState
 
   @override
   Widget build(BuildContext context) {
-    final draft = _draft;
+    final result = _result;
+    final drafts = result?.drafts ?? const <FinalTouchImportDraft>[];
+    final saveableCount = drafts.where((draft) => draft.canSave).length;
+    final warningCount =
+        drafts.fold<int>(0, (sum, draft) => sum + draft.warnings.length);
+    final selectedCount = drafts
+        .where(
+            (draft) => draft.canSave && _selectedIndexes.contains(draft.index))
+        .length;
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7FA),
       appBar: AppBar(
@@ -155,100 +219,94 @@ class _TeacherFinalTouchImportScreenState
               ],
             ),
           ),
-          if (draft != null) ...[
+          if (result != null) ...[
             const SizedBox(height: 14),
             _ImportCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    '파싱 미리보기',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          '파싱 미리보기',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        '후보 ${drafts.length}개',
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 12),
-                  _PreviewField(label: '출처', value: draft.source),
-                  _PreviewField(label: '제목', value: draft.title),
-                  _PreviewField(label: '주제', value: draft.topic),
-                  _PreviewField(label: '요지', value: draft.gist),
-                  _PreviewField(
-                    label: '글의 흐름',
-                    value: [
-                      '서론: ${draft.outline['intro']}',
-                      '본론: ${draft.outline['body']}',
-                      '결론: ${draft.outline['conclusion']}',
-                    ].join('\n'),
+                  const SizedBox(height: 8),
+                  Text(
+                    '저장 가능 $saveableCount개 · 경고 $warningCount개',
+                    style: const TextStyle(color: Color(0xFF64748B)),
+                  ),
+                  const SizedBox(height: 8),
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: saveableCount > 0 && selectedCount == saveableCount,
+                    tristate:
+                        selectedCount > 0 && selectedCount < saveableCount,
+                    onChanged: saveableCount == 0
+                        ? null
+                        : (selected) {
+                            setState(() {
+                              _selectedIndexes.clear();
+                              if (selected == true) {
+                                _selectedIndexes.addAll(
+                                  drafts
+                                      .where((draft) => draft.canSave)
+                                      .map((draft) => draft.index),
+                                );
+                              }
+                            });
+                          },
+                    title: const Text(
+                      '저장 가능한 후보 전체 선택',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 14),
-            _ImportCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    '괄호 구조 영어 지문',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  const BracketLegend(),
-                  const SizedBox(height: 12),
-                  BracketColoredText(
-                    text: draft.passageBracketed,
-                    style: const TextStyle(fontSize: 15, height: 1.7),
-                  ),
-                  const SizedBox(height: 16),
-                  _PreviewField(
-                    label: '한글 해석',
-                    value: draft.sentenceDetails
-                        .map((item) => item['translation'])
-                        .where((value) => '$value'.trim().isNotEmpty)
-                        .join('\n\n'),
-                  ),
-                ],
-              ),
-            ),
-            if (draft.warnings.isNotEmpty) ...[
+            for (final draft in drafts) ...[
               const SizedBox(height: 14),
-              _ImportCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      '확인할 내용',
-                      style: TextStyle(
-                        color: Color(0xFFB45309),
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    for (final warning in draft.warnings)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 5),
-                        child: Text('• $warning'),
-                      ),
-                  ],
-                ),
+              _DraftPreviewCard(
+                draft: draft,
+                selected: _selectedIndexes.contains(draft.index),
+                onSelected: draft.canSave
+                    ? (selected) {
+                        setState(() {
+                          if (selected == true) {
+                            _selectedIndexes.add(draft.index);
+                          } else {
+                            _selectedIndexes.remove(draft.index);
+                          }
+                        });
+                      }
+                    : null,
               ),
             ],
             const SizedBox(height: 18),
             SizedBox(
               height: 50,
               child: FilledButton.icon(
-                onPressed: draft.canSave && !_saving ? _save : null,
+                onPressed: selectedCount > 0 && !_saving ? _save : null,
                 icon: _saving
                     ? const SizedBox.square(
                         dimension: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.save_rounded),
-                label: Text(_saving ? '저장 중...' : 'Final Touch로 저장'),
+                label: Text(
+                  _saving ? '저장 중...' : '선택한 $selectedCount개 Final Touch로 저장',
+                ),
               ),
             ),
           ],
@@ -273,6 +331,152 @@ class _ImportCard extends StatelessWidget {
         border: Border.all(color: const Color(0xFFDCE4EE)),
       ),
       child: child,
+    );
+  }
+}
+
+class _DraftPreviewCard extends StatelessWidget {
+  const _DraftPreviewCard({
+    required this.draft,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final FinalTouchImportDraft draft;
+  final bool selected;
+  final ValueChanged<bool?>? onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final translations = draft.sentenceDetails
+        .map((item) => '${item['translation'] ?? ''}'.trim())
+        .where((value) => value.isNotEmpty)
+        .toList();
+    return _ImportCard(
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(top: 8),
+        shape: const Border(),
+        collapsedShape: const Border(),
+        leading: Checkbox(
+          value: selected,
+          onChanged: onSelected,
+        ),
+        title: Text(
+          '${draft.index + 1}. ${draft.displayLabel}',
+          style: const TextStyle(
+            color: Color(0xFF172033),
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              _InfoPill(text: '영어 ${draft.sentenceDetails.length}문장'),
+              _InfoPill(text: '해석 ${translations.length}문장'),
+              _InfoPill(
+                text: draft.canSave ? '저장 가능' : '저장 불가',
+                warning: !draft.canSave,
+              ),
+              if (draft.warnings.isNotEmpty)
+                _InfoPill(
+                  text: '경고 ${draft.warnings.length}',
+                  warning: true,
+                ),
+            ],
+          ),
+        ),
+        children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _PreviewField(label: '출처', value: draft.source),
+                _PreviewField(label: '제목', value: draft.title),
+                _PreviewField(label: '주제', value: draft.topic),
+                _PreviewField(label: '요지', value: draft.gist),
+                _PreviewField(
+                  label: '글의 흐름',
+                  value: [
+                    '서론: ${draft.outline['intro']}',
+                    '본론: ${draft.outline['body']}',
+                    '결론: ${draft.outline['conclusion']}',
+                  ].join('\n'),
+                ),
+                const Text(
+                  '괄호 구조 영어 지문',
+                  style: TextStyle(
+                    color: Color(0xFF2563EB),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const BracketLegend(),
+                const SizedBox(height: 10),
+                BracketColoredText(
+                  text: draft.passageBracketed.isEmpty
+                      ? '영어 지문이 없습니다.'
+                      : draft.passageBracketed,
+                  style: const TextStyle(fontSize: 15, height: 1.7),
+                ),
+                const SizedBox(height: 16),
+                _PreviewField(
+                  label: '한글 해석',
+                  value: translations.join('\n\n'),
+                ),
+                if (draft.warnings.isNotEmpty) ...[
+                  const Text(
+                    '확인할 내용',
+                    style: TextStyle(
+                      color: Color(0xFFB45309),
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  for (final warning in draft.warnings)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text('• $warning'),
+                    ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoPill extends StatelessWidget {
+  const _InfoPill({required this.text, this.warning = false});
+
+  final String text;
+  final bool warning;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = warning ? const Color(0xFFB45309) : const Color(0xFF2563EB);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
     );
   }
 }

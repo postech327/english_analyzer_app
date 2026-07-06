@@ -98,4 +98,101 @@ Third sentence.
       'Research in science helps people.',
     );
   });
+
+  test('splits Unit No blocks into independent drafts', () {
+    final result = parseFinalTouchImportDrafts('''
+Unit 1 No. 1
+[출처]
+교재 1번
+[제목]
+First title
+[영어 지문]
+[First passage has enough words (for a test).]
+[한글 해석]
+첫 번째 지문의 해석이다.
+
+Unit 1 No. 2
+[출처]
+교재 2번
+[제목]
+Second title
+[영어 지문]
+[Second passage has different words {for another test}.]
+[한글 해석]
+두 번째 지문의 해석이다.
+
+Unit 1 No. 3
+[출처]
+교재 3번
+[제목]
+Third title
+[영어 지문]
+[Third passage remains separate from the other passages.]
+[한글 해석]
+세 번째 지문의 해석이다.
+''');
+
+    expect(result.drafts, hasLength(3));
+    expect(
+      result.drafts.map((draft) => draft.unitLabel),
+      ['Unit 1 No. 1', 'Unit 1 No. 2', 'Unit 1 No. 3'],
+    );
+    expect(result.drafts[0].title, 'First title');
+    expect(result.drafts[1].title, 'Second title');
+    expect(result.drafts[2].title, 'Third title');
+    expect(result.drafts[0].passage, isNot(contains('Second passage')));
+    expect(result.drafts[1].passage, isNot(contains('Third passage')));
+    expect(result.drafts.every((draft) => draft.canSave), isTrue);
+  });
+
+  test('splits repeated source headings when unit labels are absent', () {
+    final result = parseFinalTouchImportDrafts('''
+[출처]
+첫 번째 출처
+[영어 지문]
+First source passage contains a complete English sentence.
+[한글 해석]
+첫 번째 출처의 해석이다.
+[출처]
+두 번째 출처
+[영어 지문]
+Second source passage contains another complete English sentence.
+[한글 해석]
+두 번째 출처의 해석이다.
+''');
+
+    expect(result.drafts, hasLength(2));
+    expect(result.drafts[0].source, '첫 번째 출처');
+    expect(result.drafts[1].source, '두 번째 출처');
+    expect(result.drafts[0].passage, isNot(contains('Second source')));
+  });
+
+  test('infers passage and translation inside an unlabeled unit block', () {
+    final result = parseFinalTouchImportDrafts('''
+Unit 2 No. 1
+Digital platforms can reshape how people understand social relationships.
+They encourage users to consider a completely different point of view.
+디지털 플랫폼은 사람들이 사회적 관계를 이해하는 방식을 바꿀 수 있다.
+그것들은 사용자들이 완전히 다른 관점을 고려하도록 장려한다.
+[제목]
+Digital Platforms
+
+Unit 2 No. 2
+Research findings can inject life into an important idea.
+They make its significance easier for ordinary people to understand.
+연구 결과는 중요한 아이디어에 생명력을 불어넣을 수 있다.
+그것들은 일반 사람들이 그 중요성을 더 쉽게 이해하게 한다.
+[제목]
+Research Findings
+''');
+
+    expect(result.drafts, hasLength(2));
+    expect(result.drafts[0].passage, contains('Digital platforms'));
+    expect(
+      result.drafts[0].sentenceDetails.first['translation'],
+      contains('디지털 플랫폼'),
+    );
+    expect(result.drafts[1].passage, contains('Research findings'));
+    expect(result.drafts[1].passage, isNot(contains('Digital platforms')));
+  });
 }
