@@ -8,6 +8,17 @@ String displayVocabularyMeaning(String raw) {
       .join(' · ');
 }
 
+String quizDisplayWord(String raw) {
+  final trimmed = raw.trim();
+  final korean = RegExp(r'[가-힣]').firstMatch(trimmed);
+  var english = korean == null ? trimmed : trimmed.substring(0, korean.start);
+  english = english
+      .replaceAll(RegExp(r'[\s(\[{:;,·/\\-]+$'), '')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  return english.isEmpty ? trimmed : english;
+}
+
 class VocabularyLearningRange {
   const VocabularyLearningRange({
     required this.label,

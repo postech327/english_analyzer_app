@@ -12,6 +12,13 @@ void main() {
     expect(displayVocabularyMeaning('분리된 / 별도의'), '분리된 · 별도의');
   });
 
+  test('keeps only English text for quiz question cards', () {
+    expect(quizDisplayWord('edition (출간물의) 판'), 'edition');
+    expect(quizDisplayWord('maintenance 보수 (관리)'), 'maintenance');
+    expect(quizDisplayWord('take part in 참여하다'), 'take part in');
+    expect(quizDisplayWord('appreciate'), 'appreciate');
+  });
+
   test('builds 20-word learning ranges for 84 items', () {
     final ranges = buildVocabularyLearningRanges(84);
 

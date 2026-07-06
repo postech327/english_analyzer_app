@@ -43,8 +43,15 @@ void main() {
     );
 
     expect(find.text('오답이 없습니다. 훌륭해요!'), findsOneWidget);
-    final wrongQuiz = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, '오답만 다시 풀기'),
+    final wrongQuiz = tester.widget<ButtonStyleButton>(
+      find
+          .ancestor(
+            of: find.text('오답만 다시 풀기'),
+            matching: find.byWidgetPredicate(
+              (widget) => widget is ButtonStyleButton,
+            ),
+          )
+          .first,
     );
     expect(wrongQuiz.onPressed, isNull);
   });

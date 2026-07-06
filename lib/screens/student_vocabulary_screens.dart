@@ -1098,7 +1098,7 @@ class _StudentVocabularyMeaningQuizScreenState
                               ),
                               const SizedBox(height: 12),
                               Text(
-                                item.word,
+                                quizDisplayWord(item.word),
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                   fontSize: 38,
@@ -1489,113 +1489,382 @@ class StudentVocabularyResultScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final wrongItems = _wrongItems;
     final attemptItems = _attemptItems;
+    final perfect = attempt.wrongCount == 0;
     return Scaffold(
       backgroundColor: _studentVocabSurface,
-      appBar: AppBar(title: const Text('단어 테스트 결과')),
+      appBar: AppBar(
+        title: const Text(
+          '단어 테스트 결과',
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+      ),
       body: ListView(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 150),
         children: [
-          Card(
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: perfect
+                    ? const [Color(0xFFECFDF5), Color(0xFFEFF6FF)]
+                    : const [Color(0xFFF5F3FF), Color(0xFFFFF7ED)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(
+                color:
+                    perfect ? const Color(0xFFA7F3D0) : const Color(0xFFDDD6FE),
+              ),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x120F172A),
+                  blurRadius: 24,
+                  offset: Offset(0, 10),
+                ),
+              ],
+            ),
             child: Padding(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(26),
               child: Column(
                 children: [
+                  Icon(
+                    perfect
+                        ? Icons.emoji_events_rounded
+                        : Icons.insights_rounded,
+                    size: 42,
+                    color:
+                        perfect ? const Color(0xFF059669) : _studentVocabPurple,
+                  ),
+                  const SizedBox(height: 8),
                   Text(
-                    '${attempt.score.toStringAsFixed(1)}점',
+                    perfect ? '완벽해요!' : '학습을 완료했어요',
                     style: const TextStyle(
-                      fontSize: 36,
+                      fontSize: 18,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
-                  Text('${attempt.correctCount} / ${attempt.totalCount} 정답'),
-                  const SizedBox(height: 8),
                   Text(
-                    '맞은 단어 ${attempt.correctCount}개 · '
-                    '틀린 단어 ${attempt.wrongCount}개',
+                    '${attempt.score.toStringAsFixed(1)}점',
+                    style: TextStyle(
+                      fontSize: 46,
+                      fontWeight: FontWeight.w900,
+                      color: perfect
+                          ? const Color(0xFF047857)
+                          : _studentVocabPurple,
+                    ),
                   ),
-                  if ((attempt.rangeLabel ?? '').isNotEmpty)
-                    Text('학습 범위: ${attempt.rangeLabel}'),
+                  const SizedBox(height: 14),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _ResultStatPill(
+                        icon: Icons.check_circle_outline_rounded,
+                        label: '정답',
+                        value: '${attempt.correctCount}개',
+                        color: const Color(0xFF059669),
+                      ),
+                      _ResultStatPill(
+                        icon: Icons.cancel_outlined,
+                        label: '오답',
+                        value: '${attempt.wrongCount}개',
+                        color: const Color(0xFFEA580C),
+                      ),
+                      _ResultStatPill(
+                        icon: Icons.format_list_numbered_rounded,
+                        label: '총 단어',
+                        value: '${attempt.totalCount}개',
+                        color: const Color(0xFF2563EB),
+                      ),
+                      _ResultStatPill(
+                        icon: Icons.bookmark_outline_rounded,
+                        label: '학습 범위',
+                        value: attempt.rangeLabel ?? '전체',
+                        color: _studentVocabPurple,
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 22),
+          const Text(
+            '문항별 결과',
+            style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 10),
           for (final result in attempt.results)
-            Card(
-              child: ListTile(
-                leading: Icon(
-                  result.isCorrect ? Icons.check_circle : Icons.cancel,
-                  color: result.isCorrect ? Colors.green : Colors.red,
-                ),
-                title: Text(
-                  result.word,
-                  style: const TextStyle(fontWeight: FontWeight.w900),
-                ),
-                subtitle: Text(
-                  '내 답: ${displayVocabularyMeaning(result.studentAnswer)}\n'
-                  '정답: ${displayVocabularyMeaning(result.correctAnswer)}',
-                ),
-              ),
-            ),
+            _VocabularyResultAnswerCard(result: result),
           if (wrongItems.isEmpty)
-            const Card(
-              color: Color(0xFFECFDF5),
-              child: Padding(
-                padding: EdgeInsets.all(18),
-                child: Text(
-                  '오답이 없습니다. 훌륭해요!',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Color(0xFF15803D),
-                    fontWeight: FontWeight.w900,
+            Container(
+              margin: const EdgeInsets.only(top: 6),
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: const Color(0xFFECFDF5),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFFA7F3D0)),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.auto_awesome, color: Color(0xFF059669)),
+                  SizedBox(width: 9),
+                  Flexible(
+                    child: Text(
+                      '오답이 없습니다. 훌륭해요!',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Color(0xFF15803D),
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
             ),
         ],
       ),
       bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton(
-                onPressed: attemptItems.isEmpty
-                    ? null
-                    : () => _openQuiz(context, attemptItems, '다시 풀기'),
-                child: const Text('다시 풀기'),
-              ),
-              FilledButton.tonal(
-                onPressed: wrongItems.isEmpty
-                    ? null
-                    : () => _openQuiz(context, wrongItems, '오답 복습'),
-                child: const Text('오답만 다시 풀기'),
-              ),
-              FilledButton.tonalIcon(
-                onPressed: wrongItems.isEmpty
-                    ? null
-                    : () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => StudentVocabularyCardStudyScreen(
-                              vocabularySet: vocabularySet,
-                              items: wrongItems,
+        top: false,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(top: BorderSide(color: Color(0xFFE7E5F4))),
+          ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final wide = constraints.maxWidth >= 720;
+              final actions = [
+                OutlinedButton.icon(
+                  onPressed: attemptItems.isEmpty
+                      ? null
+                      : () => _openQuiz(context, attemptItems, '다시 풀기'),
+                  icon: const Icon(Icons.replay_rounded),
+                  label: const Text('다시 풀기'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: wrongItems.isEmpty
+                      ? null
+                      : () => _openQuiz(context, wrongItems, '오답 복습'),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('오답만 다시 풀기'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: wrongItems.isEmpty
+                      ? null
+                      : () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => StudentVocabularyCardStudyScreen(
+                                vocabularySet: vocabularySet,
+                                items: wrongItems,
+                              ),
                             ),
                           ),
-                        ),
-                icon: const Icon(Icons.style_rounded),
-                label: const Text('오답만 카드 학습'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('단어장으로 돌아가기'),
-              ),
-            ],
+                  icon: const Icon(Icons.style_rounded),
+                  label: const Text('오답만 카드 학습'),
+                ),
+                FilledButton.icon(
+                  onPressed: () => Navigator.pop(context),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _studentVocabPurple,
+                  ),
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  label: const Text('단어장으로 돌아가기'),
+                ),
+              ];
+              return Wrap(
+                alignment:
+                    wide ? WrapAlignment.end : WrapAlignment.spaceBetween,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final action in actions)
+                    SizedBox(
+                      width: wide ? null : (constraints.maxWidth - 8) / 2,
+                      child: action,
+                    ),
+                ],
+              );
+            },
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ResultStatPill extends StatelessWidget {
+  const _ResultStatPill({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 5),
+          Text(
+            '$label $value',
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VocabularyResultAnswerCard extends StatelessWidget {
+  const _VocabularyResultAnswerCard({required this.result});
+
+  final VocabularyAttemptResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    final color =
+        result.isCorrect ? const Color(0xFF059669) : const Color(0xFFDC2626);
+    final background =
+        result.isCorrect ? const Color(0xFFF0FDF4) : const Color(0xFFFEF2F2);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: Icon(
+              result.isCorrect ? Icons.check_rounded : Icons.close_rounded,
+              color: color,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        result.word,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        result.isCorrect ? '정답' : '오답',
+                        style: TextStyle(
+                          color: color,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 9),
+                _ResultAnswerLine(
+                  label: '내 답',
+                  value: displayVocabularyMeaning(result.studentAnswer),
+                  color: result.isCorrect ? const Color(0xFF166534) : color,
+                ),
+                const SizedBox(height: 5),
+                _ResultAnswerLine(
+                  label: '정답',
+                  value: displayVocabularyMeaning(result.correctAnswer),
+                  color: const Color(0xFF166534),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ResultAnswerLine extends StatelessWidget {
+  const _ResultAnswerLine({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 42,
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF64748B),
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(color: color, fontWeight: FontWeight.w800),
+          ),
+        ),
+      ],
     );
   }
 }
