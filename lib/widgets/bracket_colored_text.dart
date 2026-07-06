@@ -135,15 +135,15 @@ class BracketLegend extends StatelessWidget {
       runSpacing: 8,
       children: [
         _BracketLegendChip(
-          label: '[] 절',
+          label: '[ ] 절',
           color: BracketColoredText.clauseColor,
         ),
         _BracketLegendChip(
-          label: '{} 구',
+          label: '{ } 구·준동사구',
           color: BracketColoredText.nonFiniteColor,
         ),
         _BracketLegendChip(
-          label: '() 전치사구',
+          label: '( ) 전치사구',
           color: BracketColoredText.phraseColor,
         ),
       ],

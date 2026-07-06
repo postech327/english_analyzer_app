@@ -98,64 +98,216 @@ int _highlightPriority(String type) {
   }
 }
 
-class FinalTouchFullBracketedPassage extends StatelessWidget {
+class FinalTouchFullBracketedPassage extends StatefulWidget {
   const FinalTouchFullBracketedPassage({
     super.key,
     required this.body,
+    this.plainBody = '',
+    this.sentenceDetails = const [],
   });
 
   final String body;
+  final String plainBody;
+  final List<FinalTouchSentenceDetail> sentenceDetails;
+
+  @override
+  State<FinalTouchFullBracketedPassage> createState() =>
+      _FinalTouchFullBracketedPassageState();
+}
+
+class _FinalTouchFullBracketedPassageState
+    extends State<FinalTouchFullBracketedPassage> {
+  bool _showBrackets = true;
+  bool _expanded = true;
 
   @override
   Widget build(BuildContext context) {
-    final formatted = body.trim().replaceAllMapped(
-          RegExp(r'([.!?])\s+'),
-          (match) => '${match.group(1)}\n\n',
-        );
+    final rows = _passageRows(
+      bracketed: widget.body,
+      plain: widget.plainBody,
+      details: widget.sentenceDetails,
+      showBrackets: _showBrackets,
+    );
+    final visibleRows = _expanded ? rows : rows.take(3).toList();
 
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFDCE4EE)),
+        gradient: const LinearGradient(
+          colors: [Color(0xFFF8FAFF), Color(0xFFF5F3FF)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFC7D2FE)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F4F46E5),
+            blurRadius: 20,
+            offset: Offset(0, 8),
+          ),
+        ],
       ),
-      child: ExpansionTile(
-        tilePadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 3),
-        childrenPadding: const EdgeInsets.fromLTRB(15, 0, 15, 15),
-        iconColor: const Color(0xFF2563EB),
-        collapsedIconColor: const Color(0xFF64748B),
-        shape: const Border(),
-        collapsedShape: const Border(),
-        title: const Text(
-          '전체 괄호 구조 보기',
-          style: TextStyle(
-            color: Color(0xFF172033),
-            fontSize: 15,
-            fontWeight: FontWeight.w800,
-          ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE0E7FF),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.menu_book_rounded,
+                    color: Color(0xFF4F46E5),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '전체 지문 한눈에 보기',
+                        style: TextStyle(
+                          color: Color(0xFF172033),
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        '괄호 구조를 보며 지문 전체 흐름을 먼저 확인해요.',
+                        style: TextStyle(
+                          color: Color(0xFF59657A),
+                          fontSize: 13,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: _expanded ? '지문 접기' : '전체 지문 펼치기',
+                  onPressed: () => setState(() => _expanded = !_expanded),
+                  icon: Icon(
+                    _expanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    color: const Color(0xFF4F46E5),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const BracketLegend(),
+                FilterChip(
+                  key: const Key('final-touch-bracket-toggle'),
+                  selected: _showBrackets,
+                  showCheckmark: true,
+                  avatar: Icon(
+                    _showBrackets
+                        ? Icons.data_object_rounded
+                        : Icons.notes_rounded,
+                    size: 17,
+                  ),
+                  label: Text(
+                    _showBrackets ? '괄호 구조 보기' : '일반 지문 보기',
+                  ),
+                  onSelected: (selected) {
+                    setState(() => _showBrackets = selected);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 180),
+              child: Column(
+                children: [
+                  for (var index = 0; index < visibleRows.length; index++) ...[
+                    _FullPassageSentenceRow(row: visibleRows[index]),
+                    if (index != visibleRows.length - 1)
+                      const SizedBox(height: 14),
+                  ],
+                ],
+              ),
+            ),
+            if (!_expanded && rows.length > visibleRows.length) ...[
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.center,
+                child: TextButton.icon(
+                  onPressed: () => setState(() => _expanded = true),
+                  icon: const Icon(Icons.expand_more_rounded),
+                  label: Text('나머지 ${rows.length - visibleRows.length}문장 보기'),
+                ),
+              ),
+            ],
+          ],
         ),
-        subtitle: const Text(
-          '문장별 분석을 한 번에 이어서 확인합니다.',
-          style: TextStyle(
-            color: Color(0xFF64748B),
-            fontSize: 12,
-          ),
-        ),
+      ),
+    );
+  }
+}
+
+class _FullPassageSentenceRow extends StatelessWidget {
+  const _FullPassageSentenceRow({required this.row});
+
+  final ({int? number, String text}) row;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFDCE4F2)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Align(
-            alignment: Alignment.centerLeft,
-            child: BracketLegend(),
-          ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerLeft,
+          if (row.number != null) ...[
+            Container(
+              width: 30,
+              height: 30,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: const Color(0xFF4F46E5),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Text(
+                '${row.number}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+          ],
+          Expanded(
             child: BracketColoredText(
-              text: formatted.isEmpty ? '-' : formatted,
+              text: row.text.trim().isEmpty ? '-' : row.text.trim(),
               style: const TextStyle(
                 color: Color(0xFF172033),
                 fontSize: 16,
-                height: 1.7,
+                height: 1.75,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
@@ -163,6 +315,41 @@ class FinalTouchFullBracketedPassage extends StatelessWidget {
       ),
     );
   }
+}
+
+List<({int? number, String text})> _passageRows({
+  required String bracketed,
+  required String plain,
+  required List<FinalTouchSentenceDetail> details,
+  required bool showBrackets,
+}) {
+  if (details.isNotEmpty) {
+    return details.map((detail) {
+      final selected = showBrackets && detail.bracketed.trim().isNotEmpty
+          ? detail.bracketed
+          : detail.original;
+      return (
+        number: detail.sentenceNo > 0 ? detail.sentenceNo : null,
+        text: selected,
+      );
+    }).toList();
+  }
+
+  final selected =
+      showBrackets && bracketed.trim().isNotEmpty ? bracketed : plain;
+  final sentences = selected
+      .trim()
+      .split(RegExp(r'(?<=[.!?])\s+|\n+'))
+      .map((sentence) => sentence.trim())
+      .where((sentence) => sentence.isNotEmpty)
+      .toList();
+  if (sentences.length > 1) {
+    return [
+      for (var index = 0; index < sentences.length; index++)
+        (number: index + 1, text: sentences[index]),
+    ];
+  }
+  return [(number: null, text: selected.trim().isEmpty ? '-' : selected)];
 }
 
 class _SentenceAnalysisCard extends StatelessWidget {

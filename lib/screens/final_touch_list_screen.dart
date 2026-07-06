@@ -1703,6 +1703,14 @@ class _FinalTouchDetailScreenState extends State<FinalTouchDetailScreen> {
                 ),
               ],
               const SizedBox(height: 14),
+              FinalTouchFullBracketedPassage(
+                body: item.passageBracketed.isNotEmpty
+                    ? item.passageBracketed
+                    : item.passage,
+                plainBody: item.passage,
+                sentenceDetails: item.sentenceDetails,
+              ),
+              const SizedBox(height: 14),
               SizedBox(
                 height: 46,
                 child: FilledButton.icon(
@@ -1768,12 +1776,6 @@ class _FinalTouchDetailScreenState extends State<FinalTouchDetailScreen> {
               ),
               const SizedBox(height: 14),
               FinalTouchSentenceAnalysis(details: item.sentenceDetails),
-              if (item.sentenceDetails.isNotEmpty) const SizedBox(height: 12),
-              FinalTouchFullBracketedPassage(
-                body: item.passageBracketed.isNotEmpty
-                    ? item.passageBracketed
-                    : item.passage,
-              ),
             ],
           );
         },
