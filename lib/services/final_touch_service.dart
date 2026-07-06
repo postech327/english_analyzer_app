@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../config/api.dart';
 import '../config/auth_store.dart';
 import '../models/final_touch.dart';
+import '../models/final_touch_import_draft.dart';
 
 class FinalTouchService {
   const FinalTouchService();
@@ -77,6 +78,27 @@ class FinalTouchService {
     return FinalTouchDetail.fromJson(
       jsonDecode(res.body) as Map<String, dynamic>,
     );
+  }
+
+  Future<int> createFromImport(
+    FinalTouchImportDraft draft, {
+    int? folderId,
+  }) async {
+    final uri = ApiConfig.u('/analysis-records');
+    final res = await http
+        .post(
+          uri,
+          headers: _headers(),
+          body: jsonEncode(draft.toRequestJson(folderId: folderId)),
+        )
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('Final Touch 저장 실패: ${res.statusCode} / ${res.body}');
+    }
+    final decoded =
+        jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+    final record = decoded['analysis_record'] as Map<String, dynamic>?;
+    return int.tryParse('${record?['id'] ?? decoded['id']}') ?? 0;
   }
 
   Map<String, String> _headers() {

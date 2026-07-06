@@ -14,6 +14,7 @@ import '../widgets/final_touch_core_analysis.dart';
 import '../widgets/final_touch_sentence_analysis.dart';
 import '../widgets/teacher_assignment_dialog.dart';
 import 'final_touch_sentence_practice_screen.dart';
+import 'teacher_final_touch_import_screen.dart';
 
 class FinalTouchListScreen extends StatefulWidget {
   const FinalTouchListScreen({
@@ -216,6 +217,12 @@ class _FinalTouchListScreenState extends State<FinalTouchListScreen> {
           style: TextStyle(fontWeight: FontWeight.w800),
         ),
         actions: [
+          if (isTeacher)
+            IconButton(
+              tooltip: 'Final Touch HWPX 가져오기',
+              onPressed: _openImport,
+              icon: const Icon(Icons.upload_file_rounded),
+            ),
           IconButton(
             tooltip: '새로고침',
             onPressed: _reload,
@@ -225,6 +232,18 @@ class _FinalTouchListScreenState extends State<FinalTouchListScreen> {
       ),
       body: _unitFolder == null ? _buildFolderPage() : _buildItemPage(),
     );
+  }
+
+  Future<void> _openImport() async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TeacherFinalTouchImportScreen(
+          folderId: _unitFolder?.isUnfiled == true ? null : _unitFolder?.id,
+        ),
+      ),
+    );
+    if (changed == true && mounted) _reload();
   }
 
   Widget _buildFolderPage() {
