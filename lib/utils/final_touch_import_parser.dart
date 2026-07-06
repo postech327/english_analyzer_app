@@ -21,11 +21,7 @@ FinalTouchImportDraft parseFinalTouchImportText(String rawText) {
       .trim();
 
   final bracketed = value('passage');
-  final passage = bracketed
-      .replaceAll(RegExp(r'[\[\]\{\}\(\)]'), '')
-      .replaceAll(RegExp(r'[ \t]+'), ' ')
-      .replaceAll(RegExp(r' *\n *'), '\n')
-      .trim();
+  final passage = stripFinalTouchBrackets(bracketed);
   final translations = _contentLines(value('translation'));
   final bracketedSentences = _contentLines(bracketed);
   final plainSentences = _contentLines(passage);
@@ -77,11 +73,24 @@ FinalTouchImportDraft parseFinalTouchImportText(String rawText) {
   );
 }
 
+String stripFinalTouchBrackets(String text) {
+  return text
+      .replaceAll(RegExp(r'[\[\]\{\}\(\)]'), '')
+      .replaceAll(RegExp(r'[ \t]+'), ' ')
+      .replaceAll(RegExp(r' *\n *'), '\n')
+      .trim();
+}
+
 (String, String)? _headingKey(String line) {
-  final match = RegExp(
-    r'^\[?\s*(출처|제목|주제|요지|글의\s*흐름|영어\s*지문|한글\s*해석|해석)\s*\]?\s*:?\s*(.*)$',
+  final bracketMatch = RegExp(
+    r'^\[\s*(출처|제목|주제|요지|글의\s*흐름|영어\s*지문|한글\s*해석|해석)\s*\]\s*:?\s*(.*)$',
     caseSensitive: false,
   ).firstMatch(line);
+  final colonMatch = RegExp(
+    r'^(출처|제목|주제|요지|글의\s*흐름|영어\s*지문|한글\s*해석|해석)\s*:\s*(.*)$',
+    caseSensitive: false,
+  ).firstMatch(line);
+  final match = bracketMatch ?? colonMatch;
   if (match == null) return null;
   final label = match.group(1)!.replaceAll(' ', '');
   final key = switch (label) {

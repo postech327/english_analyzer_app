@@ -114,6 +114,16 @@ class _TeacherFinalTouchImportScreenState
                   '[출처] [제목] [주제] [요지] [글의 흐름] [영어 지문] [한글 해석]을 인식합니다. 파일은 브라우저에서만 읽습니다.',
                   style: TextStyle(color: Color(0xFF64748B), height: 1.5),
                 ),
+                const SizedBox(height: 8),
+                const Text(
+                  '구형 HWP는 한글 프로그램에서 다른 이름으로 저장 → HWPX 형식으로 변환한 뒤 선택해 주세요.',
+                  style: TextStyle(
+                    color: Color(0xFF7C3AED),
+                    fontSize: 12,
+                    height: 1.45,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 const SizedBox(height: 14),
                 FilledButton.icon(
                   onPressed: _reading ? null : _pickFile,

@@ -217,12 +217,6 @@ class _FinalTouchListScreenState extends State<FinalTouchListScreen> {
           style: TextStyle(fontWeight: FontWeight.w800),
         ),
         actions: [
-          if (isTeacher)
-            IconButton(
-              tooltip: 'Final Touch HWPX 가져오기',
-              onPressed: _openImport,
-              icon: const Icon(Icons.upload_file_rounded),
-            ),
           IconButton(
             tooltip: '새로고침',
             onPressed: _reload,
@@ -231,6 +225,17 @@ class _FinalTouchListScreenState extends State<FinalTouchListScreen> {
         ],
       ),
       body: _unitFolder == null ? _buildFolderPage() : _buildItemPage(),
+      floatingActionButton: isTeacher
+          ? FloatingActionButton.extended(
+              onPressed: _openImport,
+              tooltip: 'Final Touch HWPX 가져오기',
+              icon: const Icon(Icons.upload_file_rounded),
+              label: const Text(
+                'HWPX 가져오기',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            )
+          : null,
     );
   }
 

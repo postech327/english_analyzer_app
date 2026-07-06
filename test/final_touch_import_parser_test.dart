@@ -60,4 +60,42 @@ Research can function {like photographs}.
     expect(draft.warnings, contains('괄호 구조가 없습니다.'));
     expect(draft.canSave, isTrue);
   });
+
+  test('warns when English and translation counts differ', () {
+    final draft = parseFinalTouchImportText('''
+[영어 지문]
+First sentence.
+Second sentence.
+Third sentence.
+[한글 해석]
+첫 문장이다.
+두 번째 문장이다.
+''');
+
+    expect(draft.sentenceDetails, hasLength(3));
+    expect(
+      draft.warnings,
+      contains('영어 문장과 한글 해석 개수가 다릅니다.'),
+    );
+    expect(draft.sentenceDetails.last['translation'], isEmpty);
+  });
+
+  test('disables save when English passage is missing', () {
+    final draft = parseFinalTouchImportText('''
+[출처]
+자체 제작
+[한글 해석]
+영어 지문이 없는 해석입니다.
+''');
+
+    expect(draft.canSave, isFalse);
+    expect(draft.warnings, contains('영어 지문이 없습니다.'));
+  });
+
+  test('removes nested bracket symbols from plain passage', () {
+    expect(
+      stripFinalTouchBrackets('[Research (in science) {helps people}.]'),
+      'Research in science helps people.',
+    );
+  });
 }
