@@ -1,3 +1,5 @@
+import 'package:english_analyzer_app/models/final_touch.dart';
+import 'package:english_analyzer_app/screens/final_touch_list_screen.dart';
 import 'package:english_analyzer_app/screens/teacher_final_touch_import_screen.dart';
 import 'package:english_analyzer_app/utils/final_touch_sort_key.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -62,5 +64,61 @@ void main() {
     expect(finalTouchImportDestinationLabel('수특라이트 영어'), '수특라이트 영어');
     expect(finalTouchImportDestinationLabel('  '), '미분류');
     expect(finalTouchImportDestinationLabel(null), '미분류');
+  });
+
+  test('import destination uses current book folder when unit is not selected',
+      () {
+    const bookFolder = FinalTouchFolder(
+      id: 12,
+      parentId: null,
+      name: '수특라이트 영어',
+      count: 0,
+      hasChildren: true,
+      isUnfiled: false,
+      isDirectBucket: false,
+    );
+
+    final folder = finalTouchActiveImportFolder(
+      bookFolder: bookFolder,
+      unitFolder: null,
+    );
+
+    expect(folder?.id, 12);
+    expect(
+      finalTouchImportFolderDisplayName(
+        bookFolder: bookFolder,
+        unitFolder: null,
+      ),
+      '수특라이트 영어',
+    );
+  });
+
+  test('direct bucket import displays parent book folder name', () {
+    const bookFolder = FinalTouchFolder(
+      id: 20,
+      parentId: null,
+      name: '수특라이트 영독',
+      count: 0,
+      hasChildren: true,
+      isUnfiled: false,
+      isDirectBucket: false,
+    );
+    const directBucket = FinalTouchFolder(
+      id: 20,
+      parentId: 20,
+      name: '직접 저장',
+      count: 6,
+      hasChildren: false,
+      isUnfiled: false,
+      isDirectBucket: true,
+    );
+
+    expect(
+      finalTouchImportFolderDisplayName(
+        bookFolder: bookFolder,
+        unitFolder: directBucket,
+      ),
+      '수특라이트 영독',
+    );
   });
 }

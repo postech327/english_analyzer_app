@@ -169,6 +169,15 @@ class _FinalTouchListScreenState extends State<FinalTouchListScreen> {
     }
   }
 
+  String _currentBreadcrumbText() {
+    final book = _bookFolder;
+    final unit = _unitFolder;
+    if (book == null) return unit?.name ?? '';
+    if (unit == null || unit.id == book.id) return book.name;
+    if (unit.isDirectBucket) return book.name;
+    return '${book.name} / ${unit.name}';
+  }
+
   List<FinalTouchSummary> _filterAndSortItems(List<FinalTouchSummary> items) {
     final sorted = sortByFinalTouchNaturalOrder<FinalTouchSummary>(
       items,
@@ -244,10 +253,16 @@ class _FinalTouchListScreenState extends State<FinalTouchListScreen> {
   }
 
   Future<void> _openImport() async {
-    final targetFolder = _unitFolder;
+    final targetFolder = finalTouchActiveImportFolder(
+      bookFolder: _bookFolder,
+      unitFolder: _unitFolder,
+    );
     final targetFolderId =
         targetFolder?.isUnfiled == true ? null : targetFolder?.id;
-    final targetFolderName = targetFolder?.name;
+    final targetFolderName = finalTouchImportFolderDisplayName(
+      bookFolder: _bookFolder,
+      unitFolder: _unitFolder,
+    );
     final savedCount = await Navigator.push<int>(
       context,
       MaterialPageRoute(
@@ -258,7 +273,7 @@ class _FinalTouchListScreenState extends State<FinalTouchListScreen> {
       ),
     );
     if (savedCount != null && savedCount > 0 && mounted) {
-      _reload();
+      _reloadAfterImport(targetFolder);
       final location = targetFolderName?.trim().isNotEmpty == true
           ? targetFolderName!.trim()
           : '미분류';
@@ -266,6 +281,25 @@ class _FinalTouchListScreenState extends State<FinalTouchListScreen> {
         SnackBar(content: Text('$location에 Final Touch $savedCount개를 저장했습니다.')),
       );
     }
+  }
+
+  void _reloadAfterImport(FinalTouchFolder? targetFolder) {
+    setState(() {
+      _allItemsFuture = _service.fetchFinalTouches(limit: 100);
+      if (targetFolder == null) {
+        _foldersFuture = _service.fetchFolders(parentId: _bookFolder?.id);
+        return;
+      }
+      if (targetFolder.isUnfiled) {
+        _unitFolder = targetFolder;
+        _itemsFuture = _service.fetchFinalTouches(unfiled: true);
+        return;
+      }
+      if (_unitFolder == null && _bookFolder != null) {
+        _unitFolder = targetFolder;
+      }
+      _itemsFuture = _service.fetchFinalTouches(folderId: targetFolder.id);
+    });
   }
 
   Widget _buildFolderPage() {
@@ -449,7 +483,7 @@ class _FinalTouchListScreenState extends State<FinalTouchListScreen> {
             ),
             const SizedBox(height: 18),
             if (_bookFolder != null)
-              _Breadcrumb(text: '${_bookFolder!.name} / ${_unitFolder!.name}'),
+              _Breadcrumb(text: _currentBreadcrumbText()),
             if (_bookFolder != null) const SizedBox(height: 12),
             _SearchPanel(
               controller: _searchController,
@@ -3048,6 +3082,28 @@ String _finalTouchSortLabel(FinalTouchSummary item) {
     if (value.isNotEmpty) return value;
   }
   return 'Final Touch #${item.id}';
+}
+
+@visibleForTesting
+FinalTouchFolder? finalTouchActiveImportFolder({
+  required FinalTouchFolder? bookFolder,
+  required FinalTouchFolder? unitFolder,
+}) {
+  return unitFolder ?? bookFolder;
+}
+
+@visibleForTesting
+String? finalTouchImportFolderDisplayName({
+  required FinalTouchFolder? bookFolder,
+  required FinalTouchFolder? unitFolder,
+}) {
+  final folder = finalTouchActiveImportFolder(
+    bookFolder: bookFolder,
+    unitFolder: unitFolder,
+  );
+  if (folder == null) return null;
+  if (folder.isDirectBucket && bookFolder != null) return bookFolder.name;
+  return folder.name;
 }
 
 String _formatDateText(String value) {
