@@ -10,6 +10,7 @@ import '../services/final_touch_service.dart';
 import '../services/final_touch_practice_result_service.dart';
 import '../services/learning_assignment_service.dart';
 import '../utils/final_touch_pdf_generator.dart';
+import '../utils/final_touch_sort_key.dart';
 import '../widgets/final_touch_core_analysis.dart';
 import '../widgets/final_touch_sentence_analysis.dart';
 import '../widgets/teacher_assignment_dialog.dart';
@@ -169,9 +170,12 @@ class _FinalTouchListScreenState extends State<FinalTouchListScreen> {
   }
 
   List<FinalTouchSummary> _filterAndSortItems(List<FinalTouchSummary> items) {
-    final sorted = List<FinalTouchSummary>.from(items)
-      ..sort(
-          (a, b) => _dateScore(b.createdAt).compareTo(_dateScore(a.createdAt)));
+    final sorted = sortByFinalTouchNaturalOrder<FinalTouchSummary>(
+      items,
+      folderOf: (item) => item.folderName,
+      labelOf: _finalTouchSortLabel,
+      createdAtOf: (item) => item.createdAt,
+    );
 
     final query = _searchQuery.trim().toLowerCase();
     if (query.isEmpty) return sorted;
@@ -240,15 +244,28 @@ class _FinalTouchListScreenState extends State<FinalTouchListScreen> {
   }
 
   Future<void> _openImport() async {
-    final changed = await Navigator.push<bool>(
+    final targetFolder = _unitFolder;
+    final targetFolderId =
+        targetFolder?.isUnfiled == true ? null : targetFolder?.id;
+    final targetFolderName = targetFolder?.name;
+    final savedCount = await Navigator.push<int>(
       context,
       MaterialPageRoute(
         builder: (_) => TeacherFinalTouchImportScreen(
-          folderId: _unitFolder?.isUnfiled == true ? null : _unitFolder?.id,
+          folderId: targetFolderId,
+          folderName: targetFolderName,
         ),
       ),
     );
-    if (changed == true && mounted) _reload();
+    if (savedCount != null && savedCount > 0 && mounted) {
+      _reload();
+      final location = targetFolderName?.trim().isNotEmpty == true
+          ? targetFolderName!.trim()
+          : '미분류';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$location에 Final Touch $savedCount개를 저장했습니다.')),
+      );
+    }
   }
 
   Widget _buildFolderPage() {
@@ -3018,10 +3035,19 @@ String _formatPracticeDate(DateTime value) {
       '${two(value.hour)}:${two(value.minute)}';
 }
 
-int _dateScore(String value) {
-  final parsed = DateTime.tryParse(value.trim());
-  if (parsed != null) return parsed.millisecondsSinceEpoch;
-  return 0;
+String _finalTouchSortLabel(FinalTouchSummary item) {
+  final candidates = [
+    item.source,
+    item.titleEn,
+    item.titleKo,
+    item.topicEn,
+    item.topicKo,
+  ];
+  for (final candidate in candidates) {
+    final value = candidate.trim();
+    if (value.isNotEmpty) return value;
+  }
+  return 'Final Touch #${item.id}';
 }
 
 String _formatDateText(String value) {

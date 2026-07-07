@@ -12,10 +12,22 @@ String finalTouchImportPreviewTitle(FinalTouchImportDraft draft) {
   return draft.displayLabel;
 }
 
+@visibleForTesting
+String finalTouchImportDestinationLabel(String? folderName) {
+  final name = folderName?.trim();
+  if (name != null && name.isNotEmpty) return name;
+  return '미분류';
+}
+
 class TeacherFinalTouchImportScreen extends StatefulWidget {
-  const TeacherFinalTouchImportScreen({super.key, this.folderId});
+  const TeacherFinalTouchImportScreen({
+    super.key,
+    this.folderId,
+    this.folderName,
+  });
 
   final int? folderId;
+  final String? folderName;
 
   @override
   State<TeacherFinalTouchImportScreen> createState() =>
@@ -31,6 +43,9 @@ class _TeacherFinalTouchImportScreenState
   String? _error;
   bool _reading = false;
   bool _saving = false;
+
+  String get _destinationLabel =>
+      finalTouchImportDestinationLabel(widget.folderName);
 
   Future<void> _pickFile() async {
     setState(() {
@@ -99,6 +114,14 @@ class _TeacherFinalTouchImportScreenState
         }
       }
       if (!mounted) return;
+      if (succeeded.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                '$_destinationLabel에 Final Touch ${succeeded.length}개를 저장했습니다.'),
+          ),
+        );
+      }
       final close = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
@@ -111,6 +134,14 @@ class _TeacherFinalTouchImportScreenState
                 Text(
                   '${succeeded.length}개 성공 · ${failed.length}개 실패',
                   style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '저장 위치: $_destinationLabel',
+                  style: const TextStyle(
+                    color: Color(0xFF2563EB),
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 for (final label in succeeded)
@@ -138,7 +169,7 @@ class _TeacherFinalTouchImportScreenState
           ],
         ),
       );
-      if (close == true && mounted) Navigator.pop(context, true);
+      if (close == true && mounted) Navigator.pop(context, succeeded.length);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -193,6 +224,8 @@ class _TeacherFinalTouchImportScreenState
                     fontWeight: FontWeight.w700,
                   ),
                 ),
+                const SizedBox(height: 14),
+                _DestinationBanner(label: _destinationLabel),
                 const SizedBox(height: 14),
                 FilledButton.icon(
                   onPressed: _reading ? null : _pickFile,
@@ -315,6 +348,43 @@ class _TeacherFinalTouchImportScreenState
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _DestinationBanner extends StatelessWidget {
+  const _DestinationBanner({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFBFDBFE)),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.folder_rounded,
+            color: Color(0xFF2563EB),
+            size: 20,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '저장 위치: $label',
+              style: const TextStyle(
+                color: Color(0xFF1E3A8A),
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
         ],
       ),
     );
