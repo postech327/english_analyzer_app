@@ -1,15 +1,16 @@
 import '../models/final_touch_import_draft.dart';
 
 FinalTouchImportResult parseFinalTouchImportDrafts(String rawText) {
-  final blocks = _splitPassageBlocks(rawText);
-  final drafts = <FinalTouchImportDraft>[
-    for (var index = 0; index < blocks.length; index++)
-      _parseSingleDraft(
-        blocks[index].text,
-        index: index,
-        unitLabel: blocks[index].unitLabel,
-      ),
-  ];
+  final blocks = _mergeCompanionBlocks(_splitPassageBlocks(rawText));
+  final drafts = <FinalTouchImportDraft>[];
+  for (final block in blocks) {
+    final draft = _parseSingleDraft(
+      block.text,
+      index: drafts.length,
+      unitLabel: block.unitLabel,
+    );
+    if (draft.passage.trim().isNotEmpty) drafts.add(draft);
+  }
   return FinalTouchImportResult(
     rawText: rawText,
     drafts: drafts,
@@ -39,6 +40,7 @@ FinalTouchImportDraft _parseSingleDraft(
       if (heading.$2.isNotEmpty) sections[current]!.add(heading.$2);
       continue;
     }
+    if (_passageBoundaryLabel(line) != null) continue;
     if (current != null) sections[current]!.add(rawLine.trim());
   }
 
@@ -113,7 +115,7 @@ List<({String unitLabel, String text})> _splitPassageBlocks(String rawText) {
   final lines = rawText.replaceAll('\r\n', '\n').split('\n');
   final explicitStarts = <int>[];
   for (var index = 0; index < lines.length; index++) {
-    if (_explicitUnitLabel(lines[index]) != null) explicitStarts.add(index);
+    if (_passageBoundaryLabel(lines[index]) != null) explicitStarts.add(index);
   }
   if (explicitStarts.length >= 2) {
     return _blocksFromStarts(lines, explicitStarts);
@@ -143,7 +145,7 @@ List<({String unitLabel, String text})> _splitPassageBlocks(String rawText) {
 
   final label = explicitStarts.isEmpty
       ? ''
-      : _explicitUnitLabel(lines[explicitStarts.first]) ?? '';
+      : _passageBoundaryLabel(lines[explicitStarts.first]) ?? '';
   return [(unitLabel: label, text: rawText.trim())];
 }
 
@@ -155,7 +157,7 @@ List<({String unitLabel, String text})> _blocksFromStarts(
   for (var index = 0; index < starts.length; index++) {
     final start = starts[index];
     final end = index + 1 < starts.length ? starts[index + 1] : lines.length;
-    final label = _explicitUnitLabel(lines[start]) ??
+    final label = _passageBoundaryLabel(lines[start]) ??
         (RegExp(r'^\s*\d{1,2}\s*$').hasMatch(lines[start])
             ? lines[start].trim().padLeft(2, '0')
             : '');
@@ -171,16 +173,110 @@ List<({String unitLabel, String text})> _blocksFromStarts(
   return blocks;
 }
 
-String? _explicitUnitLabel(String line) {
+List<({String unitLabel, String text})> _mergeCompanionBlocks(
+  List<({String unitLabel, String text})> blocks,
+) {
+  final merged = <({String unitLabel, String text})>[];
+  for (final block in blocks) {
+    final hasPassage = _blockHasEnglishPassage(block.text);
+    final hasSupplement = _hasTranslationOrExplanationHeading(block.text);
+    if (!hasPassage && hasSupplement && merged.isNotEmpty) {
+      final key = _canonicalPassageKey(block.unitLabel);
+      var targetIndex = -1;
+      if (key.isNotEmpty) {
+        for (var index = merged.length - 1; index >= 0; index--) {
+          if (_canonicalPassageKey(merged[index].unitLabel) == key) {
+            targetIndex = index;
+            break;
+          }
+        }
+      }
+      if (targetIndex < 0) targetIndex = merged.length - 1;
+      final target = merged[targetIndex];
+      merged[targetIndex] = (
+        unitLabel: target.unitLabel,
+        text: '${target.text.trim()}\n\n${block.text.trim()}',
+      );
+      continue;
+    }
+    merged.add(block);
+  }
+  return merged;
+}
+
+bool _blockHasEnglishPassage(String text) {
+  final sections = <String, List<String>>{};
+  String? current;
+  for (final rawLine in text.replaceAll('\r\n', '\n').split('\n')) {
+    final line = rawLine.trim();
+    final heading = _headingKey(line);
+    if (heading != null) {
+      current = heading.$1;
+      sections.putIfAbsent(current, () => []);
+      if (heading.$2.isNotEmpty) sections[current]!.add(heading.$2);
+      continue;
+    }
+    if (_passageBoundaryLabel(line) != null) continue;
+    if (current != null) sections[current]!.add(line);
+  }
+  final explicitPassage =
+      (sections['passage'] ?? const <String>[]).join('\n').trim();
+  return explicitPassage.isNotEmpty || _inferPassage(text).trim().isNotEmpty;
+}
+
+bool _hasTranslationOrExplanationHeading(String text) {
+  const translation = '\uD574\uC11D';
+  const koreanTranslation = '\uD55C\uAE00\\s*\uD574\uC11D';
+  const explanation = '\uD574\uC124';
+  const solution = '\uD480\uC774';
+  const vocabulary = '\uC5B4\uD718';
+  const answer = '\uC815\uB2F5';
+  const material = '\uC18C\uC7AC';
+  return RegExp(
+    '(?:\\[\\s*(?:$koreanTranslation|$translation)\\s*\\]|'
+    '(?:$koreanTranslation|$translation)\\s*:|'
+    '\\[\\s*(?:$explanation|$solution|$vocabulary|$answer|$material)\\s*\\]|'
+    '(?:$explanation|$solution|$vocabulary|$answer|$material)\\s*:)',
+    caseSensitive: false,
+  ).hasMatch(text);
+}
+
+String _canonicalPassageKey(String label) {
+  final normalized = label
+      .replaceAll(RegExp(r'^[\s\[\]#\-:]+|[\s\[\]#\-:]+$'), '')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .toLowerCase();
+  if (normalized.isEmpty) return '';
+  final gateway =
+      RegExp(r'gateway(?:\s+(\d+))?$', caseSensitive: false).firstMatch(
+    normalized,
+  );
+  if (gateway != null) {
+    final number = gateway.group(1);
+    return number == null ? 'gateway' : 'gateway_$number';
+  }
+  final unitNo = RegExp(r'unit\s+\d+\s+no\.?\s*(\d+)', caseSensitive: false)
+      .firstMatch(normalized);
+  if (unitNo != null) return 'no_${int.parse(unitNo.group(1)!)}';
+  final noOnly =
+      RegExp(r'^no\.?\s*(\d+)$', caseSensitive: false).firstMatch(normalized);
+  if (noOnly != null) return 'no_${int.parse(noOnly.group(1)!)}';
+  final digits = RegExp(r'^\d{1,2}$').firstMatch(normalized);
+  if (digits != null) return 'no_${int.parse(normalized)}';
+  return normalized.replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+}
+
+String? _passageBoundaryLabel(String line) {
   final normalized = line
-      .replaceAll(RegExp(r'^[\s□☐✓•·]+'), '')
+      .replaceAll(RegExp(r'^[\s#\-:]+'), '')
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
   final patterns = [
     RegExp(r'^Unit\s+\d+\s+No\.?\s*\d+$', caseSensitive: false),
     RegExp(r'^Unit\s+\d+\s+Gateway(?:\s+\d+)?$', caseSensitive: false),
     RegExp(r'^Gateway(?:\s+\d+)?$', caseSensitive: false),
-    RegExp(r'^\d+\s*강\s*\d+\s*번$'),
+    RegExp(r'^No\.?\s*\d+$', caseSensitive: false),
+    RegExp(r'^\d{1,2}$'),
     RegExp(r'^(?:Chapter|Lesson)\s+\d+\s+No\.?\s*\d+$', caseSensitive: false),
   ];
   return patterns.any((pattern) => pattern.hasMatch(normalized))
@@ -194,9 +290,23 @@ bool _isSourceHeading(String line) {
 }
 
 bool _containsAnalysisHeading(String text) {
-  return RegExp(
-    r'(?:제목|주제|요지|글의\s*흐름|영어\s*지문|한글\s*해석|해석)\s*(?:\]|:)',
-  ).hasMatch(text);
+  const title = '\uC81C\uBAA9';
+  const topic = '\uC8FC\uC81C';
+  const gist = '\uC694\uC9C0';
+  const material = '\uC18C\uC7AC';
+  const flow = '\uAE00\uC758\\s*\uD750\uB984';
+  const passage = '\uC601\uC5B4\\s*\uC9C0\uBB38';
+  const translation = '(?:\uD55C\uAE00\\s*)?\uD574\uC11D';
+  const explanation = '\uD574\uC124';
+  const solution = '\uD480\uC774';
+  const vocabulary = '\uC5B4\uD718';
+  const answer = '\uC815\uB2F5';
+  if (RegExp(
+    '(?:$title|$topic|$gist|$material|$flow|$passage|$translation|$explanation|$solution|$vocabulary|$answer)\\s*(?:\\]|:)',
+  ).hasMatch(text)) {
+    return true;
+  }
+  return false;
 }
 
 String stripFinalTouchBrackets(String text) {
@@ -208,6 +318,30 @@ String stripFinalTouchBrackets(String text) {
 }
 
 (String, String)? _headingKey(String line) {
+  final realBracketMatch = RegExp(
+    r'^\[\s*(출처|제목|주제|요지|소재|글의\s*흐름|영어\s*지문|한글\s*해석|해석|해설|풀이|어휘|Summary|Topic|Title|Main\s*Idea)\s*\]\s*:?\s*(.*)$',
+    caseSensitive: false,
+  ).firstMatch(line);
+  final realColonMatch = RegExp(
+    r'^(?:\d+\.\s*)?(출처|제목|주제|요지|소재|글의\s*흐름|영어\s*지문|한글\s*해석|해석|해설|풀이|어휘|Summary|Topic|Title|Main\s*Idea)\s*:\s*(.*)$',
+    caseSensitive: false,
+  ).firstMatch(line);
+  final realMatch = realBracketMatch ?? realColonMatch;
+  if (realMatch != null) {
+    final label = realMatch.group(1)!.replaceAll(' ', '').toLowerCase();
+    final key = switch (label) {
+      '출처' => 'source',
+      '제목' || 'title' => 'title',
+      '주제' || '소재' || 'topic' => 'topic',
+      '요지' || 'summary' || 'mainidea' => 'gist',
+      '글의흐름' => 'flow',
+      '영어지문' => 'passage',
+      '해설' || '풀이' => 'explanation',
+      '어휘' => 'vocabulary',
+      _ => 'translation',
+    };
+    return (key, realMatch.group(2)?.trim() ?? '');
+  }
   final bracketMatch = RegExp(
     r'^\[\s*(출처|제목|주제|요지|소재|글의\s*흐름|영어\s*지문|한글\s*해석|해석|Summary|Topic|Title|Main\s*Idea)\s*\]\s*:?\s*(.*)$',
     caseSensitive: false,
@@ -249,7 +383,7 @@ String _inferPassage(String rawText) {
       section = heading.$1;
       continue;
     }
-    if (_explicitUnitLabel(line) != null || line.isEmpty) {
+    if (_passageBoundaryLabel(line) != null || line.isEmpty) {
       flush();
       continue;
     }
@@ -293,7 +427,7 @@ String _inferTranslation(String rawText, String passage) {
       section = heading.$1;
       continue;
     }
-    if (_explicitUnitLabel(line) != null || line.isEmpty) {
+    if (_passageBoundaryLabel(line) != null || line.isEmpty) {
       flush();
       continue;
     }
@@ -322,22 +456,26 @@ String _inferTranslation(String rawText, String passage) {
 bool _isEnglishPassageLine(String line) {
   if (line.length < 20) return false;
   final letters = RegExp(r'[A-Za-z]').allMatches(line).length;
-  final korean = RegExp(r'[가-힣]').allMatches(line).length;
+  final korean = _koreanCharCount(line);
   final words = RegExp(r"[A-Za-z]+(?:'[A-Za-z]+)?").allMatches(line).length;
   return letters >= 12 && words >= 4 && letters > korean * 2;
 }
 
 bool _isKoreanSentenceLine(String line) {
   if (line.length < 8) return false;
-  final korean = RegExp(r'[가-힣]').allMatches(line).length;
+  final korean = _koreanCharCount(line);
   final letters = RegExp(r'[A-Za-z]').allMatches(line).length;
   return korean >= 5 && korean > letters;
 }
 
 double _englishRatio(String text) {
   final letters = RegExp(r'[A-Za-z]').allMatches(text).length;
-  final meaningful = RegExp(r'[A-Za-z가-힣]').allMatches(text).length;
+  final meaningful = letters + _koreanCharCount(text);
   return meaningful == 0 ? 0 : letters / meaningful;
+}
+
+int _koreanCharCount(String text) {
+  return text.runes.where((codePoint) => codePoint > 0x7f).length;
 }
 
 String _stripLeadingNumber(String line) {

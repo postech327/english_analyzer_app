@@ -352,6 +352,10 @@ class _DraftPreviewCard extends StatelessWidget {
         .map((item) => '${item['translation'] ?? ''}'.trim())
         .where((value) => value.isNotEmpty)
         .toList();
+    final hasOriginalTranslation = RegExp(
+      '(?:\\[\\s*(?:\\uD55C\\uAE00\\s*)?\\uD574\\uC11D\\s*\\]|(?:\\uD55C\\uAE00\\s*)?\\uD574\\uC11D\\s*:)',
+      caseSensitive: false,
+    ).hasMatch(draft.rawText);
     return _ImportCard(
       child: ExpansionTile(
         tilePadding: EdgeInsets.zero,
@@ -377,6 +381,14 @@ class _DraftPreviewCard extends StatelessWidget {
             children: [
               _InfoPill(text: '영어 ${draft.sentenceDetails.length}문장'),
               _InfoPill(text: '해석 ${translations.length}문장'),
+              _InfoPill(
+                text: hasOriginalTranslation
+                    ? '\uC6D0\uBCF8 \uD574\uC11D \uBC18\uC601'
+                    : translations.isEmpty
+                        ? '\uC6D0\uBCF8 \uD574\uC11D \uC5C6\uC74C - fallback \uC0AC\uC6A9 \uC911'
+                        : '\uD574\uC11D \uCD94\uC815 \uBC18\uC601',
+                warning: !hasOriginalTranslation,
+              ),
               _InfoPill(
                 text: draft.canSave ? '저장 가능' : '저장 불가',
                 warning: !draft.canSave,
