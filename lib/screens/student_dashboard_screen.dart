@@ -14,7 +14,9 @@ import 'student_learning_assignments_screen.dart';
 import 'student_vocabulary_screens.dart';
 
 class StudentDashboardScreen extends StatefulWidget {
-  const StudentDashboardScreen({super.key});
+  const StudentDashboardScreen({super.key, this.onOpenDrawer});
+
+  final VoidCallback? onOpenDrawer;
 
   @override
   State<StudentDashboardScreen> createState() => _StudentDashboardScreenState();
@@ -167,6 +169,16 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
         backgroundColor: const Color(0xFFF6F8FC),
         elevation: 0,
         centerTitle: false,
+        leading: widget.onOpenDrawer == null
+            ? null
+            : IconButton(
+                tooltip: '메뉴',
+                onPressed: widget.onOpenDrawer,
+                icon: const Icon(
+                  Icons.menu_rounded,
+                  color: Color(0xFF111827),
+                ),
+              ),
         title: const Text(
           '오늘의 학습',
           style: TextStyle(
@@ -199,8 +211,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
             ),
             const SizedBox(height: 16),
             _todayLearningCard(),
-            const SizedBox(height: 16),
-            _workbookLearningCard(),
             const SizedBox(height: 16),
             _learningStatusCard(
               totalAttempts: totalAttempts,
@@ -379,6 +389,21 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
             onTap: _openFinalTouch,
           ),
           const SizedBox(height: 10),
+          _workbookLearningTile(),
+          const SizedBox(height: 10),
+          _LearningActionTile(
+            icon: Icons.translate_rounded,
+            title: '단어장 학습',
+            subtitle: '선생님이 배포한 단어를 카드와 퀴즈로 복습해요.',
+            color: const Color(0xFF0F766E),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const StudentVocabularyListScreen(),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
           _LearningActionTile(
             icon: Icons.assignment_ind_rounded,
             title: '내 학습',
@@ -394,24 +419,43 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
             color: const Color(0xFF0891B2),
             onTap: _openMockExam,
           ),
-          const SizedBox(height: 10),
-          _LearningActionTile(
-            icon: Icons.translate_rounded,
-            title: '단어장 학습',
-            subtitle: '선생님이 배포한 단어를 카드와 퀴즈로 복습해요.',
-            color: const Color(0xFF0F766E),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const StudentVocabularyListScreen(),
-              ),
-            ),
-          ),
         ],
       ),
     );
   }
 
+  Widget _workbookLearningTile() {
+    return FutureBuilder<List<LearningAssignment>>(
+      future: _workbookAssignmentsFuture,
+      builder: (context, snapshot) {
+        final assignments = snapshot.data ?? const <LearningAssignment>[];
+        final active = assignments
+            .where((item) => item.status != 'completed')
+            .toList()
+          ..sort((a, b) => b.assignedAt.compareTo(a.assignedAt));
+        final latest = active.isNotEmpty
+            ? active.first
+            : (assignments.isNotEmpty ? assignments.first : null);
+        final isLoading = snapshot.connectionState == ConnectionState.waiting;
+        final subtitle = isLoading
+            ? '배포된 워크북을 확인하는 중입니다.'
+            : active.isEmpty
+                ? '지금 바로 진행해야 할 워크북은 없습니다.'
+                : '진행해야 할 워크북 ${active.length}개가 있습니다.';
+        final title = latest?.title.trim() ?? '';
+
+        return _LearningActionTile(
+          icon: Icons.menu_book_rounded,
+          title: '워크북 학습',
+          subtitle: title.isEmpty ? subtitle : '$subtitle · $title',
+          color: const Color(0xFF2563EB),
+          onTap: _openLearningAssignments,
+        );
+      },
+    );
+  }
+
+  // ignore: unused_element
   Widget _workbookLearningCard() {
     return FutureBuilder<List<LearningAssignment>>(
       future: _workbookAssignmentsFuture,
