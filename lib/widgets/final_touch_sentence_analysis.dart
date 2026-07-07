@@ -394,6 +394,7 @@ class _SummaryLine extends StatelessWidget {
 
 class _PassageLanguagePanel extends StatelessWidget {
   const _PassageLanguagePanel({
+    super.key,
     required this.icon,
     required this.title,
     required this.child,
