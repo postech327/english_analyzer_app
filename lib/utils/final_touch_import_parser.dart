@@ -435,6 +435,13 @@ String _inferPassage(String rawText) {
   }
   flush();
   if (groups.isEmpty) return '';
+  final recoveredNumberedLines = _recoverNumberedEnglishLines(rawText);
+  final longestGroupLength = groups
+      .map((group) => group.length)
+      .fold<int>(0, (max, count) => count > max ? count : max);
+  if (recoveredNumberedLines.length > longestGroupLength) {
+    return recoveredNumberedLines.join('\n');
+  }
   groups.sort(
       (left, right) => right.join(' ').length.compareTo(left.join(' ').length));
   return groups.first.join('\n');
@@ -490,6 +497,7 @@ bool _isEnglishPassageLine(String line) {
   if (_hasPassageNumberMarker(line) && RegExp(r'[A-Za-z]').hasMatch(cleaned)) {
     return true;
   }
+  if (_looksLikeCorruptedNumberedEnglishLine(line)) return true;
   if (_isLetterGreetingLine(cleaned) || _isLetterClosingLine(cleaned)) {
     return true;
   }
@@ -518,16 +526,69 @@ int _koreanCharCount(String text) {
 }
 
 String _stripLeadingNumber(String line) {
-  return line
-      .replaceFirst(
-        RegExp(r'^\s*(?:[\u2460-\u2473函刻券刷刺到刮制剁劾]|\d+[.)]?)\s*'),
+  var trimmed = line.trimLeft().replaceFirst(
+        RegExp(
+          r'^(?:[\u2460-\u2473\u2776-\u277F\u278A-\u2793\u24F5-\u24FE\u51FD\u523B\u5238\u5237\u523A\u5230\u522E\u5236\u5241\u52BE]|\d+[.)]?)\s*',
+        ),
         '',
-      )
-      .trim();
+      );
+  final corruptedMarker =
+      RegExp(r'^[^A-Za-z\[\{\("“‘]{1,8}').firstMatch(trimmed);
+  if (corruptedMarker != null) {
+    final rest = trimmed.substring(corruptedMarker.end).trimLeft();
+    if (RegExp(r'^[A-Za-z\[\{\("“‘]').hasMatch(rest)) {
+      trimmed = rest;
+    }
+  }
+  return trimmed.trim();
 }
 
 bool _hasPassageNumberMarker(String line) {
-  return RegExp(r'^\s*(?:[\u2460-\u2473函刻券刷刺到刮制剁劾]|\d+[.)])\s*').hasMatch(line);
+  return RegExp(
+    r'^\s*(?:[\u2460-\u2473\u2776-\u277F\u278A-\u2793\u24F5-\u24FE\u51FD\u523B\u5238\u5237\u523A\u5230\u522E\u5236\u5241\u52BE]|\d+[.)])\s*',
+  ).hasMatch(line);
+}
+
+bool _looksLikeCorruptedNumberedEnglishLine(String line) {
+  final trimmed = line.trimLeft();
+  if (trimmed.isEmpty || RegExp(r'^[A-Za-z]').hasMatch(trimmed)) return false;
+  final cleaned = _stripLeadingNumber(trimmed);
+  if (cleaned == trimmed || !RegExp(r'[A-Za-z]').hasMatch(cleaned)) {
+    return false;
+  }
+  final letters = RegExp(r'[A-Za-z]').allMatches(cleaned).length;
+  final words = RegExp(r"[A-Za-z]+(?:'[A-Za-z]+)?").allMatches(cleaned).length;
+  return letters >= 8 && words >= 2;
+}
+
+List<String> _recoverNumberedEnglishLines(String rawText) {
+  final lines = <String>[];
+  var section = '';
+  for (final rawLine in rawText.split(RegExp(r'\r?\n'))) {
+    final line = rawLine.trim();
+    final heading = _headingKey(line);
+    if (heading != null) {
+      section = heading.$1;
+      continue;
+    }
+    if (line.isEmpty || _passageBoundaryLabel(line) != null) continue;
+    if (section == 'translation' ||
+        section == 'explanation' ||
+        section == 'vocabulary' ||
+        section == 'title' ||
+        section == 'topic' ||
+        section == 'gist' ||
+        section == 'flow') {
+      continue;
+    }
+    final cleaned = _stripLeadingNumber(line);
+    if ((_hasPassageNumberMarker(line) ||
+            _looksLikeCorruptedNumberedEnglishLine(line)) &&
+        RegExp(r'[A-Za-z]').hasMatch(cleaned)) {
+      lines.add(cleaned);
+    }
+  }
+  return lines;
 }
 
 bool _isLetterGreetingLine(String line) {

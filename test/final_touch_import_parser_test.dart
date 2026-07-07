@@ -472,6 +472,53 @@ faded \uBC14\uB79C
     expect(translations, isNot(contains('faded')));
   });
 
+  test(
+      'recovers multiple English lines when one long bracketed sentence exists',
+      () {
+    final result = parseFinalTouchImportDrafts('''
+Unit 2 No. 1
+? The climbers gathered at the foot of the mountain before sunrise.
+? “Are we ready?” Mina asked, looking at the dark trail.
+? The guide checked the ropes {to make sure everyone was safe}.
+? The group members were all experienced, so I couldn’t understand [why they were climbing so slowly] — [what I thought was a ridiculous pace].
+? After an hour, I realized (in the situation) that the path was covered with thin ice.
+? We moved carefully, listening to the sound of snow under our boots.
+
+01
+[\uD574\uC11D]
+\uB4F1\uBC18\uAC00\uB4E4\uC740 \uD574\uB728\uAE30 \uC804 \uC0B0 \uC544\uB798\uC5D0 \uBAA8\uC600\uB2E4.
+\u201C\uC900\uBE44\uB410\uB098\uC694?\u201D Mina\uAC00 \uC5B4\uB450\uC6B4 \uC0B0\uAE38\uC744 \uBCF4\uBA70 \uBB3C\uC5C8\uB2E4.
+\uAC00\uC774\uB4DC\uB294 \uBAA8\uB450\uAC00 \uC548\uC804\uD55C\uC9C0 \uD655\uC778\uD558\uAE30 \uC704\uD574 \uC904\uC744 \uC810\uAC80\uD588\uB2E4.
+\uADF8 \uB4F1\uBC18\uB300\uC6D0\uB4E4\uC740 \uBAA8\uB450 \uACBD\uD5D8\uC774 \uB9CE\uC558\uB2E4.
+\uD55C \uC2DC\uAC04 \uD6C4\uC5D0 \uB098\uB294 \uADF8 \uAE38\uC774 \uC587\uC740 \uC5BC\uC74C\uC73C\uB85C \uB36E\uC5EC \uC788\uC74C\uC744 \uAE68\uB2EC\uC558\uB2E4.
+\uC6B0\uB9AC\uB294 \uBD80\uCE20 \uC544\uB798 \uB208 \uC18C\uB9AC\uB97C \uB4E4\uC73C\uBA70 \uC870\uC2EC\uC2A4\uB7FD\uAC8C \uC6C0\uC9C1\uC600\uB2E4.
+[\uD574\uC124]
+\uC0B0\uAE38\uC758 \uC704\uD5D8\uC744 \uAE68\uB2EB\uB294 \uB0B4\uC6A9\uC774\uB2E4.
+[\uC5B4\uD718]
+pace \uC18D\uB3C4
+''');
+
+    expect(result.drafts, hasLength(1));
+    final draft = result.drafts.single;
+    expect(draft.sentenceDetails, hasLength(6));
+    expect(draft.passageBracketed, contains('The climbers gathered'));
+    expect(draft.passageBracketed, contains('“Are we ready?”'));
+    expect(
+        draft.passageBracketed, contains('{to make sure everyone was safe}'));
+    expect(
+      draft.passageBracketed,
+      contains(
+          '[why they were climbing so slowly] — [what I thought was a ridiculous pace]'),
+    );
+    expect(draft.passageBracketed, contains('(in the situation)'));
+    final translations = draft.sentenceDetails
+        .map((item) => '${item['translation']}')
+        .join('\n');
+    expect(translations, contains('\uB4F1\uBC18\uAC00\uB4E4'));
+    expect(translations, isNot(contains('\uD574\uC124')));
+    expect(translations, isNot(contains('pace')));
+  });
+
   test('preview title omits index prefix', () {
     const draft = FinalTouchImportDraft(
       index: 2,
