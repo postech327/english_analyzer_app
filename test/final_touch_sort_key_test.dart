@@ -121,4 +121,19 @@ void main() {
       '수특라이트 영독',
     );
   });
+
+  test('import entry label clarifies folder or unfiled destination', () {
+    expect(
+      finalTouchImportEntryLabel(folderName: '수특라이트 영어'),
+      '이 폴더에 HWPX 가져오기',
+    );
+    expect(
+      finalTouchImportEntryLabel(folderName: '미분류'),
+      '미분류로 HWPX 가져오기',
+    );
+    expect(
+      finalTouchImportEntryLabel(folderName: null),
+      '미분류로 HWPX 가져오기',
+    );
+  });
 }

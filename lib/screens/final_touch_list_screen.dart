@@ -238,17 +238,6 @@ class _FinalTouchListScreenState extends State<FinalTouchListScreen> {
         ],
       ),
       body: _unitFolder == null ? _buildFolderPage() : _buildItemPage(),
-      floatingActionButton: isTeacher
-          ? FloatingActionButton.extended(
-              onPressed: _openImport,
-              tooltip: 'Final Touch HWPX 가져오기',
-              icon: const Icon(Icons.upload_file_rounded),
-              label: const Text(
-                'HWPX 가져오기',
-                style: TextStyle(fontWeight: FontWeight.w800),
-              ),
-            )
-          : null,
     );
   }
 
@@ -499,6 +488,22 @@ class _FinalTouchListScreenState extends State<FinalTouchListScreen> {
               },
             ),
             const SizedBox(height: 14),
+            if (AuthStore.isTeacher) ...[
+              Align(
+                alignment: Alignment.centerRight,
+                child: OutlinedButton.icon(
+                  onPressed: _openImport,
+                  icon: const Icon(Icons.upload_file_rounded, size: 18),
+                  label: Text(finalTouchImportEntryLabel(
+                    folderName: finalTouchImportFolderDisplayName(
+                      bookFolder: _bookFolder,
+                      unitFolder: _unitFolder,
+                    ),
+                  )),
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
             const Text(
               'Saved Analysis',
               style: TextStyle(
@@ -3104,6 +3109,15 @@ String? finalTouchImportFolderDisplayName({
   if (folder == null) return null;
   if (folder.isDirectBucket && bookFolder != null) return bookFolder.name;
   return folder.name;
+}
+
+@visibleForTesting
+String finalTouchImportEntryLabel({required String? folderName}) {
+  final name = folderName?.trim();
+  if (name == null || name.isEmpty || name == '미분류') {
+    return '미분류로 HWPX 가져오기';
+  }
+  return '이 폴더에 HWPX 가져오기';
 }
 
 String _formatDateText(String value) {
