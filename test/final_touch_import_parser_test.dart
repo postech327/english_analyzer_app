@@ -262,6 +262,129 @@ maintenance \uBCF4\uC218 \uAD00\uB9AC
     expect(gatewayTranslations, isNot(contains('semester')));
   });
 
+  test('matches repeated Gateway and numbered companion blocks by occurrence',
+      () {
+    final result = parseFinalTouchImportDrafts('''
+Unit 1 Gateway
+Dear students,
+I am Amanda Clark, the school club director, and I am writing to you about school clubs.
+Over the last few semesters, many students have asked for more diverse clubs.
+Best regards,
+Amanda Clark
+
+Unit 1 No. 1
+Recently, designers have tried to make public spaces more useful for everyone.
+Their work can improve how people share ideas in daily life.
+
+Unit 1 No. 2
+Careful maintenance can prevent small problems from becoming serious damage.
+This approach helps communities save money and protect public facilities.
+
+Unit 2 Gateway
+① “Where could it be?” Sophie asked herself.
+② It had been more than ten years [since she had last visited the area [where she had grown up]].
+③ The village had changed a lot {over time}.
+④ {Uncertain}, she awkwardly looked around (at her surroundings).
+⑤ She walked the narrow streets (of the village), {unsure about which way to go}.
+⑥ Suddenly, Sophie saw a familiar sight.
+⑦ “Yes, this must be it,” she thought.
+⑧ (In front of her) was a wall {with flowers painted on it}.
+⑨ [Although the colors were now faded], the familiar shapes (on the wall) were the same ones [she had painted (with her father) (as a child)].
+⑩ Sophie nodded, smiled brightly, and walked (toward the gate).
+⑪ (At last), she had finally found the house [she had grown up in].
+
+Unit 2 No. 1
+Artists often borrow ideas from nature to solve difficult design problems.
+These ideas can lead to new tools that are both simple and effective.
+
+Unit 2 No. 2
+People remember information better when they connect it to a clear story.
+That is why teachers often use examples before introducing abstract concepts.
+
+Gateway
+[\uD574\uC11D]
+\uC720\uB2DB 1 \uAC8C\uC774\uD2B8\uC6E8\uC774 \uD574\uC11D \uCCAB \uC904
+Amanda Clark \uB4DC\uB9BC
+[\uD574\uC124]
+\uC720\uB2DB 1 \uAC8C\uC774\uD2B8\uC6E8\uC774 \uD574\uC124
+[\uC5B4\uD718]
+semester \uD559\uAE30
+
+01
+[\uD574\uC11D]
+\uC720\uB2DB 1 1\uBC88 \uD574\uC11D
+[\uD574\uC124]
+\uC720\uB2DB 1 1\uBC88 \uD574\uC124
+
+02
+[\uD574\uC11D]
+\uC720\uB2DB 1 2\uBC88 \uD574\uC11D
+[\uD574\uC124]
+\uC720\uB2DB 1 2\uBC88 \uD574\uC124
+
+Gateway
+[\uD574\uC11D]
+\uC720\uB2DB 2 \uAC8C\uC774\uD2B8\uC6E8\uC774 \uD574\uC11D \uCCAB \uC904
+\uB9C8\uCE68\uB0B4, Sophie\uB294 \uC9D1\uC744 \uCC3E\uC558\uB2E4.
+[\uD574\uC124]
+\uC720\uB2DB 2 \uAC8C\uC774\uD2B8\uC6E8\uC774 \uD574\uC124
+[\uC5B4\uD718]
+faded \uBC14\uB79C
+
+01
+[\uD574\uC11D]
+\uC720\uB2DB 2 1\uBC88 \uD574\uC11D
+[\uD574\uC124]
+\uC720\uB2DB 2 1\uBC88 \uD574\uC124
+
+02
+[\uD574\uC11D]
+\uC720\uB2DB 2 2\uBC88 \uD574\uC11D
+[\uD574\uC124]
+\uC720\uB2DB 2 2\uBC88 \uD574\uC124
+''');
+
+    expect(result.drafts, hasLength(6));
+    expect(
+      result.drafts.map((draft) => draft.unitLabel),
+      [
+        'Unit 1 Gateway',
+        'Unit 1 No. 1',
+        'Unit 1 No. 2',
+        'Unit 2 Gateway',
+        'Unit 2 No. 1',
+        'Unit 2 No. 2',
+      ],
+    );
+    expect(result.drafts[0].source, 'Unit 1 Gateway');
+    expect(result.drafts[3].source, 'Unit 2 Gateway');
+    expect(result.drafts[3].sentenceDetails, hasLength(11));
+
+    final translations = [
+      for (final draft in result.drafts)
+        draft.sentenceDetails
+            .map((item) => '${item['translation']}')
+            .join('\n'),
+    ];
+    expect(translations[0],
+        contains('\uC720\uB2DB 1 \uAC8C\uC774\uD2B8\uC6E8\uC774'));
+    expect(translations[0],
+        isNot(contains('\uC720\uB2DB 2 \uAC8C\uC774\uD2B8\uC6E8\uC774')));
+    expect(translations[1], contains('\uC720\uB2DB 1 1\uBC88'));
+    expect(translations[2], contains('\uC720\uB2DB 1 2\uBC88'));
+    expect(translations[3],
+        contains('\uC720\uB2DB 2 \uAC8C\uC774\uD2B8\uC6E8\uC774'));
+    expect(translations[3],
+        isNot(contains('\uC720\uB2DB 1 \uAC8C\uC774\uD2B8\uC6E8\uC774')));
+    expect(translations[4], contains('\uC720\uB2DB 2 1\uBC88'));
+    expect(translations[5], contains('\uC720\uB2DB 2 2\uBC88'));
+    for (final translation in translations) {
+      expect(translation, isNot(contains('\uD574\uC124')));
+      expect(translation, isNot(contains('semester')));
+      expect(translation, isNot(contains('faded')));
+    }
+  });
+
   test('keeps full translation block and falls back source to unit label', () {
     final result = parseFinalTouchImportDrafts('''
 Unit 1 Gateway

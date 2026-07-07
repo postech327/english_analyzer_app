@@ -183,20 +183,22 @@ List<({String unitLabel, String text})> _mergeCompanionBlocks(
   List<({String unitLabel, String text})> blocks,
 ) {
   final merged = <({String unitLabel, String text})>[];
+  final companionCountsByKey = <String, int>{};
   for (final block in blocks) {
     final hasPassage = _blockHasEnglishPassage(block.text);
     final hasSupplement = _hasTranslationOrExplanationHeading(block.text);
     if (!hasPassage && hasSupplement && merged.isNotEmpty) {
       final key = _canonicalPassageKey(block.unitLabel);
-      var targetIndex = -1;
-      if (key.isNotEmpty) {
-        for (var index = merged.length - 1; index >= 0; index--) {
-          if (_canonicalPassageKey(merged[index].unitLabel) == key) {
-            targetIndex = index;
-            break;
-          }
-        }
-      }
+      final occurrence = companionCountsByKey.update(
+        key,
+        (value) => value + 1,
+        ifAbsent: () => 0,
+      );
+      var targetIndex = _targetIndexForCompanion(
+        merged,
+        key: key,
+        occurrence: occurrence,
+      );
       if (targetIndex < 0) targetIndex = merged.length - 1;
       final target = merged[targetIndex];
       merged[targetIndex] = (
@@ -208,6 +210,24 @@ List<({String unitLabel, String text})> _mergeCompanionBlocks(
     merged.add(block);
   }
   return merged;
+}
+
+int _targetIndexForCompanion(
+  List<({String unitLabel, String text})> candidates, {
+  required String key,
+  required int occurrence,
+}) {
+  if (key.isEmpty) return -1;
+  var seen = 0;
+  for (var index = 0; index < candidates.length; index++) {
+    if (_canonicalPassageKey(candidates[index].unitLabel) != key) continue;
+    if (seen == occurrence) return index;
+    seen++;
+  }
+  for (var index = candidates.length - 1; index >= 0; index--) {
+    if (_canonicalPassageKey(candidates[index].unitLabel) == key) return index;
+  }
+  return -1;
 }
 
 bool _blockHasEnglishPassage(String text) {
@@ -500,14 +520,14 @@ int _koreanCharCount(String text) {
 String _stripLeadingNumber(String line) {
   return line
       .replaceFirst(
-        RegExp(r'^\s*(?:[\u2460-\u2473]|\d+[.)]?)\s*'),
+        RegExp(r'^\s*(?:[\u2460-\u2473函刻券刷刺到刮制剁劾]|\d+[.)]?)\s*'),
         '',
       )
       .trim();
 }
 
 bool _hasPassageNumberMarker(String line) {
-  return RegExp(r'^\s*(?:[\u2460-\u2473]|\d+[.)])\s*').hasMatch(line);
+  return RegExp(r'^\s*(?:[\u2460-\u2473函刻券刷刺到刮制剁劾]|\d+[.)])\s*').hasMatch(line);
 }
 
 bool _isLetterGreetingLine(String line) {
