@@ -62,6 +62,13 @@ FinalTouchImportDraft _parseSingleDraft(
   final bracketedSentences = _contentLines(bracketed);
   final plainSentences = _contentLines(passage);
   final sentenceCount = plainSentences.length;
+  final mappedTranslations = _mapTranslationsToSentences(
+    translationText,
+    translations,
+    sentenceCount,
+  );
+  final effectiveSource =
+      value('source').isEmpty ? unitLabel.trim() : value('source');
   final sentenceDetails = <Map<String, dynamic>>[
     for (var index = 0; index < sentenceCount; index++)
       {
@@ -70,9 +77,8 @@ FinalTouchImportDraft _parseSingleDraft(
         'bracketed': index < bracketedSentences.length
             ? bracketedSentences[index]
             : plainSentences[index],
-        'translation': index < translations.length ? translations[index] : '',
-        'translation_bracketed':
-            index < translations.length ? translations[index] : '',
+        'translation': mappedTranslations[index],
+        'translation_bracketed': mappedTranslations[index],
         'spans': const [],
         'sentence_role': '',
         'role_highlight_type': 'none',
@@ -84,7 +90,7 @@ FinalTouchImportDraft _parseSingleDraft(
   ];
   final outline = _parseOutline(value('flow'));
   final warnings = <String>[
-    if (value('source').isEmpty) '출처가 없습니다.',
+    if (effectiveSource.isEmpty) '출처가 없습니다.',
     if (value('title').isEmpty) '제목이 없습니다.',
     if (value('topic').isEmpty) '주제가 없습니다.',
     if (value('gist').isEmpty) '요지가 없습니다.',
@@ -98,7 +104,7 @@ FinalTouchImportDraft _parseSingleDraft(
   return FinalTouchImportDraft(
     index: index,
     unitLabel: unitLabel,
-    source: value('source').isEmpty ? unitLabel : value('source'),
+    source: effectiveSource,
     title: value('title'),
     topic: value('topic'),
     gist: value('gist'),
@@ -370,9 +376,11 @@ String _inferPassage(String rawText) {
   final groups = <List<String>>[];
   var current = <String>[];
   var section = '';
+  var afterLetterClosing = false;
   void flush() {
     if (current.isNotEmpty) groups.add(current);
     current = <String>[];
+    afterLetterClosing = false;
   }
 
   for (final rawLine in rawText.split(RegExp(r'\r?\n'))) {
@@ -395,8 +403,12 @@ String _inferPassage(String rawText) {
       flush();
       continue;
     }
-    if (_isEnglishPassageLine(line)) {
-      current.add(_stripLeadingNumber(line));
+    final cleaned = _stripLeadingNumber(line);
+    final isLetterClosing = _isLetterClosingLine(cleaned);
+    final isSignature = afterLetterClosing && _isLikelyEnglishNameLine(cleaned);
+    if (_isEnglishPassageLine(line) || isSignature) {
+      current.add(cleaned);
+      afterLetterClosing = isLetterClosing;
     } else {
       flush();
     }
@@ -454,6 +466,13 @@ String _inferTranslation(String rawText, String passage) {
 }
 
 bool _isEnglishPassageLine(String line) {
+  final cleaned = _stripLeadingNumber(line);
+  if (_hasPassageNumberMarker(line) && RegExp(r'[A-Za-z]').hasMatch(cleaned)) {
+    return true;
+  }
+  if (_isLetterGreetingLine(cleaned) || _isLetterClosingLine(cleaned)) {
+    return true;
+  }
   if (line.length < 20) return false;
   final letters = RegExp(r'[A-Za-z]').allMatches(line).length;
   final korean = _koreanCharCount(line);
@@ -481,10 +500,52 @@ int _koreanCharCount(String text) {
 String _stripLeadingNumber(String line) {
   return line
       .replaceFirst(
-        RegExp(r'^\s*(?:[①②③④⑤⑥⑦⑧⑨⑩]|\d+[.)]?)\s*'),
+        RegExp(r'^\s*(?:[\u2460-\u2473]|\d+[.)]?)\s*'),
         '',
       )
       .trim();
+}
+
+bool _hasPassageNumberMarker(String line) {
+  return RegExp(r'^\s*(?:[\u2460-\u2473]|\d+[.)])\s*').hasMatch(line);
+}
+
+bool _isLetterGreetingLine(String line) {
+  return RegExp(r'^Dear\b.+,?$', caseSensitive: false).hasMatch(line.trim());
+}
+
+bool _isLetterClosingLine(String line) {
+  return RegExp(
+    r'^(?:Best regards|Sincerely|Yours sincerely|Yours truly|Regards|Warm regards),?$',
+    caseSensitive: false,
+  ).hasMatch(line.trim());
+}
+
+bool _isLikelyEnglishNameLine(String line) {
+  final trimmed = line.trim();
+  if (trimmed.length > 40) return false;
+  if (!RegExp(r"^[A-Z][A-Za-z.'-]*(?:\s+[A-Z][A-Za-z.'-]*){0,3}$")
+      .hasMatch(trimmed)) {
+    return false;
+  }
+  return !RegExp(
+    r'^(Unit|Gateway|Chapter|Lesson|No|Best|Dear|Sincerely|Regards)$',
+    caseSensitive: false,
+  ).hasMatch(trimmed);
+}
+
+List<String> _mapTranslationsToSentences(
+  String translationText,
+  List<String> translations,
+  int sentenceCount,
+) {
+  if (sentenceCount <= 0) return const <String>[];
+  if (translations.isEmpty) return List.filled(sentenceCount, '');
+  if (translations.length == sentenceCount) return translations;
+  return [
+    translationText.trim(),
+    for (var index = 1; index < sentenceCount; index++) '',
+  ];
 }
 
 Map<String, String> _parseOutline(String text) {

@@ -7,6 +7,11 @@ import '../utils/final_touch_import_parser.dart';
 import '../utils/workbook_hwpx_text_extractor.dart';
 import '../widgets/bracket_colored_text.dart';
 
+@visibleForTesting
+String finalTouchImportPreviewTitle(FinalTouchImportDraft draft) {
+  return draft.displayLabel;
+}
+
 class TeacherFinalTouchImportScreen extends StatefulWidget {
   const TeacherFinalTouchImportScreen({super.key, this.folderId});
 
@@ -367,7 +372,7 @@ class _DraftPreviewCard extends StatelessWidget {
           onChanged: onSelected,
         ),
         title: Text(
-          '${draft.index + 1}. ${draft.displayLabel}',
+          finalTouchImportPreviewTitle(draft),
           style: const TextStyle(
             color: Color(0xFF172033),
             fontWeight: FontWeight.w900,

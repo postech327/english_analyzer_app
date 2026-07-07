@@ -1,3 +1,5 @@
+import 'package:english_analyzer_app/models/final_touch_import_draft.dart';
+import 'package:english_analyzer_app/screens/teacher_final_touch_import_screen.dart';
 import 'package:english_analyzer_app/utils/final_touch_import_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -258,5 +260,112 @@ maintenance \uBCF4\uC218 \uAD00\uB9AC
         .join('\n');
     expect(gatewayTranslations, isNot(contains('\uD574\uC124')));
     expect(gatewayTranslations, isNot(contains('semester')));
+  });
+
+  test('keeps full translation block and falls back source to unit label', () {
+    final result = parseFinalTouchImportDrafts('''
+Unit 1 Gateway
+Dear students,
+I am Amanda Clark, the school club director, and I am writing to you about school clubs.
+Best regards,
+Amanda Clark
+
+Gateway
+[\uD574\uC11D]
+\uD559\uC0DD \uC5EC\uB7EC\uBD84\uAED8
+\uC800\uB294 \uD559\uAD50 \uB3D9\uC544\uB9AC \uB2F4\uB2F9 \uAD50\uC0AC Amanda Clark\uC774\uBA70, \uD559\uAD50 \uB3D9\uC544\uB9AC\uC640 \uAD00\uB828\uD574 \uC5EC\uB7EC\uBD84\uAED8 \uAE00\uC744 \uC501\uB2C8\uB2E4.
+\uC9C0\uB09C \uBA87 \uD559\uAE30 \uB3D9\uC548 \uB354 \uB2E4\uC591\uD55C \uD559\uAD50 \uB3D9\uC544\uB9AC\uC5D0 \uB300\uD55C \uC694\uCCAD\uC774 \uC788\uC5C8\uC2B5\uB2C8\uB2E4.
+Amanda Clark \uB4DC\uB9BC
+[\uD574\uC124]
+\uB354 \uB2E4\uC591\uD55C \uB3D9\uC544\uB9AC\uC5D0 \uB300\uD55C \uC694\uCCAD\uC774 \uC788\uC5C8\uB2E4.
+[\uC5B4\uD718]
+semester \uD559\uAE30
+''');
+
+    expect(result.drafts, hasLength(1));
+    final draft = result.drafts.single;
+    expect(draft.source, 'Unit 1 Gateway');
+    expect(draft.warnings,
+        isNot(contains('\uCD9C\uCC98\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.')));
+    expect(draft.passageBracketed, contains('Dear students,'));
+    expect(draft.passageBracketed, contains('Best regards,'));
+    expect(draft.passageBracketed, contains('Amanda Clark'));
+    final translations = draft.sentenceDetails
+        .map((item) => '${item['translation']}')
+        .join('\n');
+    expect(translations, contains('\uD559\uC0DD \uC5EC\uB7EC\uBD84\uAED8'));
+    expect(translations, contains('Amanda Clark \uB4DC\uB9BC'));
+    expect(translations, isNot(contains('\uD574\uC124')));
+    expect(translations, isNot(contains('semester')));
+  });
+
+  test('keeps all numbered narrative sentences including quotes and brackets',
+      () {
+    final result = parseFinalTouchImportDrafts('''
+Unit 2 Gateway
+① “Where could it be?” Sophie asked herself.
+② It had been more than ten years [since she had last visited the area [where she had grown up]].
+③ The village had changed a lot {over time}.
+④ {Uncertain}, she awkwardly looked around (at her surroundings).
+⑤ She walked the narrow streets (of the village), {unsure about which way to go}.
+⑥ Suddenly, Sophie saw a familiar sight.
+⑦ “Yes, this must be it,” she thought.
+⑧ (In front of her) was a wall {with flowers painted on it}.
+⑨ [Although the colors were now faded], the familiar shapes (on the wall) were the same ones [she had painted (with her father) (as a child)].
+⑩ Sophie nodded, smiled brightly, and walked (toward the gate).
+⑪ (At last), she had finally found the house [she had grown up in].
+
+Gateway
+[\uD574\uC11D]
+\u201C\uC5B4\uB514\uC5D0 \uC788\uC744\uAE4C?\u201D Sophie\uB294 \uD63C\uC790 \uC0DD\uAC01\uD588\uB2E4.
+\uADF8\uB140\uAC00 \uC790\uC2E0\uC774 \uC790\uB790\uB358 \uADF8 \uC9C0\uC5ED\uC744 \uB9C8\uC9C0\uB9C9\uC73C\uB85C \uBC29\uBB38\uD55C \uC9C0 10\uB144\uC774 \uB118\uC5C8\uB2E4.
+\uADF8 \uB9C8\uC744\uC740 \uC2DC\uAC04\uC774 \uD750\uB974\uBA70 \uB9CE\uC774 \uBCC0\uD574 \uC788\uC5C8\uB2E4.
+\uD655\uC2E0\uC774 \uC5C6\uC5B4, \uADF8\uB140\uB294 \uC8FC\uBCC0\uC744 \uC5B4\uC0C9\uD558\uAC8C \uB458\uB7EC\uBCF4\uC558\uB2E4.
+\uADF8\uB140\uB294 \uAC08 \uAE38\uC744 \uD655\uC2E0\uD558\uC9C0 \uBABB\uD55C \uCC44 \uB9C8\uC744\uC758 \uC881\uC740 \uAE38\uC744 \uAC78\uC5C8\uB2E4.
+\uAC11\uC790\uAE30 Sophie\uB294 \uC775\uC219\uD55C \uAD11\uACBD\uC744 \uBCF4\uC558\uB2E4.
+\u201C\uB9DE\uC544, \uC774\uAC8C \uADF8\uAC83\uC774 \uD2C0\uB9BC\uC5C6\uC5B4,\u201D\uB77C\uACE0 \uADF8\uB140\uB294 \uC0DD\uAC01\uD588\uB2E4.
+\uADF8\uB140 \uC55E\uC5D0\uB294 \uAF43\uC774 \uADF8\uB824\uC9C4 \uBCBD\uC774 \uC788\uC5C8\uB2E4.
+\uC0C9\uC740 \uC774\uC81C \uBC14\uB798\uC5C8\uC9C0\uB9CC, \uBCBD\uC758 \uC775\uC219\uD55C \uBAA8\uC591\uB4E4\uC740 \uADF8\uB140\uAC00 \uC5B4\uB9B4 \uC801 \uC544\uBC84\uC9C0\uC640 \uADF8\uB838\uB358 \uAC83\uB4E4\uACFC \uAC19\uC558\uB2E4.
+Sophie\uB294 \uACE0\uAC1C\uB97C \uB04C\uB355\uC774\uACE0, \uBC1D\uAC8C \uC6C3\uC73C\uBA70, \uB300\uBB38 \uCABD\uC73C\uB85C \uAC78\uC5B4\uAC14\uB2E4.
+\uB9C8\uCE68\uB0B4, \uADF8\uB140\uB294 \uC790\uC2E0\uC774 \uC790\uB790\uB358 \uADF8 \uC9D1\uC744 \uB4DC\uB514\uC5B4 \uCC3E\uC558\uB2E4.
+[\uD574\uC124]
+\uC5B4\uB9B0 \uC2DC\uC808 \uC9D1\uC744 \uCC3E\uB294 \uC774\uC57C\uAE30\uC774\uB2E4.
+[\uC5B4\uD718]
+faded \uBC14\uB79C
+''');
+
+    expect(result.drafts, hasLength(1));
+    final draft = result.drafts.single;
+    expect(draft.sentenceDetails, hasLength(11));
+    expect(draft.passageBracketed, contains('“Where could it be?”'));
+    expect(draft.passageBracketed,
+        contains('[Although the colors were now faded]'));
+    expect(draft.sentenceDetails[8]['bracketed'], contains('familiar shapes'));
+    final translations = draft.sentenceDetails
+        .map((item) => '${item['translation']}')
+        .join('\n');
+    expect(translations, contains('\uB9C8\uCE68\uB0B4'));
+    expect(translations, isNot(contains('\uD574\uC124')));
+    expect(translations, isNot(contains('faded')));
+  });
+
+  test('preview title omits index prefix', () {
+    const draft = FinalTouchImportDraft(
+      index: 2,
+      unitLabel: 'Unit 1 No. 2',
+      source: 'Unit 1 No. 2',
+      title: '',
+      topic: '',
+      gist: '',
+      outline: {'intro': '', 'body': '', 'conclusion': ''},
+      passage: 'This is a short passage for preview title testing.',
+      passageBracketed: 'This is a short passage for preview title testing.',
+      sentenceDetails: [],
+      rawText: '',
+      warnings: [],
+    );
+
+    expect(finalTouchImportPreviewTitle(draft), 'Unit 1 No. 2');
+    expect(finalTouchImportPreviewTitle(draft), isNot(startsWith('3.')));
   });
 }
