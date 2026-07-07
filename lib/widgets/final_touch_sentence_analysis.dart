@@ -130,16 +130,19 @@ class _FinalTouchFullBracketedPassageState
 
   @override
   Widget build(BuildContext context) {
-    final rows = _passageRows(
+    final passageText = _passageText(
       bracketed: widget.body,
       plain: widget.plainBody,
       details: widget.sentenceDetails,
       showBrackets: _showBrackets,
     );
-    final visibleRows = _expanded ? rows : rows.take(3).toList();
-    final translationRows = _translationRows(widget.sentenceDetails);
-    final visibleTranslations =
-        _expanded ? translationRows : translationRows.take(3).toList();
+    final visiblePassageText = _expanded
+        ? passageText
+        : _previewText(passageText, maxCharacters: 520);
+    final translationText = _translationText(widget.sentenceDetails);
+    final visibleTranslationText = _expanded
+        ? translationText
+        : _previewText(translationText, maxCharacters: 260);
 
     return Container(
       width: double.infinity,
@@ -256,8 +259,8 @@ class _FinalTouchFullBracketedPassageState
                   key: const Key('final-touch-english-passage-panel'),
                   icon: Icons.translate_rounded,
                   title: '영어 전체 지문',
-                  child: _PassageRows(
-                    rows: visibleRows,
+                  child: _PassageTextBlock(
+                    text: visiblePassageText,
                     emptyMessage: '표시할 영어 지문이 없습니다.',
                   ),
                 );
@@ -265,8 +268,8 @@ class _FinalTouchFullBracketedPassageState
                   key: const Key('final-touch-translation-panel'),
                   icon: Icons.menu_book_outlined,
                   title: '한국어 해석',
-                  child: _PassageRows(
-                    rows: visibleTranslations,
+                  child: _PassageTextBlock(
+                    text: visibleTranslationText,
                     emptyMessage: '해석이 아직 준비되지 않았습니다.',
                     isTranslation: true,
                   ),
@@ -285,17 +288,17 @@ class _FinalTouchFullBracketedPassageState
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(flex: 6, child: englishPanel),
+                      Expanded(flex: 8, child: englishPanel),
                       const SizedBox(width: 16),
-                      Expanded(flex: 5, child: translationPanel),
+                      Expanded(flex: 2, child: translationPanel),
                     ],
                   ),
                 );
               },
             ),
             if (!_expanded &&
-                (rows.length > visibleRows.length ||
-                    translationRows.length > visibleTranslations.length)) ...[
+                (passageText != visiblePassageText ||
+                    translationText != visibleTranslationText)) ...[
               const SizedBox(height: 12),
               Align(
                 alignment: Alignment.center,
@@ -438,20 +441,21 @@ class _PassageLanguagePanel extends StatelessWidget {
   }
 }
 
-class _PassageRows extends StatelessWidget {
-  const _PassageRows({
-    required this.rows,
+class _PassageTextBlock extends StatelessWidget {
+  const _PassageTextBlock({
+    required this.text,
     required this.emptyMessage,
     this.isTranslation = false,
   });
 
-  final List<({int? number, String text})> rows;
+  final String text;
   final String emptyMessage;
   final bool isTranslation;
 
   @override
   Widget build(BuildContext context) {
-    if (rows.isEmpty) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) {
       return Text(
         emptyMessage,
         style: const TextStyle(
@@ -460,34 +464,7 @@ class _PassageRows extends StatelessWidget {
         ),
       );
     }
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 180),
-      child: Column(
-        children: [
-          for (var index = 0; index < rows.length; index++) ...[
-            _FullPassageSentenceRow(
-              row: rows[index],
-              isTranslation: isTranslation,
-            ),
-            if (index != rows.length - 1) const SizedBox(height: 10),
-          ],
-        ],
-      ),
-    );
-  }
-}
 
-class _FullPassageSentenceRow extends StatelessWidget {
-  const _FullPassageSentenceRow({
-    required this.row,
-    this.isTranslation = false,
-  });
-
-  final ({int? number, String text}) row;
-  final bool isTranslation;
-
-  @override
-  Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
@@ -498,96 +475,57 @@ class _FullPassageSentenceRow extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (row.number != null) ...[
-            Container(
-              width: 30,
-              height: 30,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: const Color(0xFF4F46E5),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                '${row.number}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-          ],
-          Expanded(
-            child: BracketColoredText(
-              text: row.text.trim().isEmpty ? '-' : row.text.trim(),
-              style: const TextStyle(
-                color: Color(0xFF172033),
-                fontSize: 16,
-                height: 1.75,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ],
+      child: BracketColoredText(
+        text: trimmed,
+        style: TextStyle(
+          color: isTranslation
+              ? const Color(0xFF334155)
+              : const Color(0xFF172033),
+          fontSize: isTranslation ? 14 : 16,
+          height: isTranslation ? 1.7 : 1.75,
+          fontWeight: isTranslation ? FontWeight.w600 : FontWeight.w500,
+        ),
       ),
     );
   }
 }
 
-List<({int? number, String text})> _translationRows(
-  List<FinalTouchSentenceDetail> details,
-) {
+String _translationText(List<FinalTouchSentenceDetail> details) {
   return details
       .map((detail) {
         final translation = detail.translationBracketed.trim().isNotEmpty
             ? detail.translationBracketed
             : detail.translation;
-        return (
-          number: detail.sentenceNo > 0 ? detail.sentenceNo : null,
-          text: translation.trim(),
-        );
+        return translation.trim();
       })
-      .where((row) => row.text.isNotEmpty)
-      .toList();
+      .where((translation) => translation.isNotEmpty)
+      .join('\n\n');
 }
 
-List<({int? number, String text})> _passageRows({
+String _passageText({
   required String bracketed,
   required String plain,
   required List<FinalTouchSentenceDetail> details,
   required bool showBrackets,
 }) {
   if (details.isNotEmpty) {
-    return details.map((detail) {
-      final selected = showBrackets && detail.bracketed.trim().isNotEmpty
-          ? detail.bracketed
-          : detail.original;
-      return (
-        number: detail.sentenceNo > 0 ? detail.sentenceNo : null,
-        text: selected,
-      );
-    }).toList();
+    return details
+        .map((detail) => showBrackets && detail.bracketed.trim().isNotEmpty
+            ? detail.bracketed.trim()
+            : detail.original.trim())
+        .where((sentence) => sentence.isNotEmpty)
+        .join('\n\n');
   }
 
   final selected =
       showBrackets && bracketed.trim().isNotEmpty ? bracketed : plain;
-  final sentences = selected
-      .trim()
-      .split(RegExp(r'(?<=[.!?])\s+|\n+'))
-      .map((sentence) => sentence.trim())
-      .where((sentence) => sentence.isNotEmpty)
-      .toList();
-  if (sentences.length > 1) {
-    return [
-      for (var index = 0; index < sentences.length; index++)
-        (number: index + 1, text: sentences[index]),
-    ];
-  }
-  return [(number: null, text: selected.trim().isEmpty ? '-' : selected)];
+  return selected.trim();
+}
+
+String _previewText(String text, {required int maxCharacters}) {
+  final trimmed = text.trim();
+  if (trimmed.length <= maxCharacters) return trimmed;
+  return '${trimmed.substring(0, maxCharacters).trimRight()}…';
 }
 
 class _SentenceAnalysisCard extends StatelessWidget {

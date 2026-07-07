@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('shows numbered bracketed sentences and toggles to plain text',
+  testWidgets('shows a full bracketed passage and toggles to plain text',
       (tester) async {
     const details = [
       FinalTouchSentenceDetail(
@@ -60,8 +60,8 @@ void main() {
     expect(find.text('테스트 요지'), findsOneWidget);
     expect(find.text('영어 전체 지문'), findsOneWidget);
     expect(find.text('한국어 해석'), findsOneWidget);
-    expect(find.text('1'), findsNWidgets(2));
-    expect(find.text('2'), findsNWidgets(2));
+    expect(find.text('1'), findsNothing);
+    expect(find.text('2'), findsNothing);
     expect(find.textContaining('First bracketed sentence'), findsOneWidget);
     expect(find.textContaining('첫 번째 구조 해석'), findsOneWidget);
     expect(find.textContaining('두 번째 일반 해석'), findsOneWidget);
@@ -144,6 +144,19 @@ void main() {
 
     expect(wideEnglishTopLeft.dx, lessThan(wideTranslationTopLeft.dx));
     expect(wideEnglishTopLeft.dy, wideTranslationTopLeft.dy);
+    expect(
+      tester
+          .getSize(find.byKey(const Key('final-touch-english-passage-panel')))
+          .width,
+      greaterThan(
+        tester
+                .getSize(
+                  find.byKey(const Key('final-touch-translation-panel')),
+                )
+                .width *
+            3,
+      ),
+    );
 
     tester.view.physicalSize = const Size(520, 900);
     await tester.pumpWidget(
