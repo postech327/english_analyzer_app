@@ -159,6 +159,28 @@ class _Sidebar extends StatelessWidget {
                 },
               ),
               _NavItem(
+                icon: Icons.menu_book_outlined,
+                label: 'Workbook 관리',
+                onTap: () {
+                  Navigator.maybePop(context);
+                  TeacherModePage.openPage(
+                    context,
+                    const TeacherWorkbookListScreen(),
+                  );
+                },
+              ),
+              _NavItem(
+                icon: Icons.translate_rounded,
+                label: '단어장 관리',
+                onTap: () {
+                  Navigator.maybePop(context);
+                  TeacherModePage.openPage(
+                    context,
+                    const TeacherVocabularyListScreen(),
+                  );
+                },
+              ),
+              _NavItem(
                 icon: Icons.edit_note_outlined,
                 label: '문제 제작',
                 onTap: () {
