@@ -123,6 +123,8 @@ class FinalTouchFullBracketedPassage extends StatefulWidget {
 
 class _FinalTouchFullBracketedPassageState
     extends State<FinalTouchFullBracketedPassage> {
+  static const double _twoColumnBreakpoint = 760;
+
   bool _showBrackets = true;
   bool _expanded = true;
 
@@ -249,8 +251,9 @@ class _FinalTouchFullBracketedPassageState
             const SizedBox(height: 16),
             LayoutBuilder(
               builder: (context, constraints) {
-                final isWide = constraints.maxWidth >= 900;
+                final isWide = constraints.maxWidth >= _twoColumnBreakpoint;
                 final englishPanel = _PassageLanguagePanel(
+                  key: const Key('final-touch-english-passage-panel'),
                   icon: Icons.translate_rounded,
                   title: '영어 전체 지문',
                   child: _PassageRows(
@@ -259,6 +262,7 @@ class _FinalTouchFullBracketedPassageState
                   ),
                 );
                 final translationPanel = _PassageLanguagePanel(
+                  key: const Key('final-touch-translation-panel'),
                   icon: Icons.menu_book_outlined,
                   title: '한국어 해석',
                   child: _PassageRows(
@@ -281,9 +285,9 @@ class _FinalTouchFullBracketedPassageState
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(child: englishPanel),
-                      const SizedBox(width: 14),
-                      Expanded(child: translationPanel),
+                      Expanded(flex: 6, child: englishPanel),
+                      const SizedBox(width: 16),
+                      Expanded(flex: 5, child: translationPanel),
                     ],
                   ),
                 );

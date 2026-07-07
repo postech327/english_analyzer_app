@@ -94,4 +94,80 @@ void main() {
     );
     expect(find.text('1'), findsNothing);
   });
+
+  testWidgets('uses two columns on wide screens and stacks on narrow screens',
+      (tester) async {
+    const details = [
+      FinalTouchSentenceDetail(
+        sentenceNo: 1,
+        original: 'Wide layout keeps English on the left.',
+        translation: 'Wide layout translation.',
+        translationBracketed: '',
+        bracketed: '[Wide layout keeps English on the left].',
+        spans: [],
+        sentenceRole: '',
+        roleHighlightType: 'none',
+        isBlankCandidate: false,
+        highlights: [],
+        grammarPoints: [],
+        questionPoint: '',
+      ),
+    ];
+
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1100, 900);
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: FinalTouchFullBracketedPassage(
+              body: '[Wide layout keeps English on the left].',
+              plainBody: 'Wide layout keeps English on the left.',
+              sentenceDetails: details,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final wideEnglishTopLeft = tester.getTopLeft(
+      find.byKey(const Key('final-touch-english-passage-panel')),
+    );
+    final wideTranslationTopLeft = tester.getTopLeft(
+      find.byKey(const Key('final-touch-translation-panel')),
+    );
+
+    expect(wideEnglishTopLeft.dx, lessThan(wideTranslationTopLeft.dx));
+    expect(wideEnglishTopLeft.dy, wideTranslationTopLeft.dy);
+
+    tester.view.physicalSize = const Size(520, 900);
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: FinalTouchFullBracketedPassage(
+              body: '[Wide layout keeps English on the left].',
+              plainBody: 'Wide layout keeps English on the left.',
+              sentenceDetails: details,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final narrowEnglishTopLeft = tester.getTopLeft(
+      find.byKey(const Key('final-touch-english-passage-panel')),
+    );
+    final narrowTranslationTopLeft = tester.getTopLeft(
+      find.byKey(const Key('final-touch-translation-panel')),
+    );
+
+    expect(narrowEnglishTopLeft.dx, narrowTranslationTopLeft.dx);
+    expect(narrowTranslationTopLeft.dy, greaterThan(narrowEnglishTopLeft.dy));
+  });
 }
