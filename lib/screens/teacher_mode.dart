@@ -8,6 +8,7 @@ import 'admin/admin_exam_auto_generate_screen.dart';
 import 'admin/admin_student_summary_screen.dart';
 import 'final_touch_list_screen.dart';
 import 'teacher_folder_progress_screen.dart';
+import 'teacher_integrated_learning_report_screen.dart';
 import 'teacher_mock_exam_list_screen.dart';
 import 'teacher_mock_student_report_list_screen.dart';
 import 'teacher_problem_sets_screen.dart';
@@ -258,6 +259,17 @@ class _Sidebar extends StatelessWidget {
                         TeacherModePage.openPage(
                           context,
                           const AdminDashboardOverviewScreen(),
+                        );
+                      },
+                    ),
+                    _NavItem(
+                      icon: Icons.insights_rounded,
+                      label: '통합 학습 리포트',
+                      onTap: () {
+                        Navigator.maybePop(context);
+                        TeacherModePage.openPage(
+                          context,
+                          const TeacherIntegratedLearningReportScreen(),
                         );
                       },
                     ),
@@ -1033,6 +1045,16 @@ class _TeacherFeatureMenuSection extends StatelessWidget {
               onTap: () => TeacherModePage.openPage(
                 context,
                 const TeacherMockStudentReportListScreen(),
+              ),
+            ),
+            _TeacherToolCard(
+              title: '통합 학습 리포트',
+              subtitle: 'Workbook, 단어장, Final Touch 학습 기록을 학생별로 모아 봅니다.',
+              icon: Icons.insights_rounded,
+              color: const Color(0xFF2563EB),
+              onTap: () => TeacherModePage.openPage(
+                context,
+                const TeacherIntegratedLearningReportScreen(),
               ),
             ),
           ],
