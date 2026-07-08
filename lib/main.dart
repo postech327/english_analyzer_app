@@ -14,7 +14,6 @@ import 'screens/export_ppt_page.dart';
 // 모드
 import 'screens/text_analysis_hub_screen.dart';
 import 'screens/teacher_mode.dart';
-import 'screens/student_mode.dart';
 import 'screens/manage_mode.dart';
 import 'screens/register_screen.dart';
 
@@ -73,7 +72,7 @@ class MyApp extends StatelessWidget {
         // 모드
         '/text_analysis_hub': (_) => const TextAnalysisHubScreen(),
         '/teacher': (_) => const TeacherModePage(),
-        '/student': (_) => const StudentModePage(),
+        '/student': (_) => const MainNavigationScreen(),
         '/manage': (_) => const ManageModePage(),
         '/register': (_) => const RegisterScreen(),
 

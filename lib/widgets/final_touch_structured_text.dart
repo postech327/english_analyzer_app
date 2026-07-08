@@ -12,11 +12,6 @@ class FinalTouchStructuredText extends StatelessWidget {
     this.style,
   });
 
-  static const nounColor = Color(0xFF7E22CE);
-  static const adjectiveColor = Color(0xFF2563EB);
-  static const adverbColor = Color(0xFFEA580C);
-  static const prepositionalColor = Color(0xFF0F766E);
-
   final String original;
   final String bracketed;
   final List<FinalTouchStructureSpan> spans;
@@ -31,56 +26,34 @@ class FinalTouchStructuredText extends StatelessWidget {
         .toList()
       ..sort((a, b) => a.start.compareTo(b.start));
 
-    if (validSpans.isEmpty || _hasOverlap(validSpans)) {
+    if (bracketed.trim().isNotEmpty ||
+        validSpans.isEmpty ||
+        _hasOverlap(validSpans)) {
       return BracketColoredText(
         text: bracketed.trim().isEmpty ? original : bracketed,
         style: base,
       );
     }
 
-    final children = <TextSpan>[];
+    final buffer = StringBuffer();
     var cursor = 0;
     for (final span in validSpans) {
       if (cursor < span.start) {
-        children.add(TextSpan(text: original.substring(cursor, span.start)));
+        buffer.write(original.substring(cursor, span.start));
       }
-
-      final color = _colorForRole(span.role, span.type);
       final brackets = _bracketsForType(span.type);
-      children.add(
-        TextSpan(
-          text: brackets.$1,
-          style: base.copyWith(
-            color: color,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-      );
-      children.add(
-        TextSpan(
-          text: original.substring(span.start, span.end),
-          style: base.copyWith(
-            backgroundColor: _backgroundForRole(span.role, span.type),
-          ),
-        ),
-      );
-      children.add(
-        TextSpan(
-          text: brackets.$2,
-          style: base.copyWith(
-            color: color,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-      );
+      buffer
+        ..write(brackets.$1)
+        ..write(original.substring(span.start, span.end))
+        ..write(brackets.$2);
       cursor = span.end;
     }
 
     if (cursor < original.length) {
-      children.add(TextSpan(text: original.substring(cursor)));
+      buffer.write(original.substring(cursor));
     }
 
-    return SelectableText.rich(TextSpan(style: base, children: children));
+    return BracketColoredText(text: buffer.toString(), style: base);
   }
 
   bool _hasOverlap(List<FinalTouchStructureSpan> spans) {
@@ -88,62 +61,6 @@ class FinalTouchStructuredText extends StatelessWidget {
       if (spans[index].start < spans[index - 1].end) return true;
     }
     return false;
-  }
-
-  Color _colorForRole(String role, String type) {
-    switch (role) {
-      case 'noun':
-        return nounColor;
-      case 'adjective':
-        return adjectiveColor;
-      case 'adverb':
-        return adverbColor;
-      case 'prepositional':
-        return prepositionalColor;
-    }
-
-    if (type == 'noun_clause' ||
-        type == 'noun_phrase' ||
-        type == 'gerund_phrase') {
-      return nounColor;
-    }
-    if (type == 'adj_clause' ||
-        type == 'adj_phrase' ||
-        type == 'participle_phrase') {
-      return adjectiveColor;
-    }
-    if (type == 'prep_phrase' || type == 'pp') {
-      return prepositionalColor;
-    }
-    return adverbColor;
-  }
-
-  Color _backgroundForRole(String role, String type) {
-    switch (role) {
-      case 'noun':
-        return const Color(0xFFF8F2FF);
-      case 'adjective':
-        return const Color(0xFFF2F7FF);
-      case 'adverb':
-        return const Color(0xFFFFF7EF);
-      case 'prepositional':
-        return const Color(0xFFF0FBF9);
-    }
-
-    if (type == 'noun_clause' ||
-        type == 'noun_phrase' ||
-        type == 'gerund_phrase') {
-      return const Color(0xFFF8F2FF);
-    }
-    if (type == 'adj_clause' ||
-        type == 'adj_phrase' ||
-        type == 'participle_phrase') {
-      return const Color(0xFFF2F7FF);
-    }
-    if (type == 'prep_phrase' || type == 'pp') {
-      return const Color(0xFFF0FBF9);
-    }
-    return const Color(0xFFFFF7EF);
   }
 
   (String, String) _bracketsForType(String type) {
@@ -158,51 +75,6 @@ class FinalTouchStructureLegend extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        _LegendChip(label: '명사 역할', color: FinalTouchStructuredText.nounColor),
-        _LegendChip(
-          label: '형용사 역할',
-          color: FinalTouchStructuredText.adjectiveColor,
-        ),
-        _LegendChip(
-          label: '부사 역할',
-          color: FinalTouchStructuredText.adverbColor,
-        ),
-        _LegendChip(
-          label: '전치사구',
-          color: FinalTouchStructuredText.prepositionalColor,
-        ),
-      ],
-    );
-  }
-}
-
-class _LegendChip extends StatelessWidget {
-  const _LegendChip({required this.label, required this.color});
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.22)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
+    return const BracketLegend();
   }
 }

@@ -1,14 +1,14 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
-class ProblemSetApi {
-  static const _baseUrl = 'http://127.0.0.1:8000';
+import '../config/api.dart';
 
+class ProblemSetApi {
   /// ✅ (구버전) problemSetId만 받아서 Commit
   static Future<void> commitProblemSet({
     required int problemSetId,
   }) async {
-    final url = Uri.parse('$_baseUrl/problem-sets/auto-generate/commit');
+    final url = ApiConfig.u('/problem-sets/auto-generate/commit');
 
     final res = await http.post(
       url,
@@ -32,7 +32,7 @@ class ProblemSetApi {
     required Map<String, double> distribution,
     String mode = 'teacher',
   }) async {
-    final url = Uri.parse('$_baseUrl/problem-sets/auto-generate/commit');
+    final url = ApiConfig.u('/problem-sets/auto-generate/commit');
 
     final payload = {
       'analysis_id': analysisId,

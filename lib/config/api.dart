@@ -2,7 +2,10 @@
 
 class ApiConfig {
   /// 🔥 서버 기본 URL (지금은 8001로 고정)
-  static const String baseUrl = 'http://127.0.0.1:8001';
+  static const String baseUrl = String.fromEnvironment(
+    'API_BASE',
+    defaultValue: 'http://127.0.0.1:8001',
+  );
 
   /// 🔥 URL 생성 헬퍼
   static Uri u(String path) => Uri.parse('$baseUrl$path');

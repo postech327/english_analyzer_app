@@ -428,23 +428,7 @@ class FinalTouchPdfGenerator {
   static PdfColor _bracketColor(String open, String token) {
     if (open == '(') return PdfColor.fromHex('#0F766E');
     if (open == '{') return PdfColor.fromHex('#EA580C');
-
-    final inner = token
-        .replaceAll(RegExp(r'^[\[\(\{]\s*'), '')
-        .replaceAll(RegExp(r'\s*[\]\)\}]$'), '')
-        .trim()
-        .toLowerCase();
-    if (RegExp(r'^(when|while|because|if|although|though|since|as)\b')
-        .hasMatch(inner)) {
-      return PdfColor.fromHex('#EA580C');
-    }
-    if (RegExp(r'^(who|whom|whose|which|where|that)\b').hasMatch(inner)) {
-      return PdfColor.fromHex('#2563EB');
-    }
-    if (RegExp(r'^(what|whether|how|why|that)\b').hasMatch(inner)) {
-      return PdfColor.fromHex('#7C3AED');
-    }
-    return PdfColor.fromHex('#7C3AED');
+    return PdfColor.fromHex('#2563EB');
   }
 
   static pw.Widget _sectionBox({

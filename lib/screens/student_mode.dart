@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 
 // 학생용 Dashboard
-import 'student_dashboard_screen.dart';
+import 'main_navigation_screen.dart';
 
 class StudentModePage extends StatefulWidget {
   const StudentModePage({super.key});
@@ -24,6 +24,6 @@ class _StudentModePageState extends State<StudentModePage> {
 
       ✔ 이 페이지는 "껍데기" 역할만 수행
     */
-    return const StudentDashboardScreen();
+    return const MainNavigationScreen();
   }
 }

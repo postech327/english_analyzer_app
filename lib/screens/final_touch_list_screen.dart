@@ -10,10 +10,12 @@ import '../services/final_touch_service.dart';
 import '../services/final_touch_practice_result_service.dart';
 import '../services/learning_assignment_service.dart';
 import '../utils/final_touch_pdf_generator.dart';
+import '../utils/final_touch_sort_key.dart';
 import '../widgets/final_touch_core_analysis.dart';
 import '../widgets/final_touch_sentence_analysis.dart';
 import '../widgets/teacher_assignment_dialog.dart';
 import 'final_touch_sentence_practice_screen.dart';
+import 'teacher_final_touch_import_screen.dart';
 
 class FinalTouchListScreen extends StatefulWidget {
   const FinalTouchListScreen({
@@ -167,10 +169,22 @@ class _FinalTouchListScreenState extends State<FinalTouchListScreen> {
     }
   }
 
+  String _currentBreadcrumbText() {
+    final book = _bookFolder;
+    final unit = _unitFolder;
+    if (book == null) return unit?.name ?? '';
+    if (unit == null || unit.id == book.id) return book.name;
+    if (unit.isDirectBucket) return book.name;
+    return '${book.name} / ${unit.name}';
+  }
+
   List<FinalTouchSummary> _filterAndSortItems(List<FinalTouchSummary> items) {
-    final sorted = List<FinalTouchSummary>.from(items)
-      ..sort(
-          (a, b) => _dateScore(b.createdAt).compareTo(_dateScore(a.createdAt)));
+    final sorted = sortByFinalTouchNaturalOrder<FinalTouchSummary>(
+      items,
+      folderOf: (item) => item.folderName,
+      labelOf: _finalTouchSortLabel,
+      createdAtOf: (item) => item.createdAt,
+    );
 
     final query = _searchQuery.trim().toLowerCase();
     if (query.isEmpty) return sorted;
@@ -225,6 +239,56 @@ class _FinalTouchListScreenState extends State<FinalTouchListScreen> {
       ),
       body: _unitFolder == null ? _buildFolderPage() : _buildItemPage(),
     );
+  }
+
+  Future<void> _openImport() async {
+    final targetFolder = finalTouchActiveImportFolder(
+      bookFolder: _bookFolder,
+      unitFolder: _unitFolder,
+    );
+    final targetFolderId =
+        targetFolder?.isUnfiled == true ? null : targetFolder?.id;
+    final targetFolderName = finalTouchImportFolderDisplayName(
+      bookFolder: _bookFolder,
+      unitFolder: _unitFolder,
+    );
+    final savedCount = await Navigator.push<int>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TeacherFinalTouchImportScreen(
+          folderId: targetFolderId,
+          folderName: targetFolderName,
+        ),
+      ),
+    );
+    if (savedCount != null && savedCount > 0 && mounted) {
+      _reloadAfterImport(targetFolder);
+      final location = targetFolderName?.trim().isNotEmpty == true
+          ? targetFolderName!.trim()
+          : '미분류';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$location에 Final Touch $savedCount개를 저장했습니다.')),
+      );
+    }
+  }
+
+  void _reloadAfterImport(FinalTouchFolder? targetFolder) {
+    setState(() {
+      _allItemsFuture = _service.fetchFinalTouches(limit: 100);
+      if (targetFolder == null) {
+        _foldersFuture = _service.fetchFolders(parentId: _bookFolder?.id);
+        return;
+      }
+      if (targetFolder.isUnfiled) {
+        _unitFolder = targetFolder;
+        _itemsFuture = _service.fetchFinalTouches(unfiled: true);
+        return;
+      }
+      if (_unitFolder == null && _bookFolder != null) {
+        _unitFolder = targetFolder;
+      }
+      _itemsFuture = _service.fetchFinalTouches(folderId: targetFolder.id);
+    });
   }
 
   Widget _buildFolderPage() {
@@ -408,7 +472,7 @@ class _FinalTouchListScreenState extends State<FinalTouchListScreen> {
             ),
             const SizedBox(height: 18),
             if (_bookFolder != null)
-              _Breadcrumb(text: '${_bookFolder!.name} / ${_unitFolder!.name}'),
+              _Breadcrumb(text: _currentBreadcrumbText()),
             if (_bookFolder != null) const SizedBox(height: 12),
             _SearchPanel(
               controller: _searchController,
@@ -424,6 +488,22 @@ class _FinalTouchListScreenState extends State<FinalTouchListScreen> {
               },
             ),
             const SizedBox(height: 14),
+            if (AuthStore.isTeacher) ...[
+              Align(
+                alignment: Alignment.centerRight,
+                child: OutlinedButton.icon(
+                  onPressed: _openImport,
+                  icon: const Icon(Icons.upload_file_rounded, size: 18),
+                  label: Text(finalTouchImportEntryLabel(
+                    folderName: finalTouchImportFolderDisplayName(
+                      bookFolder: _bookFolder,
+                      unitFolder: _unitFolder,
+                    ),
+                  )),
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
             const Text(
               'Saved Analysis',
               style: TextStyle(
@@ -1703,6 +1783,17 @@ class _FinalTouchDetailScreenState extends State<FinalTouchDetailScreen> {
                 ),
               ],
               const SizedBox(height: 14),
+              FinalTouchFullBracketedPassage(
+                body: item.passageBracketed.isNotEmpty
+                    ? item.passageBracketed
+                    : item.passage,
+                plainBody: item.passage,
+                sentenceDetails: item.sentenceDetails,
+                topic: _preferredAnalysisText(item.topicKo, item.topicEn),
+                title: _preferredAnalysisText(item.titleKo, item.titleEn),
+                gist: _preferredAnalysisText(item.gistKo, item.gistEn),
+              ),
+              const SizedBox(height: 14),
               SizedBox(
                 height: 46,
                 child: FilledButton.icon(
@@ -1768,12 +1859,6 @@ class _FinalTouchDetailScreenState extends State<FinalTouchDetailScreen> {
               ),
               const SizedBox(height: 14),
               FinalTouchSentenceAnalysis(details: item.sentenceDetails),
-              if (item.sentenceDetails.isNotEmpty) const SizedBox(height: 12),
-              FinalTouchFullBracketedPassage(
-                body: item.passageBracketed.isNotEmpty
-                    ? item.passageBracketed
-                    : item.passage,
-              ),
             ],
           );
         },
@@ -2811,6 +2896,12 @@ class _DetailHeader extends StatelessWidget {
   }
 }
 
+String _preferredAnalysisText(String korean, String english) {
+  final primary = korean.trim();
+  if (primary.isNotEmpty) return primary;
+  return english.trim();
+}
+
 class _FlowSection extends StatelessWidget {
   const _FlowSection({required this.outline});
 
@@ -2983,10 +3074,50 @@ String _formatPracticeDate(DateTime value) {
       '${two(value.hour)}:${two(value.minute)}';
 }
 
-int _dateScore(String value) {
-  final parsed = DateTime.tryParse(value.trim());
-  if (parsed != null) return parsed.millisecondsSinceEpoch;
-  return 0;
+String _finalTouchSortLabel(FinalTouchSummary item) {
+  final candidates = [
+    item.source,
+    item.titleEn,
+    item.titleKo,
+    item.topicEn,
+    item.topicKo,
+  ];
+  for (final candidate in candidates) {
+    final value = candidate.trim();
+    if (value.isNotEmpty) return value;
+  }
+  return 'Final Touch #${item.id}';
+}
+
+@visibleForTesting
+FinalTouchFolder? finalTouchActiveImportFolder({
+  required FinalTouchFolder? bookFolder,
+  required FinalTouchFolder? unitFolder,
+}) {
+  return unitFolder ?? bookFolder;
+}
+
+@visibleForTesting
+String? finalTouchImportFolderDisplayName({
+  required FinalTouchFolder? bookFolder,
+  required FinalTouchFolder? unitFolder,
+}) {
+  final folder = finalTouchActiveImportFolder(
+    bookFolder: bookFolder,
+    unitFolder: unitFolder,
+  );
+  if (folder == null) return null;
+  if (folder.isDirectBucket && bookFolder != null) return bookFolder.name;
+  return folder.name;
+}
+
+@visibleForTesting
+String finalTouchImportEntryLabel({required String? folderName}) {
+  final name = folderName?.trim();
+  if (name == null || name.isEmpty || name == '미분류') {
+    return '미분류로 HWPX 가져오기';
+  }
+  return '이 폴더에 HWPX 가져오기';
 }
 
 String _formatDateText(String value) {

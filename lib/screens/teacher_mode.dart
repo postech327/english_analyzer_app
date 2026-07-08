@@ -8,11 +8,13 @@ import 'admin/admin_exam_auto_generate_screen.dart';
 import 'admin/admin_student_summary_screen.dart';
 import 'final_touch_list_screen.dart';
 import 'teacher_folder_progress_screen.dart';
+import 'teacher_integrated_learning_report_screen.dart';
 import 'teacher_mock_exam_list_screen.dart';
 import 'teacher_mock_student_report_list_screen.dart';
 import 'teacher_problem_sets_screen.dart';
 import 'teacher_question_maker_screen.dart';
 import 'teacher_workbook_list_screen.dart';
+import 'teacher_vocabulary_list_screen.dart';
 import 'text_analysis_hub_screen.dart';
 
 class TeacherModePage extends StatelessWidget {
@@ -129,130 +131,170 @@ class _Sidebar extends StatelessWidget {
             children: [
               const _BrandHeader(),
               const SizedBox(height: 28),
-              _NavItem(
-                icon: Icons.dashboard_outlined,
-                label: '오늘의 현황',
-                selected: true,
-                onTap: () => Navigator.maybePop(context),
+              Expanded(
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    _NavItem(
+                      icon: Icons.dashboard_outlined,
+                      label: '오늘의 현황',
+                      selected: true,
+                      onTap: () => Navigator.maybePop(context),
+                    ),
+                    _NavItem(
+                      icon: Icons.article_outlined,
+                      label: '지문 분석',
+                      onTap: () {
+                        Navigator.maybePop(context);
+                        TeacherModePage.openPage(
+                          context,
+                          const TextAnalysisHubScreen(),
+                        );
+                      },
+                    ),
+                    _NavItem(
+                      icon: Icons.auto_fix_high_outlined,
+                      label: 'Final Touch 모음',
+                      onTap: () {
+                        Navigator.maybePop(context);
+                        TeacherModePage.openPage(
+                          context,
+                          const FinalTouchListScreen(),
+                        );
+                      },
+                    ),
+                    _NavItem(
+                      icon: Icons.menu_book_outlined,
+                      label: 'Workbook 관리',
+                      onTap: () {
+                        Navigator.maybePop(context);
+                        TeacherModePage.openPage(
+                          context,
+                          const TeacherWorkbookListScreen(),
+                        );
+                      },
+                    ),
+                    _NavItem(
+                      icon: Icons.translate_rounded,
+                      label: '단어장 관리',
+                      onTap: () {
+                        Navigator.maybePop(context);
+                        TeacherModePage.openPage(
+                          context,
+                          const TeacherVocabularyListScreen(),
+                        );
+                      },
+                    ),
+                    _NavItem(
+                      icon: Icons.edit_note_outlined,
+                      label: '문제 제작',
+                      onTap: () {
+                        Navigator.maybePop(context);
+                        TeacherModePage.openPage(
+                          context,
+                          const TeacherQuestionMakerScreen(),
+                        );
+                      },
+                    ),
+                    _NavItem(
+                      icon: Icons.folder_copy_outlined,
+                      label: '문제세트 관리',
+                      onTap: () {
+                        Navigator.maybePop(context);
+                        TeacherModePage.openPage(
+                          context,
+                          const TeacherProblemSetsScreen(),
+                        );
+                      },
+                    ),
+                    _NavItem(
+                      icon: Icons.assignment_outlined,
+                      label: '모의고사 관리',
+                      onTap: () {
+                        Navigator.maybePop(context);
+                        TeacherModePage.openPage(
+                          context,
+                          const TeacherMockExamListScreen(),
+                        );
+                      },
+                    ),
+                    _NavItem(
+                      icon: Icons.query_stats_rounded,
+                      label: '모의고사 학생 리포트',
+                      onTap: () {
+                        Navigator.maybePop(context);
+                        TeacherModePage.openPage(
+                          context,
+                          const TeacherMockStudentReportListScreen(),
+                        );
+                      },
+                    ),
+                    _NavItem(
+                      icon: Icons.groups_outlined,
+                      label: '학생 관리',
+                      onTap: () {
+                        Navigator.maybePop(context);
+                        TeacherModePage.openPage(
+                          context,
+                          const AdminStudentSummaryScreen(),
+                        );
+                      },
+                    ),
+                    _NavItem(
+                      icon: Icons.timeline_rounded,
+                      label: '진도표',
+                      onTap: () {
+                        Navigator.maybePop(context);
+                        TeacherModePage.openPage(
+                          context,
+                          const TeacherFolderProgressScreen(),
+                        );
+                      },
+                    ),
+                    _NavItem(
+                      icon: Icons.bar_chart_outlined,
+                      label: '결과 분석',
+                      onTap: () {
+                        Navigator.maybePop(context);
+                        TeacherModePage.openPage(
+                          context,
+                          const AdminDashboardOverviewScreen(),
+                        );
+                      },
+                    ),
+                    _NavItem(
+                      icon: Icons.insights_rounded,
+                      label: '통합 학습 리포트',
+                      onTap: () {
+                        Navigator.maybePop(context);
+                        TeacherModePage.openPage(
+                          context,
+                          const TeacherIntegratedLearningReportScreen(),
+                        );
+                      },
+                    ),
+                    _NavItem(
+                      icon: Icons.settings_outlined,
+                      label: '설정',
+                      onTap: () {
+                        Navigator.maybePop(context);
+                        TeacherModePage.showPreparing(context);
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    _NavItem(
+                      icon: Icons.logout_rounded,
+                      label: '로그아웃',
+                      onTap: () async {
+                        Navigator.maybePop(context);
+                        await TeacherModePage.confirmLogout(context);
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    const _SupportBox(),
+                  ],
+                ),
               ),
-              _NavItem(
-                icon: Icons.article_outlined,
-                label: '지문 분석',
-                onTap: () {
-                  Navigator.maybePop(context);
-                  TeacherModePage.openPage(
-                    context,
-                    const TextAnalysisHubScreen(),
-                  );
-                },
-              ),
-              _NavItem(
-                icon: Icons.auto_fix_high_outlined,
-                label: 'Final Touch 모음',
-                onTap: () {
-                  Navigator.maybePop(context);
-                  TeacherModePage.openPage(
-                    context,
-                    const FinalTouchListScreen(),
-                  );
-                },
-              ),
-              _NavItem(
-                icon: Icons.edit_note_outlined,
-                label: '문제 제작',
-                onTap: () {
-                  Navigator.maybePop(context);
-                  TeacherModePage.openPage(
-                    context,
-                    const TeacherQuestionMakerScreen(),
-                  );
-                },
-              ),
-              _NavItem(
-                icon: Icons.folder_copy_outlined,
-                label: '문제세트 관리',
-                onTap: () {
-                  Navigator.maybePop(context);
-                  TeacherModePage.openPage(
-                    context,
-                    const TeacherProblemSetsScreen(),
-                  );
-                },
-              ),
-              _NavItem(
-                icon: Icons.assignment_outlined,
-                label: '모의고사 관리',
-                onTap: () {
-                  Navigator.maybePop(context);
-                  TeacherModePage.openPage(
-                    context,
-                    const TeacherMockExamListScreen(),
-                  );
-                },
-              ),
-              _NavItem(
-                icon: Icons.query_stats_rounded,
-                label: '모의고사 학생 리포트',
-                onTap: () {
-                  Navigator.maybePop(context);
-                  TeacherModePage.openPage(
-                    context,
-                    const TeacherMockStudentReportListScreen(),
-                  );
-                },
-              ),
-              _NavItem(
-                icon: Icons.groups_outlined,
-                label: '학생 관리',
-                onTap: () {
-                  Navigator.maybePop(context);
-                  TeacherModePage.openPage(
-                    context,
-                    const AdminStudentSummaryScreen(),
-                  );
-                },
-              ),
-              _NavItem(
-                icon: Icons.timeline_rounded,
-                label: '진도표',
-                onTap: () {
-                  Navigator.maybePop(context);
-                  TeacherModePage.openPage(
-                    context,
-                    const TeacherFolderProgressScreen(),
-                  );
-                },
-              ),
-              _NavItem(
-                icon: Icons.bar_chart_outlined,
-                label: '결과 분석',
-                onTap: () {
-                  Navigator.maybePop(context);
-                  TeacherModePage.openPage(
-                    context,
-                    const AdminDashboardOverviewScreen(),
-                  );
-                },
-              ),
-              _NavItem(
-                icon: Icons.settings_outlined,
-                label: '설정',
-                onTap: () {
-                  Navigator.maybePop(context);
-                  TeacherModePage.showPreparing(context);
-                },
-              ),
-              const Spacer(),
-              _NavItem(
-                icon: Icons.logout_rounded,
-                label: '로그아웃',
-                onTap: () async {
-                  Navigator.maybePop(context);
-                  await TeacherModePage.confirmLogout(context);
-                },
-              ),
-              const SizedBox(height: 8),
-              const _SupportBox(),
             ],
           ),
         ),
@@ -955,6 +997,16 @@ class _TeacherFeatureMenuSection extends StatelessWidget {
                 const TeacherWorkbookListScreen(),
               ),
             ),
+            _TeacherToolCard(
+              title: '단어장 관리',
+              subtitle: '핵심 단어와 뜻을 등록하고 학생용 단어장을 게시합니다.',
+              icon: Icons.translate_rounded,
+              color: const Color(0xFF7C3AED),
+              onTap: () => TeacherModePage.openPage(
+                context,
+                const TeacherVocabularyListScreen(),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 16),
@@ -993,6 +1045,16 @@ class _TeacherFeatureMenuSection extends StatelessWidget {
               onTap: () => TeacherModePage.openPage(
                 context,
                 const TeacherMockStudentReportListScreen(),
+              ),
+            ),
+            _TeacherToolCard(
+              title: '통합 학습 리포트',
+              subtitle: 'Workbook, 단어장, Final Touch 학습 기록을 학생별로 모아 봅니다.',
+              icon: Icons.insights_rounded,
+              color: const Color(0xFF2563EB),
+              onTap: () => TeacherModePage.openPage(
+                context,
+                const TeacherIntegratedLearningReportScreen(),
               ),
             ),
           ],

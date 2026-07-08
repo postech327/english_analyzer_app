@@ -6,7 +6,7 @@ import '../models/community_models.dart';
 
 /// FastAPI 서버 기본 주소
 const String baseUrl =
-    String.fromEnvironment('API_BASE', defaultValue: 'http://127.0.0.1:8000');
+    String.fromEnvironment('API_BASE', defaultValue: 'http://127.0.0.1:8001');
 
 class CommunityApi {
   /// 글 목록 조회

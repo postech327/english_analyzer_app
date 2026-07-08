@@ -14,6 +14,7 @@ class WorkbookAttemptService {
     required int workbookId,
     required List<Map<String, dynamic>> answers,
     int? sectionId,
+    List<int>? questionIds,
   }) async {
     final decoded = await _send(
       'POST',
@@ -22,6 +23,7 @@ class WorkbookAttemptService {
         'assignment_id': assignmentId,
         'workbook_id': workbookId,
         if (sectionId != null) 'section_id': sectionId,
+        if (questionIds != null) 'question_ids': questionIds,
         'answers': answers,
       },
     );

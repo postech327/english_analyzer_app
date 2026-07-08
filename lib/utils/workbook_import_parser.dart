@@ -402,6 +402,14 @@ WorkbookImportCandidate _inlineChoiceCandidate(
   if (parsed.items.length >= 50) {
     warnings.add('선택 항목이 50개 이상입니다. 후보 분리가 필요할 수 있습니다.');
   }
+  final cleanup = cleanStudentPassageText(
+    parsed.passageText,
+    parsed.items.expand(
+      (item) => <String>[item.answer, ...item.choices],
+    ),
+  );
+  final answer = parsed.toAnswerJson(unitTitle: source)
+    ..['passage_text'] = cleanup.cleanedText;
   return WorkbookImportCandidate(
     localId: id,
     detectedType: 'inline_choice',
@@ -409,13 +417,150 @@ WorkbookImportCandidate _inlineChoiceCandidate(
     typeLabel: '본문 선택형',
     title: metadata.title,
     prompt: '본문에서 알맞은 표현을 고르세요.',
-    passageText: parsed.passageText,
-    answer: parsed.toAnswerJson(unitTitle: source),
+    passageText: cleanup.cleanedText,
+    answer: answer,
     rawText: rawText,
     summary: '선택 항목 ${parsed.items.length}개 · 해설 $explanationCount개',
     errors: errors,
     warnings: warnings,
+    infoMessages: [
+      if (cleanup.removedLineCount > 0)
+        '본문 뒤 정답/해설 추정 ${cleanup.removedLineCount}줄을 학생용 본문에서 제외했습니다.',
+    ],
   );
+}
+
+class StudentPassageCleanupResult {
+  const StudentPassageCleanupResult({
+    required this.cleanedText,
+    required this.removedLineCount,
+  });
+
+  final String cleanedText;
+  final int removedLineCount;
+}
+
+StudentPassageCleanupResult cleanStudentPassageText(
+  String passageText,
+  Iterable<String> parsedAnswers,
+) {
+  final answers = parsedAnswers
+      .map(_normalizeAnswerNote)
+      .where((answer) => answer.isNotEmpty)
+      .toSet();
+  if (answers.isEmpty || passageText.trim().isEmpty) {
+    return StudentPassageCleanupResult(
+      cleanedText: passageText.trim(),
+      removedLineCount: 0,
+    );
+  }
+
+  final lines = passageText.split(RegExp(r'\r?\n'));
+  final lastSixtyStart = lines.length > 60 ? lines.length - 60 : 0;
+  final lastFortyFivePercentStart = (lines.length * 0.55).floor();
+  final tailStart = lastSixtyStart < lastFortyFivePercentStart
+      ? lastSixtyStart
+      : lastFortyFivePercentStart;
+  int? cutIndex;
+  var matchedLines = 0;
+  for (var start = tailStart; start < lines.length; start++) {
+    final startsWithMatchedAnswer =
+        _isTrailingAnswerNote(lines[start], answers);
+    final startsWithSeparatedShortNote = answers.length >= 8 &&
+        start > 0 &&
+        lines[start - 1].trim().isEmpty &&
+        lines[start].trim().isNotEmpty &&
+        _looksLikeTrailingNoteLine(lines[start]);
+    if (!startsWithMatchedAnswer && !startsWithSeparatedShortNote) {
+      continue;
+    }
+    final suffix = lines
+        .skip(start)
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+    if (suffix.isEmpty) continue;
+    final matches =
+        suffix.where((line) => _isTrailingAnswerNote(line, answers)).length;
+    final minimumMatches = answers.length >= 8 ? 3 : 2;
+    final density = matches / suffix.length;
+    final parentheticalLines =
+        suffix.where((line) => line.contains('(') && line.contains(')')).length;
+    final shortLines =
+        suffix.where((line) => line.split(RegExp(r'\s+')).length <= 5).length;
+    final shortLineRatio = shortLines / suffix.length;
+    final allNoteLike = suffix.every(
+      (line) =>
+          _isTrailingAnswerNote(line, answers) ||
+          _looksLikeTrailingNoteLine(line),
+    );
+    final normalBlock =
+        matches >= minimumMatches && density >= 0.45 && allNoteLike;
+    final longAnswerBlock = answers.length >= 8 &&
+        (matches >= 4 || (matches >= 2 && parentheticalLines >= 2)) &&
+        shortLineRatio >= 0.8 &&
+        allNoteLike;
+    if (normalBlock || longAnswerBlock) {
+      cutIndex = start;
+      matchedLines =
+          lines.skip(start).where((line) => line.trim().isNotEmpty).length;
+      break;
+    }
+  }
+
+  if (cutIndex == null) {
+    return StudentPassageCleanupResult(
+      cleanedText: passageText.trim(),
+      removedLineCount: 0,
+    );
+  }
+  final cleaned = lines.take(cutIndex).join('\n').trim();
+  final originalLength = passageText.trim().length;
+  final removesAtLeastHalf = cleaned.length < (originalLength * 0.5).floor();
+  final hasSubstantialBody = cleaned.length >= 40 &&
+      cleaned.split(RegExp(r'\s+')).where((word) => word.isNotEmpty).length >=
+          6;
+  if (cleaned.length < 40 || (removesAtLeastHalf && !hasSubstantialBody)) {
+    return StudentPassageCleanupResult(
+      cleanedText: passageText.trim(),
+      removedLineCount: 0,
+    );
+  }
+  return StudentPassageCleanupResult(
+    cleanedText: cleaned,
+    removedLineCount: matchedLines,
+  );
+}
+
+bool _isTrailingAnswerNote(String line, Set<String> answers) {
+  final withoutPrefix = line.replaceFirst(
+    RegExp(r'^\s*(?:[-•·]\s*|\d+\s*[.)]\s*)'),
+    '',
+  );
+  final parenthesisIndex = withoutPrefix.indexOf('(');
+  final answerPart = (parenthesisIndex >= 0
+          ? withoutPrefix.substring(0, parenthesisIndex)
+          : withoutPrefix)
+      .trim()
+      .replaceFirst(RegExp(r'[\s.,;:]+$'), '');
+  return answers.contains(_normalizeAnswerNote(answerPart));
+}
+
+bool _looksLikeTrailingNoteLine(String line) {
+  final text = line.trim();
+  if (text.isEmpty) return true;
+  if (text.length > 100) return false;
+  final words = text.split(RegExp(r'\s+'));
+  if (words.length > 10) return false;
+  if (RegExp(r'^(?:dear|sincerely|to whom)\b', caseSensitive: false)
+      .hasMatch(text)) {
+    return false;
+  }
+  return true;
+}
+
+String _normalizeAnswerNote(String value) {
+  return value.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9가-힣]+'), '');
 }
 
 class _InlineChoiceMetadata {
@@ -484,6 +629,15 @@ WorkbookImportCandidate _checkLearningCandidate(
   final bankCount = (section['word_bank'] as List?)?.length ?? 0;
   final blankCount = section['blank_count'] as int? ?? 0;
   final answerCount = (section['answers'] as List?)?.length ?? 0;
+  final cleanup = cleanStudentPassageText(
+    (section['passage_text'] ?? '').toString(),
+    ((section['answers'] as List?) ?? const []).map((value) => '$value'),
+  );
+  final answer = parsed.toAnswerJson();
+  final answerSection = answer['section_b'];
+  if (answerSection is Map<String, dynamic>) {
+    answerSection['passage_text'] = cleanup.cleanedText;
+  }
   return WorkbookImportCandidate(
     localId: id,
     detectedType: 'check_learning_set',
@@ -491,12 +645,16 @@ WorkbookImportCandidate _checkLearningCandidate(
     typeLabel: '확인학습',
     title: '확인학습',
     prompt: '확인학습',
-    passageText: (section['passage_text'] ?? '').toString(),
-    answer: parsed.toAnswerJson(),
+    passageText: cleanup.cleanedText,
+    answer: answer,
     rawText: rawText,
     summary: '보기 $bankCount개 · 빈칸 $blankCount개 · 정답 $answerCount개',
     errors: parsed.errors,
     warnings: parsed.warnings,
+    infoMessages: [
+      if (cleanup.removedLineCount > 0)
+        '본문 뒤 정답/해설 추정 ${cleanup.removedLineCount}줄을 학생용 본문에서 제외했습니다.',
+    ],
   );
 }
 
@@ -631,6 +789,11 @@ WorkbookImportCandidate _initialBlankCandidate(
           unitTitle: source.isNotEmpty ? source : imported.title,
         );
   final items = (answer['items'] as List?)?.whereType<Map>().toList() ?? [];
+  final cleanup = cleanStudentPassageText(
+    (answer['passage_text'] ?? passage).toString(),
+    items.map((item) => (item['answer'] ?? '').toString()),
+  );
+  answer['passage_text'] = cleanup.cleanedText;
   final missing =
       items.where((item) => (item['answer'] ?? '').toString().isEmpty).length;
   final errors = <String>[
@@ -644,11 +807,15 @@ WorkbookImportCandidate _initialBlankCandidate(
     typeLabel: '첫 글자 빈칸',
     title: imported?.title ?? '첫 글자 빈칸',
     prompt: '첫 글자를 참고하여 빈칸에 알맞은 단어를 쓰세요.',
-    passageText: (answer['passage_text'] ?? passage).toString(),
+    passageText: cleanup.cleanedText,
     answer: answer,
     rawText: rawText,
     summary: '빈칸 ${items.length}개 · 정답 ${items.length - missing}개',
     errors: errors,
+    infoMessages: [
+      if (cleanup.removedLineCount > 0)
+        '본문 뒤 정답/해설 추정 ${cleanup.removedLineCount}줄을 학생용 본문에서 제외했습니다.',
+    ],
   );
 }
 
