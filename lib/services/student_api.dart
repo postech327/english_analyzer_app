@@ -8,7 +8,7 @@ import '../config/auth_store.dart';
 import '../models/student_models.dart';
 
 const String baseUrl =
-    String.fromEnvironment('API_BASE', defaultValue: 'http://127.0.0.1:8000');
+    String.fromEnvironment('API_BASE', defaultValue: 'http://127.0.0.1:8001');
 
 class StudentApi {
   static Future<List<StudentProblemSetSummary>> fetchProblemSets({

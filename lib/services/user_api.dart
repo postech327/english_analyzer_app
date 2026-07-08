@@ -8,7 +8,7 @@ import '../models/coin_log.dart';
 
 /// FastAPI 백엔드 기본 URL
 const String baseUrl =
-    String.fromEnvironment('API_BASE', defaultValue: 'http://127.0.0.1:8000');
+    String.fromEnvironment('API_BASE', defaultValue: 'http://127.0.0.1:8001');
 
 class UserApi {
   // ─────────────────────────────

@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import '../../config/api.dart';
+
 class StudentRecommendedQuestionScreen extends StatefulWidget {
   final int userId;
 
@@ -22,8 +24,6 @@ class _StudentRecommendedQuestionScreenState
   List<dynamic> questions = [];
   List<int> selectedQuestionIds = [];
 
-  final String baseUrl = "http://127.0.0.1:8000";
-
   @override
   void initState() {
     super.initState();
@@ -33,7 +33,9 @@ class _StudentRecommendedQuestionScreenState
   // 🔹 추천 문제 가져오기
   Future<void> fetchRecommendedQuestions() async {
     final response = await http.get(
-      Uri.parse('$baseUrl/recommend?user_id=${widget.userId}'),
+      ApiConfig.u('/recommend').replace(
+        queryParameters: {'user_id': '${widget.userId}'},
+      ),
     );
 
     if (response.statusCode == 200) {
@@ -55,7 +57,7 @@ class _StudentRecommendedQuestionScreenState
     }
 
     final response = await http.post(
-      Uri.parse('$baseUrl/exam/create'),
+      ApiConfig.u('/exam/create'),
       headers: {
         "Content-Type": "application/json",
       },

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import '../config/api.dart';
 import '../models/preview_question.dart';
 import '../services/problem_set_api.dart';
 
@@ -23,8 +24,6 @@ class _ProblemSetPreviewScreenState extends State<ProblemSetPreviewScreen> {
   String _passageTitle = '';
   String _passageContent = '';
   List<PreviewQuestion> _questions = [];
-
-  static const _baseUrl = 'http://127.0.0.1:8000';
 
   @override
   void didChangeDependencies() {
@@ -57,7 +56,7 @@ class _ProblemSetPreviewScreenState extends State<ProblemSetPreviewScreen> {
     });
 
     try {
-      final url = Uri.parse('$_baseUrl/teacher/problem_sets/$_problemSetId');
+      final url = ApiConfig.u('/teacher/problem_sets/$_problemSetId');
       final res = await http.get(url);
 
       if (res.statusCode != 200) {

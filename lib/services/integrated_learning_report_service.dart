@@ -1,3 +1,9 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+
+import '../config/api.dart';
+import '../config/auth_store.dart';
 import '../models/final_touch.dart';
 import '../models/integrated_learning_report.dart';
 import '../models/learning_assignment.dart';
@@ -12,9 +18,11 @@ import 'workbook_service.dart';
 
 class IntegratedLearningReportService {
   const IntegratedLearningReportService({
-    LearningAssignmentService assignmentService = const LearningAssignmentService(),
+    LearningAssignmentService assignmentService =
+        const LearningAssignmentService(),
     WorkbookService workbookService = const WorkbookService(),
-    WorkbookAttemptService workbookAttemptService = const WorkbookAttemptService(),
+    WorkbookAttemptService workbookAttemptService =
+        const WorkbookAttemptService(),
     VocabularyService vocabularyService = const VocabularyService(),
     FinalTouchService finalTouchService = const FinalTouchService(),
   })  : _assignmentService = assignmentService,
@@ -58,7 +66,8 @@ class IntegratedLearningReportService {
         final aNeeds = a.needsReview ? 0 : 1;
         final bNeeds = b.needsReview ? 0 : 1;
         if (aNeeds != bNeeds) return aNeeds.compareTo(bNeeds);
-        final dateCompare = _compareNullableDateDesc(a.lastStudyAt, b.lastStudyAt);
+        final dateCompare =
+            _compareNullableDateDesc(a.lastStudyAt, b.lastStudyAt);
         if (dateCompare != 0) return dateCompare;
         return a.studentName.compareTo(b.studentName);
       });
@@ -80,7 +89,9 @@ class IntegratedLearningReportService {
       'Workbook 목록을 불러오지 못했습니다.',
       fallback: const <Workbook>[],
     );
-    final workbookTitles = {for (final workbook in workbooks) workbook.id: workbook.title};
+    final workbookTitles = {
+      for (final workbook in workbooks) workbook.id: workbook.title
+    };
 
     for (final workbook in workbooks) {
       final assignments = await _safe(
@@ -94,12 +105,14 @@ class IntegratedLearningReportService {
           assignment.studentId,
           () => _StudentReportAccumulator(
             studentId: assignment.studentId,
-            studentName: assignment.studentName ?? 'student${assignment.studentId}',
+            studentName:
+                assignment.studentName ?? 'student${assignment.studentId}',
             email: '',
           ),
         );
         accumulator.workbook.totalCount += 1;
-        accumulator.workbook.touchDate(_parseDate(assignment.startedAt) ?? _parseDate(assignment.completedAt));
+        accumulator.workbook.touchDate(_parseDate(assignment.startedAt) ??
+            _parseDate(assignment.completedAt));
         if (assignment.isCompleted) {
           accumulator.workbook.completedCount += 1;
         } else {
@@ -112,7 +125,8 @@ class IntegratedLearningReportService {
 
         if (assignment.isCompleted || assignment.isInProgress) {
           final attemptReport = await _safe<TeacherWorkbookAttemptReport?>(
-            () => _workbookAttemptService.fetchTeacherAssignmentReport(assignment.id),
+            () => _workbookAttemptService
+                .fetchTeacherAssignmentReport(assignment.id),
             warnings,
             'Workbook "${assignment.title}" 시도 결과를 불러오지 못했습니다.',
             fallback: null,
@@ -120,8 +134,10 @@ class IntegratedLearningReportService {
           final latestAttempt = attemptReport?.latestAttempt;
           if (latestAttempt != null) {
             accumulator.workbook.scores.add(latestAttempt.scorePercent);
-            accumulator.workbook.touchDate(_parseDate(latestAttempt.submittedAt));
-            for (final result in latestAttempt.results.where((item) => !item.isCorrect)) {
+            accumulator.workbook
+                .touchDate(_parseDate(latestAttempt.submittedAt));
+            for (final result
+                in latestAttempt.results.where((item) => !item.isCorrect)) {
               if (result.questionType.trim().isNotEmpty) {
                 accumulator.workbook.weakTypes.add(result.questionType.trim());
               }
@@ -178,7 +194,9 @@ class IntegratedLearningReportService {
             email: '',
           ),
         );
-        if (result.attemptCount > 0) accumulator.vocabulary.completedBookCount += 1;
+        if (result.attemptCount > 0) {
+          accumulator.vocabulary.completedBookCount += 1;
+        }
         accumulator.vocabulary.studiedWordCount += result.latestTotalCount;
         accumulator.vocabulary.wrongWordCount += result.wrongCount;
         accumulator.vocabulary.touchDate(_parseDate(result.latestAttemptAt));
@@ -199,6 +217,12 @@ class IntegratedLearningReportService {
     final titleById = {
       for (final item in finalTouches) item.id: _finalTouchTitle(item),
     };
+    final practiceResults = await _safe(
+      _fetchTeacherFinalTouchPracticeResults,
+      warnings,
+      'Final Touch 문장 조립 결과를 불러오지 못했습니다.',
+      fallback: const <_TeacherFinalTouchPracticeResult>[],
+    );
 
     for (final item in finalTouches) {
       final assignments = await _safe(
@@ -212,13 +236,14 @@ class IntegratedLearningReportService {
           assignment.studentId,
           () => _StudentReportAccumulator(
             studentId: assignment.studentId,
-            studentName: assignment.studentName ?? 'student${assignment.studentId}',
+            studentName:
+                assignment.studentName ?? 'student${assignment.studentId}',
             email: '',
           ),
         );
         accumulator.finalTouch.totalCount += 1;
-        final lastTouched =
-            _parseDate(assignment.completedAt) ?? _parseDate(assignment.startedAt);
+        final lastTouched = _parseDate(assignment.completedAt) ??
+            _parseDate(assignment.startedAt);
         accumulator.finalTouch.touchDate(lastTouched);
         if (assignment.isCompleted || assignment.isInProgress) {
           accumulator.finalTouch.viewedCount += 1;
@@ -231,6 +256,44 @@ class IntegratedLearningReportService {
         }
       }
     }
+
+    for (final result in practiceResults) {
+      final accumulator = accumulators.putIfAbsent(
+        result.studentId,
+        () => _StudentReportAccumulator(
+          studentId: result.studentId,
+          studentName: result.studentName,
+          email: '',
+        ),
+      );
+      accumulator.finalTouch.practiceFinalTouchIds.add(result.finalTouchId);
+      accumulator.finalTouch.touchDate(result.createdAt);
+    }
+  }
+
+  Future<List<_TeacherFinalTouchPracticeResult>>
+      _fetchTeacherFinalTouchPracticeResults() async {
+    final response = await http.get(
+      ApiConfig.u('/teacher/final-touch-practice-results'),
+      headers: {
+        'Content-Type': 'application/json',
+        if (AuthStore.accessToken != null)
+          'Authorization': 'Bearer ${AuthStore.accessToken}',
+      },
+    ).timeout(const Duration(seconds: 20));
+    final text = utf8.decode(response.bodyBytes);
+    final decoded = text.trim().isEmpty ? null : jsonDecode(text);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('HTTP ${response.statusCode}: $text');
+    }
+    final items = decoded is Map<String, dynamic> ? decoded['items'] : decoded;
+    if (items is! List) return const [];
+    return items
+        .whereType<Map>()
+        .map((item) => _TeacherFinalTouchPracticeResult.fromJson(
+              Map<String, dynamic>.from(item),
+            ))
+        .toList();
   }
 
   Future<T> _safe<T>(
@@ -338,7 +401,7 @@ class _VocabularyAccumulator {
 class _FinalTouchAccumulator {
   int totalCount = 0;
   int viewedCount = 0;
-  int sentenceAssemblyCompletedCount = 0;
+  final practiceFinalTouchIds = <int>{};
   final notViewedTitles = <String>[];
   DateTime? lastViewedAt;
 
@@ -352,9 +415,36 @@ class _FinalTouchAccumulator {
       totalCount: totalCount,
       viewedCount: viewedCount,
       notViewedCount: notViewed < 0 ? 0 : notViewed,
-      sentenceAssemblyCompletedCount: sentenceAssemblyCompletedCount,
+      sentenceAssemblyCompletedCount: practiceFinalTouchIds.length,
       lastViewedAt: lastViewedAt,
       notViewedTitles: notViewedTitles.take(3).toList(),
+    );
+  }
+}
+
+class _TeacherFinalTouchPracticeResult {
+  const _TeacherFinalTouchPracticeResult({
+    required this.studentId,
+    required this.studentName,
+    required this.finalTouchId,
+    this.createdAt,
+  });
+
+  final int studentId;
+  final String studentName;
+  final int finalTouchId;
+  final DateTime? createdAt;
+
+  factory _TeacherFinalTouchPracticeResult.fromJson(Map<String, dynamic> json) {
+    final studentId = _asInt(json['student_id']);
+    return _TeacherFinalTouchPracticeResult(
+      studentId: studentId,
+      studentName: _asString(
+        json['student_name'],
+        fallback: 'student$studentId',
+      ),
+      finalTouchId: _asInt(json['final_touch_id']),
+      createdAt: _parseDate(_asString(json['created_at'])),
     );
   }
 }
@@ -380,7 +470,8 @@ List<RecommendedLearningAction> _buildActions({
       RecommendedLearningAction(
         area: 'Final Touch',
         title: '미열람 자료 복습',
-        message: '아직 열람하지 않은 Final Touch ${finalTouch.notViewedCount}개를 확인하게 해 주세요.',
+        message:
+            '아직 열람하지 않은 Final Touch ${finalTouch.notViewedCount}개를 확인하게 해 주세요.',
       ),
     );
   }
@@ -424,6 +515,18 @@ String _finalTouchTitle(FinalTouchSummary item) {
 DateTime? _parseDate(String? value) {
   if (value == null || value.trim().isEmpty) return null;
   return DateTime.tryParse(value);
+}
+
+int _asInt(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+String _asString(dynamic value, {String fallback = ''}) {
+  final text = value?.toString().trim() ?? '';
+  if (text.isEmpty || text == 'null') return fallback;
+  return text;
 }
 
 int _compareNullableDateDesc(DateTime? a, DateTime? b) {

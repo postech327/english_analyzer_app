@@ -9,7 +9,7 @@ import '../models/integrated_report.dart';
 class IntegratedReportApi {
   static Future<IntegratedReport> fetchIntegratedReport() async {
     final response = await http.get(
-      ApiConfig.u('/student/integrated-report'),
+      ApiConfig.u('/student/problem_sets/integrated-report'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer ${AuthStore.accessToken}',

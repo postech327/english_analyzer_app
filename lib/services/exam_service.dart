@@ -4,7 +4,7 @@ import '../config/auth_store.dart';
 
 class ExamService {
   static const String baseUrl =
-      String.fromEnvironment('API_BASE', defaultValue: 'http://127.0.0.1:8000');
+      String.fromEnvironment('API_BASE', defaultValue: 'http://127.0.0.1:8001');
 
   static Future<Map<String, dynamic>> startExam(int problemSetId) async {
     final response = await http.get(

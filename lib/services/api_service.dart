@@ -7,7 +7,7 @@ import '../config/auth_store.dart';
 class ApiService {
   static const String baseUrl = String.fromEnvironment(
     'API_BASE',
-    defaultValue: 'http://127.0.0.1:8000',
+    defaultValue: 'http://127.0.0.1:8001',
   );
 
   // 🔐 공통 헤더

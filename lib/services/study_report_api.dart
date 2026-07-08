@@ -1,12 +1,13 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../config/api.dart';
 import '../models/study_report.dart';
 
 class StudyReportApi {
-  static const _baseUrl = 'http://127.0.0.1:8000';
-
   static Future<List<StudyReport>> fetchReports(int userId) async {
-    final url = Uri.parse('$_baseUrl/student/reports?user_id=$userId');
+    final url = ApiConfig.u('/student/reports').replace(
+      queryParameters: {'user_id': '$userId'},
+    );
     final res = await http.get(url);
 
     if (res.statusCode != 200) {
