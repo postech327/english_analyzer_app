@@ -38,7 +38,42 @@ class IntegratedLearningReportService {
   final FinalTouchService _finalTouchService;
 
   Future<IntegratedLearningReport> fetchReport() async {
+    try {
+      return await _fetchBackendReport();
+    } catch (_) {
+      return _fetchFallbackReport(
+        leadingWarning: '서버 집계 API를 사용할 수 없어 기존 자료 기준으로 계산했습니다.',
+      );
+    }
+  }
+
+  Future<IntegratedLearningReport> _fetchBackendReport() async {
+    final response = await http.get(
+      ApiConfig.u('/teacher/integrated-learning-report'),
+      headers: {
+        'Content-Type': 'application/json',
+        if (AuthStore.accessToken != null)
+          'Authorization': 'Bearer ${AuthStore.accessToken}',
+      },
+    ).timeout(const Duration(seconds: 20));
+    final text = utf8.decode(response.bodyBytes);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('Integrated report API failed: ${response.statusCode}');
+    }
+    final decoded = text.trim().isEmpty ? null : jsonDecode(text);
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception('Invalid integrated report response');
+    }
+    return parseIntegratedLearningReportResponse(decoded);
+  }
+
+  Future<IntegratedLearningReport> _fetchFallbackReport({
+    String? leadingWarning,
+  }) async {
     final warnings = <String>[];
+    if (leadingWarning != null && leadingWarning.trim().isNotEmpty) {
+      warnings.add(leadingWarning);
+    }
     final students = await _safe(
       () => _assignmentService.fetchStudents(),
       warnings,
@@ -305,9 +340,104 @@ class IntegratedLearningReportService {
     try {
       return await loader();
     } catch (error) {
-      warnings.add('$warning ($error)');
+      if (!warnings.contains(warning)) {
+        warnings.add(warning);
+      }
       return fallback;
     }
+  }
+}
+
+IntegratedLearningReport parseIntegratedLearningReportResponse(
+  Map<String, dynamic> json,
+) {
+  final rawStudents = json['students'];
+  final warnings = <String>[
+    for (final item in _asList(json['warnings']))
+      if (_asString(item).isNotEmpty) _asString(item),
+  ];
+  final generatedAt =
+      _parseDate(_asString(json['generated_at'])) ?? DateTime.now();
+  return IntegratedLearningReport(
+    generatedAt: generatedAt,
+    students: _asList(rawStudents)
+        .whereType<Map>()
+        .map((item) => _parseBackendStudent(Map<String, dynamic>.from(item)))
+        .toList(),
+    warnings: warnings,
+  );
+}
+
+StudentIntegratedLearningReport _parseBackendStudent(
+  Map<String, dynamic> json,
+) {
+  final workbook = _asMap(json['workbook']);
+  final vocabulary = _asMap(json['vocabulary']);
+  final finalTouch = _asMap(json['final_touch']);
+  return StudentIntegratedLearningReport(
+    studentId: _asInt(json['student_id']),
+    studentName: _asString(
+      json['student_name'],
+      fallback: 'student${_asInt(json['student_id'])}',
+    ),
+    email: _asString(json['email']),
+    workbook: WorkbookReportSummary(
+      totalCount: _asInt(workbook['total_count']),
+      completedCount: _asInt(workbook['completed_count']),
+      incompleteCount: _asInt(workbook['incomplete_count']),
+      averageScore: _asDouble(workbook['average_score']),
+      lastStudyAt: _parseDate(_asString(workbook['last_study_at'])),
+      weakTypes: [
+        for (final item in _asList(workbook['weak_types']))
+          if (_asString(item).isNotEmpty) _asString(item),
+      ],
+    ),
+    vocabulary: VocabularyReportSummary(
+      assignedBookCount: _asInt(vocabulary['assigned_book_count']),
+      completedBookCount: _asInt(vocabulary['completed_book_count']),
+      studiedWordCount: _asInt(vocabulary['studied_word_count']),
+      wrongWordCount: _asInt(vocabulary['wrong_word_count']),
+      lastStudyAt: _parseDate(_asString(vocabulary['last_study_at'])),
+    ),
+    finalTouch: FinalTouchReportSummary(
+      totalCount: _asInt(finalTouch['total_count']),
+      viewedCount: _asInt(finalTouch['viewed_count']),
+      notViewedCount: _asInt(finalTouch['not_viewed_count']),
+      sentenceAssemblyCompletedCount:
+          _asInt(finalTouch['sentence_assembly_completed_count']),
+      lastViewedAt: _parseDate(_asString(finalTouch['last_viewed_at'])),
+    ),
+    recommendedActions: _parseBackendActions(json['recommended_actions']),
+  );
+}
+
+List<RecommendedLearningAction> _parseBackendActions(dynamic value) {
+  return [
+    for (final item in _asList(value))
+      if (item is Map)
+        RecommendedLearningAction(
+          area: _asString(item['area'], fallback: '통합'),
+          title: _asString(item['title'], fallback: '추천 학습'),
+          message: _asString(item['message']),
+          priority: _parsePriority(_asString(item['priority'])),
+        )
+      else if (_asString(item).isNotEmpty)
+        RecommendedLearningAction(
+          area: '통합',
+          title: '추천 학습',
+          message: _asString(item),
+        ),
+  ];
+}
+
+ReportActionPriority _parsePriority(String value) {
+  switch (value.trim().toLowerCase()) {
+    case 'high':
+      return ReportActionPriority.high;
+    case 'low':
+      return ReportActionPriority.low;
+    default:
+      return ReportActionPriority.medium;
   }
 }
 
@@ -523,10 +653,27 @@ int _asInt(dynamic value) {
   return int.tryParse(value?.toString() ?? '') ?? 0;
 }
 
+double _asDouble(dynamic value) {
+  if (value is double) return value;
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '') ?? 0;
+}
+
 String _asString(dynamic value, {String fallback = ''}) {
   final text = value?.toString().trim() ?? '';
   if (text.isEmpty || text == 'null') return fallback;
   return text;
+}
+
+Map<String, dynamic> _asMap(dynamic value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return const {};
+}
+
+List<dynamic> _asList(dynamic value) {
+  if (value is List) return value;
+  return const [];
 }
 
 int _compareNullableDateDesc(DateTime? a, DateTime? b) {
