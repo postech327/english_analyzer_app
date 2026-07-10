@@ -5,7 +5,6 @@ import '../config/auth_store.dart';
 import '../services/auth_service.dart';
 import 'admin/admin_dashboard_overview_screen.dart';
 import 'admin/admin_exam_auto_generate_screen.dart';
-import 'admin/admin_student_summary_screen.dart';
 import 'final_touch_list_screen.dart';
 import 'teacher_folder_progress_screen.dart';
 import 'teacher_integrated_learning_report_screen.dart';
@@ -13,6 +12,7 @@ import 'teacher_mock_exam_list_screen.dart';
 import 'teacher_mock_student_report_list_screen.dart';
 import 'teacher_problem_sets_screen.dart';
 import 'teacher_question_maker_screen.dart';
+import 'teacher_student_management_screen.dart';
 import 'teacher_workbook_list_screen.dart';
 import 'teacher_vocabulary_list_screen.dart';
 import 'text_analysis_hub_screen.dart';
@@ -236,7 +236,7 @@ class _Sidebar extends StatelessWidget {
                         Navigator.maybePop(context);
                         TeacherModePage.openPage(
                           context,
-                          const AdminStudentSummaryScreen(),
+                          const TeacherStudentManagementScreen(),
                         );
                       },
                     ),
@@ -1075,7 +1075,7 @@ class _TeacherFeatureMenuSection extends StatelessWidget {
               color: TeacherModePage._brandBlue,
               onTap: () => TeacherModePage.openPage(
                 context,
-                const AdminStudentSummaryScreen(),
+                const TeacherStudentManagementScreen(),
               ),
             ),
           ],
