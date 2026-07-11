@@ -37,6 +37,7 @@ class _TextAnalysisHubScreenState extends State<TextAnalysisHubScreen> {
   Map<String, dynamic>? _result;
   bool _loading = false;
   bool _makingQuestions = false;
+  bool _savingFinalTouch = false;
   int? _passageId;
 
   @override
@@ -123,9 +124,7 @@ class _TextAnalysisHubScreenState extends State<TextAnalysisHubScreen> {
       result['korean_translation_text'] = providedTranslation;
       result['translation_bracketed'] = providedTranslation;
       result['translation_ko'] = providedTranslation;
-      if ((result['summary_ko']?.toString().trim() ?? '').isEmpty) {
-        result['summary_ko'] = providedTranslation;
-      }
+      _clearTranslationLeakCoreValues(result, providedTranslation);
       _fillSentenceTranslations(
           result['sentence_details'], providedTranslation);
     }
@@ -133,13 +132,43 @@ class _TextAnalysisHubScreenState extends State<TextAnalysisHubScreen> {
     final teacherTopic = _teacherTopicController.text.trim();
     if (teacherTopic.isNotEmpty) {
       result['teacher_topic_sentence'] = teacherTopic;
-      if ((result['topic_en']?.toString().trim() ?? '').isEmpty) {
+      if (_looksEnglish(teacherTopic) &&
+          (result['topic_en']?.toString().trim() ?? '').isEmpty) {
         result['topic_en'] = teacherTopic;
       }
-      if ((result['gist_en']?.toString().trim() ?? '').isEmpty) {
+      if (_looksEnglish(teacherTopic) &&
+          (result['gist_en']?.toString().trim() ?? '').isEmpty) {
         result['gist_en'] = teacherTopic;
       }
     }
+  }
+
+  void _clearTranslationLeakCoreValues(
+    Map<String, dynamic> result,
+    String translationText,
+  ) {
+    final firstLine = translationText
+        .split(RegExp(r'\n\s*\n|\r?\n'))
+        .map((line) => line.trim())
+        .firstWhere((line) => line.isNotEmpty, orElse: () => '');
+    if (firstLine.isEmpty) return;
+    for (final key in const [
+      'topic_ko',
+      'title_ko',
+      'gist_ko',
+      'summary_ko',
+    ]) {
+      final value = result[key]?.toString().trim() ?? '';
+      if (value == firstLine || value.startsWith('$firstLine ')) {
+        result[key] = '';
+      }
+    }
+  }
+
+  bool _looksEnglish(String text) {
+    final hasEnglish = RegExp(r'[A-Za-z]').hasMatch(text);
+    final hasKorean = RegExp(r'[가-힣]').hasMatch(text);
+    return hasEnglish && !hasKorean;
   }
 
   void _fillSentenceTranslations(dynamic rawDetails, String translationText) {
@@ -252,6 +281,83 @@ class _TextAnalysisHubScreenState extends State<TextAnalysisHubScreen> {
       _showSnackBar("문제 생성 실패: $e");
     } finally {
       if (mounted) setState(() => _makingQuestions = false);
+    }
+  }
+
+  Future<void> saveFinalTouch() async {
+    final result = _result;
+    if (result == null) return;
+
+    final existingId = result['analysis_record_id'] ?? result['final_touch_id'];
+    if (existingId != null && existingId.toString().trim().isNotEmpty) {
+      _showSnackBar('Final Touch에 이미 저장되어 있습니다.');
+      return;
+    }
+
+    final passage = _passageController.text.trim();
+    if (passage.isEmpty) {
+      _showSnackBar('지문을 입력해 주세요.');
+      return;
+    }
+
+    setState(() => _savingFinalTouch = true);
+    try {
+      final uri = ApiConfig.u('/analysis-records');
+      final res = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          if (AuthStore.accessToken != null)
+            'Authorization': 'Bearer ${AuthStore.accessToken}',
+        },
+        body: jsonEncode({
+          'source': _sourceController.text.trim(),
+          'passage': passage,
+          'passage_bracketed': result['passage_bracketed'] ?? '',
+          'topic_en': result['topic_en'] ?? '',
+          'topic_ko': result['topic_ko'] ?? '',
+          'title_en': result['title_en'] ?? '',
+          'title_ko': result['title_ko'] ?? '',
+          'gist_en': result['gist_en'] ?? '',
+          'gist_ko': result['gist_ko'] ?? '',
+          'summary_en': result['summary_en'] ?? '',
+          'summary_ko': result['summary_ko'] ?? '',
+          'translation_bracketed': result['translation_bracketed'] ??
+              _koreanTranslationController.text.trim(),
+          'outline': result['outline'] ?? const {},
+          'sentence_details': result['sentence_details'] ?? const [],
+          'textbook_folder_name': _textbookFolderController.text.trim(),
+          'unit_folder_name': _unitFolderController.text.trim(),
+        }),
+      );
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        throw Exception('${res.statusCode} / ${res.body}');
+      }
+
+      final decoded = jsonDecode(utf8.decode(res.bodyBytes));
+      final record = decoded is Map<String, dynamic>
+          ? decoded['analysis_record'] as Map<String, dynamic>?
+          : null;
+      final savedId = record?['id'] ?? decoded['id'];
+      setState(() {
+        _result = {
+          ...result,
+          if (savedId != null) 'analysis_record_id': savedId,
+        };
+      });
+
+      final folderLabel = _unitFolderController.text.trim().isNotEmpty
+          ? _unitFolderController.text.trim()
+          : _textbookFolderController.text.trim();
+      _showSnackBar(
+        folderLabel.isEmpty
+            ? 'Final Touch에 저장되었습니다.'
+            : '$folderLabel에 Final Touch가 저장되었습니다.',
+      );
+    } catch (e) {
+      _showSnackBar('Final Touch 저장 실패: $e');
+    } finally {
+      if (mounted) setState(() => _savingFinalTouch = false);
     }
   }
 
@@ -518,6 +624,8 @@ class _TextAnalysisHubScreenState extends State<TextAnalysisHubScreen> {
                     body: body,
                     conclusion: conclusion,
                     result: _result!,
+                    savingFinalTouch: _savingFinalTouch,
+                    onSaveFinalTouch: saveFinalTouch,
                     makingQuestions: _makingQuestions,
                     onMakeQuestions: makeQuestions,
                   ),
@@ -818,6 +926,8 @@ class _ResultCard extends StatelessWidget {
     required this.body,
     required this.conclusion,
     required this.result,
+    required this.savingFinalTouch,
+    required this.onSaveFinalTouch,
     required this.makingQuestions,
     required this.onMakeQuestions,
   });
@@ -831,6 +941,8 @@ class _ResultCard extends StatelessWidget {
   final String body;
   final String conclusion;
   final Map<String, dynamic> result;
+  final bool savingFinalTouch;
+  final VoidCallback onSaveFinalTouch;
   final bool makingQuestions;
   final VoidCallback onMakeQuestions;
 
@@ -847,6 +959,10 @@ class _ResultCard extends StatelessWidget {
       passage: passage,
       result: result,
     );
+    final savedRecordId =
+        result['analysis_record_id'] ?? result['final_touch_id'];
+    final isSaved =
+        savedRecordId != null && savedRecordId.toString().trim().isNotEmpty;
 
     return _AdminCard(
       child: Padding(
@@ -900,13 +1016,52 @@ class _ResultCard extends StatelessWidget {
               plainBody: passage,
               sentenceDetails: sentenceDetails,
               topic:
-                  _preferredResultText(result['topic_ko'], result['topic_en']),
+                  _preferredResultText(result['topic_en'], result['topic_ko']),
               title:
-                  _preferredResultText(result['title_ko'], result['title_en']),
-              gist: _preferredResultText(result['gist_ko'], result['gist_en']),
+                  _preferredResultText(result['title_en'], result['title_ko']),
+              gist: _preferredResultText(result['gist_en'], result['gist_ko']),
               translation: result['translation_bracketed']?.toString() ?? '',
             ),
             const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: FilledButton.icon(
+                onPressed:
+                    isSaved || savingFinalTouch ? null : onSaveFinalTouch,
+                icon: savingFinalTouch
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(isSaved
+                        ? Icons.check_circle_outline_rounded
+                        : Icons.save_alt_rounded),
+                label: Text(
+                  savingFinalTouch
+                      ? 'Final Touch 저장 중...'
+                      : isSaved
+                          ? 'Final Touch에 저장됨'
+                          : 'Final Touch로 저장',
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor:
+                      isSaved ? const Color(0xFF16A34A) : _TeacherColors.blue,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: isSaved
+                      ? const Color(0xFFD1FAE5)
+                      : const Color(0xFFE2E8F0),
+                  disabledForegroundColor: isSaved
+                      ? const Color(0xFF166534)
+                      : const Color(0xFF64748B),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
             SizedBox(
               width: double.infinity,
               height: 46,
