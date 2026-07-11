@@ -1792,6 +1792,7 @@ class _FinalTouchDetailScreenState extends State<FinalTouchDetailScreen> {
                 topic: _preferredAnalysisText(item.topicKo, item.topicEn),
                 title: _preferredAnalysisText(item.titleKo, item.titleEn),
                 gist: _preferredAnalysisText(item.gistKo, item.gistEn),
+                translation: item.translationBracketed,
               ),
               const SizedBox(height: 14),
               SizedBox(

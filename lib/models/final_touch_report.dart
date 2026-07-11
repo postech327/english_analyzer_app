@@ -18,6 +18,7 @@ class FinalTouchReport {
     required this.gistKo,
     required this.summaryEn,
     required this.summaryKo,
+    required this.translationBracketed,
     required this.sentenceDetails,
   });
 
@@ -37,6 +38,7 @@ class FinalTouchReport {
   final String gistKo;
   final String summaryEn;
   final String summaryKo;
+  final String translationBracketed;
   final List<FinalTouchSentenceDetail> sentenceDetails;
 
   factory FinalTouchReport.fromAnalysisResult({
@@ -64,6 +66,13 @@ class FinalTouchReport {
       gistKo: _string(result['gist_ko']),
       summaryEn: _string(result['summary_en']),
       summaryKo: _string(result['summary_ko']),
+      translationBracketed: _string(
+        result['translation_bracketed'] ??
+            result['korean_translation_text'] ??
+            result['korean_translation'] ??
+            result['translation_ko'] ??
+            result['translation'],
+      ),
       sentenceDetails: FinalTouchSentenceDetail.listFromJson(
         result['sentence_details'],
       ),
@@ -86,8 +95,9 @@ class FinalTouchReport {
       titleKo: detail.titleKo,
       gistEn: detail.gistEn,
       gistKo: detail.gistKo,
-      summaryEn: '',
-      summaryKo: '',
+      summaryEn: detail.summaryEn,
+      summaryKo: detail.summaryKo,
+      translationBracketed: detail.translationBracketed,
       sentenceDetails: detail.sentenceDetails,
     );
   }
