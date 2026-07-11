@@ -125,7 +125,8 @@ class FinalTouchFullBracketedPassage extends StatefulWidget {
 
 class _FinalTouchFullBracketedPassageState
     extends State<FinalTouchFullBracketedPassage> {
-  static const double _twoColumnBreakpoint = 760;
+  static const double _twoColumnBreakpoint = 840;
+  static const double _wideColumnBreakpoint = 1100;
 
   bool _showBrackets = true;
   bool _expanded = true;
@@ -287,13 +288,17 @@ class _FinalTouchFullBracketedPassageState
                     ],
                   );
                 }
+                final englishFlex =
+                    constraints.maxWidth >= _wideColumnBreakpoint ? 7 : 3;
+                final translationFlex =
+                    constraints.maxWidth >= _wideColumnBreakpoint ? 3 : 2;
                 return IntrinsicHeight(
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(flex: 8, child: englishPanel),
+                      Expanded(flex: englishFlex, child: englishPanel),
                       const SizedBox(width: 16),
-                      Expanded(flex: 2, child: translationPanel),
+                      Expanded(flex: translationFlex, child: translationPanel),
                     ],
                   ),
                 );

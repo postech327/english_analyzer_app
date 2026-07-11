@@ -496,7 +496,7 @@ class _TextAnalysisHubScreenState extends State<TextAnalysisHubScreen> {
         padding: const EdgeInsets.all(18),
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1080),
+            constraints: const BoxConstraints(maxWidth: 1320),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
