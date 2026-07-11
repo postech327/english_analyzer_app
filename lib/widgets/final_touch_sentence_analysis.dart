@@ -107,6 +107,7 @@ class FinalTouchFullBracketedPassage extends StatefulWidget {
     this.topic = '',
     this.title = '',
     this.gist = '',
+    this.translation = '',
   });
 
   final String body;
@@ -115,6 +116,7 @@ class FinalTouchFullBracketedPassage extends StatefulWidget {
   final String topic;
   final String title;
   final String gist;
+  final String translation;
 
   @override
   State<FinalTouchFullBracketedPassage> createState() =>
@@ -136,10 +138,11 @@ class _FinalTouchFullBracketedPassageState
       details: widget.sentenceDetails,
       showBrackets: _showBrackets,
     );
-    final visiblePassageText = _expanded
-        ? passageText
-        : _previewText(passageText, maxCharacters: 520);
-    final translationText = _translationText(widget.sentenceDetails);
+    final visiblePassageText =
+        _expanded ? passageText : _previewText(passageText, maxCharacters: 520);
+    final translationText = widget.translation.trim().isNotEmpty
+        ? widget.translation.trim()
+        : _translationText(widget.sentenceDetails);
     final visibleTranslationText = _expanded
         ? translationText
         : _previewText(translationText, maxCharacters: 260);
@@ -478,9 +481,8 @@ class _PassageTextBlock extends StatelessWidget {
       child: BracketColoredText(
         text: trimmed,
         style: TextStyle(
-          color: isTranslation
-              ? const Color(0xFF334155)
-              : const Color(0xFF172033),
+          color:
+              isTranslation ? const Color(0xFF334155) : const Color(0xFF172033),
           fontSize: isTranslation ? 14 : 16,
           height: isTranslation ? 1.7 : 1.75,
           fontWeight: isTranslation ? FontWeight.w600 : FontWeight.w500,

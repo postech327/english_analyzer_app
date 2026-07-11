@@ -39,6 +39,7 @@ class FinalTouchImportDraft {
     final titleIsKorean = RegExp(r'[가-힣]').hasMatch(title);
     final topicIsKorean = RegExp(r'[가-힣]').hasMatch(topic);
     final gistIsKorean = RegExp(r'[가-힣]').hasMatch(gist);
+    final translation = _combinedTranslation();
     return {
       'source': source,
       'passage': passage,
@@ -49,10 +50,23 @@ class FinalTouchImportDraft {
       'topic_ko': topicIsKorean ? topic : '',
       'gist_en': gistIsKorean ? '' : gist,
       'gist_ko': gistIsKorean ? gist : '',
+      'summary_ko': gistIsKorean ? gist : '',
+      'translation_bracketed': translation,
       'outline': outline,
       'sentence_details': sentenceDetails,
       if (folderId != null) 'folder_id': folderId,
     };
+  }
+
+  String _combinedTranslation() {
+    return sentenceDetails
+        .map((item) {
+          final translation =
+              item['translation_bracketed'] ?? item['translation'] ?? '';
+          return translation.toString().trim();
+        })
+        .where((translation) => translation.isNotEmpty)
+        .join('\n\n');
   }
 }
 

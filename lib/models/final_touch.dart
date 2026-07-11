@@ -10,6 +10,9 @@ class FinalTouchSummary {
   final String topicKo;
   final String gistEn;
   final String gistKo;
+  final String summaryEn;
+  final String summaryKo;
+  final String translationBracketed;
   final String createdAt;
 
   const FinalTouchSummary({
@@ -24,6 +27,9 @@ class FinalTouchSummary {
     required this.topicKo,
     required this.gistEn,
     required this.gistKo,
+    required this.summaryEn,
+    required this.summaryKo,
+    required this.translationBracketed,
     required this.createdAt,
   });
 
@@ -42,6 +48,14 @@ class FinalTouchSummary {
       topicKo: _asString(json['topic_ko']),
       gistEn: _asString(json['gist_en']),
       gistKo: _asString(json['gist_ko']),
+      summaryEn: _asString(json['summary_en']),
+      summaryKo: _asString(json['summary_ko']),
+      translationBracketed: _asString(
+        json['translation_bracketed'] ??
+            json['korean_translation'] ??
+            json['translation_ko'] ??
+            json['translation'],
+      ),
       createdAt: _asString(json['created_at']),
     );
   }
@@ -65,6 +79,9 @@ class FinalTouchDetail extends FinalTouchSummary {
     required super.topicKo,
     required super.gistEn,
     required super.gistKo,
+    required super.summaryEn,
+    required super.summaryKo,
+    required super.translationBracketed,
     required super.createdAt,
     required this.passage,
     required this.passageBracketed,
@@ -95,6 +112,9 @@ class FinalTouchDetail extends FinalTouchSummary {
       topicKo: summary.topicKo,
       gistEn: summary.gistEn,
       gistKo: summary.gistKo,
+      summaryEn: summary.summaryEn,
+      summaryKo: summary.summaryKo,
+      translationBracketed: summary.translationBracketed,
       createdAt: summary.createdAt,
       passage: _asString(json['passage']),
       passageBracketed: _asString(json['passage_bracketed']),

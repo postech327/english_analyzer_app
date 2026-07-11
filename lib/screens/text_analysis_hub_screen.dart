@@ -93,6 +93,7 @@ class _TextAnalysisHubScreenState extends State<TextAnalysisHubScreen> {
       final raw = jsonDecode(res.body);
       final parsed =
           Map<String, dynamic>.from(raw["result"] ?? raw["data"] ?? raw);
+      _bindTeacherInputsToAnalysisResult(parsed);
       final dynamic passageIdValue = parsed["passage_id"];
 
       if (!mounted) return;
@@ -113,6 +114,53 @@ class _TextAnalysisHubScreenState extends State<TextAnalysisHubScreen> {
       _showSnackBar("분석 실패: $e");
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _bindTeacherInputsToAnalysisResult(Map<String, dynamic> result) {
+    final providedTranslation = _koreanTranslationController.text.trim();
+    if (providedTranslation.isNotEmpty) {
+      result['korean_translation_text'] = providedTranslation;
+      result['translation_bracketed'] = providedTranslation;
+      result['translation_ko'] = providedTranslation;
+      if ((result['summary_ko']?.toString().trim() ?? '').isEmpty) {
+        result['summary_ko'] = providedTranslation;
+      }
+      _fillSentenceTranslations(
+          result['sentence_details'], providedTranslation);
+    }
+
+    final teacherTopic = _teacherTopicController.text.trim();
+    if (teacherTopic.isNotEmpty) {
+      result['teacher_topic_sentence'] = teacherTopic;
+      if ((result['topic_en']?.toString().trim() ?? '').isEmpty) {
+        result['topic_en'] = teacherTopic;
+      }
+      if ((result['gist_en']?.toString().trim() ?? '').isEmpty) {
+        result['gist_en'] = teacherTopic;
+      }
+    }
+  }
+
+  void _fillSentenceTranslations(dynamic rawDetails, String translationText) {
+    if (rawDetails is! List) return;
+    final translations = translationText
+        .split(RegExp(r'\n\s*\n|\r?\n'))
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+    if (translations.isEmpty) return;
+
+    for (var i = 0; i < rawDetails.length; i++) {
+      final item = rawDetails[i];
+      if (item is! Map) continue;
+      final current = (item['translation'] ?? item['translation_bracketed'])
+          ?.toString()
+          .trim();
+      if (current != null && current.isNotEmpty) continue;
+      final fallback = translations[i < translations.length ? i : 0];
+      item['translation'] = fallback;
+      item['translation_bracketed'] = fallback;
     }
   }
 
@@ -263,6 +311,8 @@ class _TextAnalysisHubScreenState extends State<TextAnalysisHubScreen> {
       "passage": passage,
       "passage_bracketed": result["passage_bracketed"] ?? "",
       "korean_translation_text": _koreanTranslationController.text.trim(),
+      "translation_bracketed": result["translation_bracketed"] ??
+          _koreanTranslationController.text.trim(),
       "teacher_topic_sentence": _teacherTopicController.text.trim(),
       "outline": result["outline"] ?? const {},
       "topic_en": result["topic_en"] ?? "",
@@ -847,6 +897,14 @@ class _ResultCard extends StatelessWidget {
                           false)
                       ? result['passage_bracketed'].toString()
                       : passage,
+              plainBody: passage,
+              sentenceDetails: sentenceDetails,
+              topic:
+                  _preferredResultText(result['topic_ko'], result['topic_en']),
+              title:
+                  _preferredResultText(result['title_ko'], result['title_en']),
+              gist: _preferredResultText(result['gist_ko'], result['gist_en']),
+              translation: result['translation_bracketed']?.toString() ?? '',
             ),
             const SizedBox(height: 12),
             SizedBox(
@@ -904,6 +962,12 @@ class _ResultCard extends StatelessWidget {
       );
     }
   }
+}
+
+String _preferredResultText(dynamic primary, dynamic fallback) {
+  final primaryText = primary?.toString().trim() ?? '';
+  if (primaryText.isNotEmpty) return primaryText;
+  return fallback?.toString().trim() ?? '';
 }
 
 class _ResultMetadata extends StatelessWidget {
