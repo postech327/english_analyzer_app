@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../config/api.dart';
@@ -83,13 +84,38 @@ class FinalTouchService {
   Future<int> createFromImport(
     FinalTouchImportDraft draft, {
     int? folderId,
+    String? textbookFolderName,
+    String? unitFolderName,
+    String? folderName,
   }) async {
     final uri = ApiConfig.u('/analysis-records');
+    final payload = draft.toRequestJson(
+      folderId: folderId,
+      textbookFolderName: textbookFolderName,
+      unitFolderName: unitFolderName,
+      folderName: folderName,
+    );
+    if (kDebugMode) {
+      final tracePayload = <String, dynamic>{
+        ...payload,
+        'passage': '(${(payload['passage'] ?? '').toString().length} chars)',
+        'passage_bracketed':
+            '(${(payload['passage_bracketed'] ?? '').toString().length} chars)',
+        'translation_bracketed':
+            '(${(payload['translation_bracketed'] ?? '').toString().length} chars)',
+        'sentence_details':
+            '${(payload['sentence_details'] as List?)?.length ?? 0} items',
+      };
+      debugPrint(
+        '[FinalTouchImport] POST $uri payload=${jsonEncode(tracePayload)}',
+        wrapWidth: 1024,
+      );
+    }
     final res = await http
         .post(
           uri,
           headers: _headers(),
-          body: jsonEncode(draft.toRequestJson(folderId: folderId)),
+          body: jsonEncode(payload),
         )
         .timeout(const Duration(seconds: 30));
     if (res.statusCode < 200 || res.statusCode >= 300) {

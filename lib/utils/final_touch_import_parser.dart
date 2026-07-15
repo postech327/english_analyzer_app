@@ -89,6 +89,9 @@ FinalTouchImportDraft _parseSingleDraft(
       },
   ];
   final outline = _parseOutline(value('flow'));
+  final titleParts = _analysisLanguageParts(value('title'));
+  final topicParts = _analysisLanguageParts(value('topic'));
+  final gistParts = _analysisLanguageParts(value('gist'));
   final warnings = <String>[
     if (effectiveSource.isEmpty) '출처가 없습니다.',
     if (value('title').isEmpty) '제목이 없습니다.',
@@ -106,15 +109,108 @@ FinalTouchImportDraft _parseSingleDraft(
     unitLabel: unitLabel,
     source: effectiveSource,
     title: value('title'),
+    titleEn: titleParts.english,
+    titleKo: titleParts.korean,
     topic: value('topic'),
+    topicEn: topicParts.english,
+    topicKo: topicParts.korean,
     gist: value('gist'),
+    gistEn: gistParts.english,
+    gistKo: gistParts.korean,
     outline: outline,
     passage: passage,
     passageBracketed: bracketed.isEmpty ? passage : bracketed,
+    translationText: translationText,
     sentenceDetails: sentenceDetails,
     rawText: rawText,
     warnings: warnings,
   );
+}
+
+({String english, String korean}) _analysisLanguageParts(String value) {
+  final text = _removeAnalysisFlowTail(value);
+  if (text.trim().isEmpty) return (english: '', korean: '');
+  final english = <String>[];
+  final korean = <String>[];
+  final chunks = text
+      .split(RegExp(r'\r?\n|\s+[|/]\s+|\s+[–—]\s+|\s{2,}'))
+      .map((chunk) => chunk.trim())
+      .where((chunk) => chunk.isNotEmpty)
+      .toList();
+  for (final rawChunk in chunks) {
+    final chunk = rawChunk
+        .replaceFirst(
+          RegExp(
+            r'^(EN|KO|영어|한국어|주제|제목|요지|요약|Summary|Main\s*Idea)\s*[:：]\s*',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .trim();
+    if (chunk.isEmpty || _isAnalysisFlowLine(chunk)) continue;
+    final firstHangul = RegExp(r'[\uAC00-\uD7A3]').firstMatch(chunk)?.start;
+    if (firstHangul != null && firstHangul > 0) {
+      final before = _trimAnalysisSeparator(chunk.substring(0, firstHangul));
+      final after = _trimAnalysisSeparator(chunk.substring(firstHangul));
+      if (_isMeaningfulAnalysisEnglish(before)) {
+        english.add(before);
+        if (after.isNotEmpty && RegExp(r'[\uAC00-\uD7A3]').hasMatch(after)) {
+          korean.add(after);
+        }
+      } else if (RegExp(r'[\uAC00-\uD7A3]').hasMatch(chunk)) {
+        korean.add(chunk);
+      }
+      continue;
+    }
+    if (_isMeaningfulAnalysisEnglish(chunk) &&
+        !RegExp(r'[\uAC00-\uD7A3]').hasMatch(chunk)) {
+      english.add(chunk);
+    } else if (RegExp(r'[\uAC00-\uD7A3]').hasMatch(chunk)) {
+      korean.add(chunk);
+    }
+  }
+  return (
+    english: english.isEmpty ? '' : english.first.trim(),
+    korean: korean
+        .map(_trimAnalysisSeparator)
+        .where((item) => item.isNotEmpty)
+        .join('\n'),
+  );
+}
+
+String _removeAnalysisFlowTail(String value) {
+  final kept = <String>[];
+  for (final line in value
+      .split(RegExp(r'\r?\n'))
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)) {
+    if (_isAnalysisFlowLine(line)) break;
+    kept.add(line);
+  }
+  return kept.join('\n').trim();
+}
+
+bool _isAnalysisFlowLine(String value) {
+  final normalized = value.replaceAll(RegExp(r'\s+'), '').toLowerCase();
+  return normalized.contains('글의흐름') ||
+      RegExp(r'^(flow|서론|본론|결론)(\d|[:：]|$)').hasMatch(normalized);
+}
+
+String _trimAnalysisSeparator(String value) {
+  return value
+      .replaceAll(RegExp(r'^[\s:：\-–—/|]+'), '')
+      .replaceAll(RegExp(r'[\s:：\-–—/|]+$'), '')
+      .trim();
+}
+
+bool _isMeaningfulAnalysisEnglish(String value) {
+  final words = RegExp(r"[A-Za-z]+(?:['’\-][A-Za-z]+)?")
+      .allMatches(value)
+      .map((match) => match.group(0) ?? '')
+      .where((word) => word.isNotEmpty)
+      .toList();
+  if (words.length >= 4) return true;
+  return words.length >= 3 && RegExp(r'[.!?]').hasMatch(value);
 }
 
 List<({String unitLabel, String text})> _splitPassageBlocks(String rawText) {
@@ -344,6 +440,26 @@ String stripFinalTouchBrackets(String text) {
 }
 
 (String, String)? _headingKey(String line) {
+  final standaloneMatch = RegExp(
+    r'^(?:\d+\.\s*)?(출처|제목|주제|요지|소재|글의\s*흐름|영어\s*지문|한글\s*해석|해석|해설|풀이|어휘|Summary|Topic|Title|Main\s*Idea)\s*$',
+    caseSensitive: false,
+  ).firstMatch(line.trim());
+  if (standaloneMatch != null) {
+    final label = standaloneMatch.group(1)!.replaceAll(' ', '').toLowerCase();
+    final key = switch (label) {
+      '출처' => 'source',
+      '제목' || 'title' => 'title',
+      '주제' || '소재' || 'topic' => 'topic',
+      '요지' || 'summary' || 'mainidea' => 'gist',
+      '글의흐름' => 'flow',
+      '영어지문' => 'passage',
+      '해설' || '풀이' => 'explanation',
+      '어휘' => 'vocabulary',
+      _ => 'translation',
+    };
+    return (key, '');
+  }
+
   final realBracketMatch = RegExp(
     r'^\[\s*(출처|제목|주제|요지|소재|글의\s*흐름|영어\s*지문|한글\s*해석|해석|해설|풀이|어휘|Summary|Topic|Title|Main\s*Idea)\s*\]\s*:?\s*(.*)$',
     caseSensitive: false,
@@ -623,10 +739,41 @@ List<String> _mapTranslationsToSentences(
   if (sentenceCount <= 0) return const <String>[];
   if (translations.isEmpty) return List.filled(sentenceCount, '');
   if (translations.length == sentenceCount) return translations;
+  final split = _splitTranslationForSentenceFallback(translationText);
+  if (split.length >= sentenceCount) return split.take(sentenceCount).toList();
+  if (split.length > 1) {
+    return [
+      ...split,
+      for (var index = split.length; index < sentenceCount; index++) '',
+    ];
+  }
   return [
     translationText.trim(),
     for (var index = 1; index < sentenceCount; index++) '',
   ];
+}
+
+List<String> _splitTranslationForSentenceFallback(String text) {
+  final trimmed = text.trim();
+  if (trimmed.isEmpty) return const [];
+  final lines = trimmed
+      .split(RegExp(r'\r?\n'))
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .map((line) =>
+          line.replaceFirst(RegExp(r'^[\u2460-\u2473]\s*'), '').trim())
+      .map((line) => line.replaceFirst(RegExp(r'^\d+[\.)]\s*'), '').trim())
+      .where((line) => line.isNotEmpty)
+      .toList();
+  if (lines.length > 1) return lines;
+  final compact = trimmed.replaceAll(RegExp(r'\s+'), ' ');
+  return RegExp(
+    r'.+?(?:[.!?\u3002\uff01\uff1f]|(?:\uB2E4|\uC694|\uC8E0|\uB2C8\uB2E4|\uAE4C\uC694|\uC138\uC694|\uD574\uC694|\uD569\uB2C8\uB2E4|\uB429\uB2C8\uB2E4|\uC788\uC2B5\uB2C8\uB2E4|\uC5C6\uC2B5\uB2C8\uB2E4)(?=\s|$))',
+  )
+      .allMatches(compact)
+      .map((match) => match.group(0)?.trim() ?? '')
+      .where((part) => part.isNotEmpty)
+      .toList();
 }
 
 Map<String, String> _parseOutline(String text) {

@@ -1792,6 +1792,7 @@ class _FinalTouchDetailScreenState extends State<FinalTouchDetailScreen> {
                 topic: _preferredAnalysisText(item.topicEn, item.topicKo),
                 title: _preferredAnalysisText(item.titleEn, item.titleKo),
                 gist: _preferredAnalysisText(item.gistEn, item.gistKo),
+                summary: _preferredAnalysisText(item.summaryEn, item.summaryKo),
                 translation: item.translationBracketed,
               ),
               const SizedBox(height: 14),
@@ -1857,9 +1858,17 @@ class _FinalTouchDetailScreenState extends State<FinalTouchDetailScreen> {
                 titleKo: item.titleKo,
                 gistEn: item.gistEn,
                 gistKo: item.gistKo,
+                topicFallback:
+                    _preferredAnalysisText(item.topicEn, item.topicKo),
+                titleFallback:
+                    _preferredAnalysisText(item.titleEn, item.titleKo),
+                gistFallback: _preferredAnalysisText(item.gistEn, item.gistKo),
               ),
               const SizedBox(height: 14),
-              FinalTouchSentenceAnalysis(details: item.sentenceDetails),
+              FinalTouchSentenceAnalysis(
+                details: item.sentenceDetails,
+                translation: item.translationBracketed,
+              ),
             ],
           );
         },

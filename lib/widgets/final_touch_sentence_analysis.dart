@@ -8,41 +8,53 @@ class FinalTouchSentenceAnalysis extends StatelessWidget {
   const FinalTouchSentenceAnalysis({
     super.key,
     required this.details,
+    this.translation = '',
   });
 
   final List<FinalTouchSentenceDetail> details;
+  final String translation;
 
   @override
   Widget build(BuildContext context) {
     if (details.isEmpty) return const SizedBox.shrink();
     final highlightedIndexes = _visibleHighlightIndexes(details);
+    final effectiveTranslation =
+        translation.trim().isNotEmpty ? translation : _translationText(details);
+    final translationFallbacks = _sentenceTranslationFallbacks(
+      effectiveTranslation,
+      details.length,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          '문장별 세부 분석',
+          '\uBB38\uC7A5\uBCC4 \uC138\uBD80 \uBD84\uC11D',
           style: TextStyle(
-            color: Color(0xFF172033),
-            fontSize: 17,
+            color: Color(0xFF0F172A),
+            fontSize: 14,
             fontWeight: FontWeight.w800,
           ),
         ),
         const SizedBox(height: 4),
         Text(
-          '${details.length}개 문장을 원문, 해석, 역할, 문제화 포인트 순서로 정리했습니다.',
+          '${details.length}\uAC1C \uBB38\uC7A5\uC744 \uC601\uC5B4 \uC6D0\uBB38, \uD574\uC11D, \uBB38\uBC95 \uD3EC\uC778\uD2B8, \uBB38\uC81C\uD654 \uD3EC\uC778\uD2B8 \uC21C\uC11C\uB85C \uC815\uB9AC\uD588\uC2B5\uB2C8\uB2E4.',
           style: const TextStyle(
             color: Color(0xFF64748B),
-            fontSize: 13,
+            fontSize: 12,
             height: 1.45,
+            fontWeight: FontWeight.w500,
           ),
         ),
         const SizedBox(height: 10),
         const FinalTouchStructureLegend(),
         const SizedBox(height: 12),
         for (var index = 0; index < details.length; index++) ...[
-          _SentenceAnalysisCard(
+          _ReadableSentenceAnalysisCard(
             detail: details[index],
+            fallbackTranslation: index < translationFallbacks.length
+                ? translationFallbacks[index]
+                : '',
             highlightType: highlightedIndexes.contains(index)
                 ? _effectiveHighlightType(details[index])
                 : 'none',
@@ -107,6 +119,7 @@ class FinalTouchFullBracketedPassage extends StatefulWidget {
     this.topic = '',
     this.title = '',
     this.gist = '',
+    this.summary = '',
     this.translation = '',
   });
 
@@ -116,6 +129,7 @@ class FinalTouchFullBracketedPassage extends StatefulWidget {
   final String topic;
   final String title;
   final String gist;
+  final String summary;
   final String translation;
 
   @override
@@ -157,7 +171,7 @@ class _FinalTouchFullBracketedPassageState
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFC7D2FE)),
+        border: Border.all(color: const Color(0xFFD8E0F0)),
         boxShadow: const [
           BoxShadow(
             color: Color(0x0F4F46E5),
@@ -167,7 +181,7 @@ class _FinalTouchFullBracketedPassageState
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -194,9 +208,9 @@ class _FinalTouchFullBracketedPassageState
                       Text(
                         '전체 지문 한눈에 보기',
                         style: TextStyle(
-                          color: Color(0xFF172033),
-                          fontSize: 18,
-                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF0F172A),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
                       SizedBox(height: 4),
@@ -204,7 +218,7 @@ class _FinalTouchFullBracketedPassageState
                         '괄호 구조를 보며 지문 전체 흐름을 먼저 확인해요.',
                         style: TextStyle(
                           color: Color(0xFF59657A),
-                          fontSize: 13,
+                          fontSize: 12,
                           height: 1.4,
                         ),
                       ),
@@ -228,6 +242,7 @@ class _FinalTouchFullBracketedPassageState
               topic: widget.topic,
               title: widget.title,
               gist: widget.gist,
+              summary: widget.summary,
             ),
             const SizedBox(height: 16),
             Wrap(
@@ -263,6 +278,7 @@ class _FinalTouchFullBracketedPassageState
                   key: const Key('final-touch-english-passage-panel'),
                   icon: Icons.translate_rounded,
                   title: '영어 전체 지문',
+                  backgroundColor: Colors.white.withValues(alpha: 0.62),
                   child: _PassageTextBlock(
                     text: visiblePassageText,
                     emptyMessage: '표시할 영어 지문이 없습니다.',
@@ -272,6 +288,7 @@ class _FinalTouchFullBracketedPassageState
                   key: const Key('final-touch-translation-panel'),
                   icon: Icons.menu_book_outlined,
                   title: '한국어 해석',
+                  backgroundColor: const Color(0xFFF8FAFC),
                   child: _PassageTextBlock(
                     text: visibleTranslationText,
                     emptyMessage: '해석이 아직 준비되지 않았습니다.',
@@ -329,29 +346,30 @@ class _PassageSummaryPanel extends StatelessWidget {
     required this.topic,
     required this.title,
     required this.gist,
+    required this.summary,
   });
 
   final String topic;
   final String title;
   final String gist;
+  final String summary;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.92),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFC7D2FE)),
+        color: Colors.white.withValues(alpha: 0.78),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
         children: [
           _SummaryLine(label: '주제', value: topic),
-          const Divider(height: 22, color: Color(0xFFE2E8F0)),
+          const Divider(height: 18, color: Color(0xFFE2E8F0)),
           _SummaryLine(label: '제목', value: title),
-          const Divider(height: 22, color: Color(0xFFE2E8F0)),
-          _SummaryLine(label: '요지', value: gist),
+          const Divider(height: 18, color: Color(0xFFE2E8F0)),
+          _SummaryLine(label: '요지', value: gist, fallback: summary),
         ],
       ),
     );
@@ -359,10 +377,15 @@ class _PassageSummaryPanel extends StatelessWidget {
 }
 
 class _SummaryLine extends StatelessWidget {
-  const _SummaryLine({required this.label, required this.value});
+  const _SummaryLine({
+    required this.label,
+    required this.value,
+    this.fallback = '',
+  });
 
   final String label;
   final String value;
+  final String fallback;
 
   @override
   Widget build(BuildContext context) {
@@ -371,30 +394,32 @@ class _SummaryLine extends StatelessWidget {
       children: [
         Container(
           width: 48,
-          padding: const EdgeInsets.symmetric(vertical: 5),
+          padding: const EdgeInsets.symmetric(vertical: 4),
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: const Color(0xFFE0E7FF),
-            borderRadius: BorderRadius.circular(8),
+            color: const Color(0xFFEFF4FF),
+            borderRadius: BorderRadius.circular(7),
           ),
           child: Text(
             label,
             style: const TextStyle(
-              color: Color(0xFF4338CA),
-              fontSize: 12,
-              fontWeight: FontWeight.w900,
+              color: Color(0xFF64748B),
+              fontSize: 10.5,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0.2,
             ),
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: Text(
-            value.trim().isEmpty ? '분석 준비 중' : value.trim(),
+            _summaryDisplayText(label, value, fallback: fallback),
             style: const TextStyle(
-              color: Color(0xFF1E293B),
-              fontSize: 14,
-              height: 1.55,
-              fontWeight: FontWeight.w700,
+              color: Color(0xFF334155),
+              fontSize: 13,
+              height: 1.5,
+              fontWeight: FontWeight.w400,
+              letterSpacing: -0.1,
             ),
           ),
         ),
@@ -408,40 +433,41 @@ class _PassageLanguagePanel extends StatelessWidget {
     super.key,
     required this.icon,
     required this.title,
+    required this.backgroundColor,
     required this.child,
   });
 
   final IconData icon;
   final String title;
+  final Color backgroundColor;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(15),
+      padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.82),
+        color: backgroundColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFDCE4F2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(icon, size: 19, color: const Color(0xFF4F46E5)),
+              Icon(icon, size: 18, color: const Color(0xFF1E2E4F)),
               const SizedBox(width: 8),
               Text(
                 title,
                 style: const TextStyle(
                   color: Color(0xFF25324A),
-                  fontSize: 15,
-                  fontWeight: FontWeight.w900,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           child,
         ],
       ),
@@ -473,28 +499,56 @@ class _PassageTextBlock extends StatelessWidget {
       );
     }
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: isTranslation
-            ? const Color(0xFFFAFAFF)
-            : Colors.white.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
       child: BracketColoredText(
         text: trimmed,
         style: TextStyle(
           color:
-              isTranslation ? const Color(0xFF334155) : const Color(0xFF172033),
-          fontSize: isTranslation ? 14 : 16,
-          height: isTranslation ? 1.7 : 1.75,
-          fontWeight: isTranslation ? FontWeight.w600 : FontWeight.w500,
+              isTranslation ? const Color(0xFF8C8C8C) : const Color(0xFF262626),
+          fontSize: isTranslation ? 12.5 : 14,
+          height: isTranslation ? 1.6 : 1.5,
+          fontWeight: FontWeight.w400,
+          letterSpacing: -0.15,
         ),
       ),
     );
   }
+}
+
+String _summaryDisplayText(
+  String label,
+  String value, {
+  String fallback = '',
+}) {
+  final cleaned = _removeFlowFromSummaryValue(value);
+  if (cleaned.trim().isNotEmpty) return cleaned.trim();
+  final fallbackCleaned = _removeFlowFromSummaryValue(fallback);
+  return fallbackCleaned.trim().isEmpty ? '분석 준비 중' : fallbackCleaned.trim();
+}
+
+String _removeFlowFromSummaryValue(String value) {
+  final lines = value
+      .trim()
+      .split(RegExp(r'\r?\n'))
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList();
+  if (lines.isEmpty) return '';
+
+  final kept = <String>[];
+  for (final line in lines) {
+    if (_isFlowSummaryLine(line)) break;
+    kept.add(line);
+  }
+  return kept.join('\n').trim();
+}
+
+bool _isFlowSummaryLine(String value) {
+  final normalized = value.replaceAll(RegExp(r'\s+'), '').toLowerCase();
+  return normalized.contains('글의흐름') ||
+      RegExp(r'^(flow|서론|본론|결론)(\d|[:：]|$)').hasMatch(normalized) ||
+      RegExp(r'^\d+[\.)]?(글의흐름|flow)(\d|[:：]|$)').hasMatch(normalized);
 }
 
 String _translationText(List<FinalTouchSentenceDetail> details) {
@@ -535,6 +589,351 @@ String _previewText(String text, {required int maxCharacters}) {
   return '${trimmed.substring(0, maxCharacters).trimRight()}…';
 }
 
+List<String> _sentenceTranslationFallbacks(String translation, int count) {
+  final trimmed = translation.trim();
+  if (trimmed.isEmpty || count <= 0) return const [];
+
+  final numberedLines = trimmed
+      .split(RegExp(r'\r?\n'))
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .map((line) =>
+          line.replaceFirst(RegExp(r'^[\u2460-\u2473]\s*'), '').trim())
+      .map((line) => line.replaceFirst(RegExp(r'^\d+[\.)]\s*'), '').trim())
+      .where((line) => line.isNotEmpty)
+      .toList();
+
+  if (numberedLines.length >= count) {
+    return numberedLines.take(count).toList();
+  }
+
+  final compact = trimmed.replaceAll(RegExp(r'\s+'), ' ');
+  final sentenceParts = _splitKoreanSentences(compact);
+  if (sentenceParts.length >= count) {
+    return sentenceParts.take(count).toList();
+  }
+
+  if (numberedLines.isNotEmpty) return numberedLines;
+  if (sentenceParts.isNotEmpty) return sentenceParts;
+  if (count == 1) return [trimmed];
+  return const [];
+}
+
+List<String> _splitKoreanSentences(String text) {
+  final compact = text.trim();
+  if (compact.isEmpty) return const [];
+  final matches = RegExp(
+    r'.+?(?:[.!?\u3002\uff01\uff1f]|(?:\uB2E4|\uC694|\uC8E0|\uB2C8\uB2E4|\uAE4C\uC694|\uC138\uC694|\uD574\uC694|\uD569\uB2C8\uB2E4|\uB429\uB2C8\uB2E4|\uC788\uC2B5\uB2C8\uB2E4|\uC5C6\uC2B5\uB2C8\uB2E4)(?=\s|$))',
+  ).allMatches(compact);
+  final parts = matches
+      .map((match) => match.group(0)?.trim() ?? '')
+      .where((part) => part.isNotEmpty)
+      .toList();
+  final consumed = parts.join(' ').length;
+  if (parts.isNotEmpty && consumed >= compact.length * 0.6) return parts;
+  return RegExp(r'[^.!?\u3002\uff01\uff1f]+[.!?\u3002\uff01\uff1f]?')
+      .allMatches(compact)
+      .map((match) => match.group(0)?.trim() ?? '')
+      .where((part) => part.isNotEmpty)
+      .toList();
+}
+
+String _firstNonEmpty(Iterable<String> values) {
+  for (final value in values) {
+    final trimmed = value.trim();
+    if (trimmed.isNotEmpty) return trimmed;
+  }
+  return '';
+}
+
+bool _looksLikeWholePassageTranslation(String translation, String original) {
+  final trimmed = translation.trim();
+  if (trimmed.isEmpty) return false;
+  final split = _sentenceTranslationFallbacks(trimmed, 999);
+  if (split.length < 2) return false;
+  final originalWords =
+      RegExp(r"[A-Za-z]+(?:'[A-Za-z]+)?").allMatches(original).length;
+  return trimmed.length > 140 || split.length > originalWords.clamp(1, 4);
+}
+
+class _ReadableSentenceAnalysisCard extends StatelessWidget {
+  const _ReadableSentenceAnalysisCard({
+    required this.detail,
+    required this.fallbackTranslation,
+    required this.highlightType,
+  });
+
+  final FinalTouchSentenceDetail detail;
+  final String fallbackTranslation;
+  final String highlightType;
+
+  @override
+  Widget build(BuildContext context) {
+    final bracketed =
+        detail.bracketed.trim().isEmpty ? detail.original : detail.bracketed;
+    final directTranslation = _firstNonEmpty([
+      detail.translationBracketed,
+      detail.translation,
+    ]);
+    final translationText =
+        _looksLikeWholePassageTranslation(directTranslation, detail.original)
+            ? fallbackTranslation
+            : _firstNonEmpty([directTranslation, fallbackTranslation]);
+    final roleStyle = _RoleHighlightStyle.fromType(highlightType);
+    final roleLabel = detail.sentenceRole.trim().isEmpty
+        ? '\uBB38\uC7A5 \uC5ED\uD560'
+        : detail.sentenceRole.trim();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x060F172A),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _SentenceNumberBadge(number: detail.sentenceNo),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Wrap(
+                  spacing: 7,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _RoleChip(label: roleLabel),
+                    if (roleStyle.label != null)
+                      _RoleHighlightChip(
+                        label: roleStyle.label!,
+                        color: roleStyle.accent,
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _AnalysisInfoBox(
+            label: '\uC601\uC5B4 \uC6D0\uBB38',
+            icon: Icons.subject_rounded,
+            accentColor: const Color(0xFF1E2E4F),
+            backgroundColor: const Color(0xFFFBFCFF),
+            dense: true,
+            child: FinalTouchStructuredText(
+              original: detail.original,
+              bracketed: bracketed,
+              spans: detail.spans,
+              style: const TextStyle(
+                color: Color(0xFF1E293B),
+                fontSize: 14,
+                height: 1.5,
+                fontWeight: FontWeight.w400,
+                letterSpacing: -0.15,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          _AnalysisInfoBox(
+            label: '\uD574\uC11D',
+            icon: Icons.translate_rounded,
+            accentColor: const Color(0xFF64748B),
+            backgroundColor: const Color(0xFFF8FAFC),
+            dense: true,
+            child: BracketColoredText(
+              text: translationText.trim().isEmpty
+                  ? '\uD574\uC11D \uC900\uBE44 \uC911'
+                  : translationText,
+              style: const TextStyle(
+                color: Color(0xFF475569),
+                fontSize: 12.5,
+                height: 1.6,
+                fontWeight: FontWeight.w400,
+                letterSpacing: -0.1,
+              ),
+            ),
+          ),
+          if (detail.grammarPoints.isNotEmpty) ...[
+            const SizedBox(height: 7),
+            _GrammarPointsSection(points: detail.grammarPoints),
+          ],
+          if (detail.questionPoint.trim().isNotEmpty) ...[
+            const SizedBox(height: 7),
+            _AnalysisInfoBox(
+              label: '\uBB38\uC81C\uD654 \uD3EC\uC778\uD2B8',
+              icon: Icons.lightbulb_outline_rounded,
+              accentColor: const Color(0xFF1E2E4F),
+              backgroundColor: const Color(0xFFF8FAFC),
+              dense: true,
+              child: Text(
+                detail.questionPoint,
+                style: const TextStyle(
+                  color: Color(0xFF666666),
+                  fontSize: 12.5,
+                  height: 1.45,
+                  fontWeight: FontWeight.w400,
+                  letterSpacing: -0.1,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SentenceNumberBadge extends StatelessWidget {
+  const _SentenceNumberBadge({required this.number});
+
+  final int number;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 20,
+      height: 20,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E2E4F),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        '$number',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 11,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _AnalysisInfoBox extends StatelessWidget {
+  const _AnalysisInfoBox({
+    required this.label,
+    required this.icon,
+    required this.accentColor,
+    required this.backgroundColor,
+    required this.child,
+    this.dense = false,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color accentColor;
+  final Color backgroundColor;
+  final Widget child;
+  final bool dense;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: dense ? 8 : 10,
+        vertical: dense ? 8 : 10,
+      ),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              width: 3,
+              decoration: BoxDecoration(
+                color: accentColor.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(icon, size: 13, color: const Color(0xFFA0A0A0)),
+                      const SizedBox(width: 6),
+                      Text(
+                        label,
+                        style: const TextStyle(
+                          color: Color(0xFFA0A0A0),
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w400,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: dense ? 5 : 8),
+                  child,
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SideAccentBlock extends StatelessWidget {
+  const _SideAccentBlock({
+    required this.accentColor,
+    required this.backgroundColor,
+    required this.child,
+  });
+
+  final Color accentColor;
+  final Color backgroundColor;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              width: 3,
+              decoration: BoxDecoration(
+                color: accentColor.withValues(alpha: 0.48),
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            const SizedBox(width: 9),
+            Expanded(child: child),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ignore: unused_element
 class _SentenceAnalysisCard extends StatelessWidget {
   const _SentenceAnalysisCard({
     required this.detail,
@@ -606,7 +1005,7 @@ class _SentenceAnalysisCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          const _SmallLabel('영문 분석'),
+          const _SmallLabel('\uBB38\uBC95 \uD3EC\uC778\uD2B8'),
           const SizedBox(height: 5),
           FinalTouchStructuredText(
             original: detail.original,
@@ -676,22 +1075,17 @@ class _GrammarPointsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(11),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF7F7),
-        borderRadius: BorderRadius.circular(7),
-        border: Border.all(color: const Color(0xFFFECACA)),
-      ),
+    return _SideAccentBlock(
+      accentColor: const Color(0xFFE08A3B),
+      backgroundColor: const Color(0xFFFAFAFA),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const _SmallLabel('문법 포인트'),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           for (final point in points) ...[
             _GrammarPointItem(point: point),
-            if (point != points.last) const SizedBox(height: 8),
+            if (point != points.last) const SizedBox(height: 7),
           ],
         ],
       ),
@@ -715,28 +1109,30 @@ class _GrammarPointItem extends StatelessWidget {
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
               decoration: BoxDecoration(
-                color: const Color(0xFFFEE2E2),
+                color: const Color(0xFFFFF7ED),
                 borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: const Color(0xFFFCA5A5)),
+                border: Border.all(color: const Color(0xFFFED7AA)),
               ),
               child: Text(
                 point.label,
                 style: const TextStyle(
-                  color: Color(0xFFB91C1C),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF9A3412),
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w400,
+                  letterSpacing: 0.1,
                 ),
               ),
             ),
             Text(
               point.target,
               style: const TextStyle(
-                color: Color(0xFF172033),
-                fontSize: 13,
+                color: Color(0xFF262626),
+                fontSize: 12.5,
                 height: 1.45,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w400,
+                letterSpacing: -0.1,
               ),
             ),
           ],
@@ -745,9 +1141,11 @@ class _GrammarPointItem extends StatelessWidget {
         Text(
           point.explanation,
           style: const TextStyle(
-            color: Color(0xFF334155),
-            fontSize: 13,
-            height: 1.5,
+            color: Color(0xFF8C8C8C),
+            fontSize: 12.5,
+            height: 1.45,
+            fontWeight: FontWeight.w400,
+            letterSpacing: -0.1,
           ),
         ),
       ],
@@ -763,18 +1161,18 @@ class _RoleChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
-        color: const Color(0xFFEFF6FF),
+        color: const Color(0xFFF0F0F0),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0xFFBFDBFE)),
       ),
       child: Text(
         label,
         style: const TextStyle(
-          color: Color(0xFF1D4ED8),
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
+          color: Color(0xFF666666),
+          fontSize: 10.5,
+          fontWeight: FontWeight.w400,
+          letterSpacing: 0.1,
         ),
       ),
     );
@@ -793,18 +1191,19 @@ class _RoleHighlightChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.28)),
+        border: Border.all(color: color.withValues(alpha: 0.22)),
       ),
       child: Text(
         label,
         style: TextStyle(
           color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w400,
+          letterSpacing: 0.1,
         ),
       ),
     );
@@ -875,8 +1274,8 @@ class _SmallLabel extends StatelessWidget {
     return Text(
       text,
       style: const TextStyle(
-        color: Color(0xFF2563EB),
-        fontSize: 12,
+        color: Color(0xFF64748B),
+        fontSize: 11,
         fontWeight: FontWeight.w800,
       ),
     );

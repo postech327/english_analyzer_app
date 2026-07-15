@@ -8,6 +8,7 @@ import '../config/auth_store.dart';
 import '../models/final_touch.dart';
 import '../models/final_touch_report.dart';
 import '../screens/teacher/teacher_problem_set_preview_screen.dart';
+import 'teacher_final_touch_import_screen.dart';
 import '../utils/final_touch_pdf_generator.dart';
 import '../widgets/final_touch_core_analysis.dart';
 import '../widgets/final_touch_sentence_analysis.dart';
@@ -49,6 +50,95 @@ class _TextAnalysisHubScreenState extends State<TextAnalysisHubScreen> {
     _koreanTranslationController.dispose();
     _teacherTopicController.dispose();
     super.dispose();
+  }
+
+  Future<void> _openHwpxImport() async {
+    final textbookFolder = _textbookFolderController.text.trim();
+    final unitFolder = _unitFolderController.text.trim();
+    final destinationLabel = unitFolder.isNotEmpty
+        ? unitFolder
+        : textbookFolder.isNotEmpty
+            ? textbookFolder
+            : null;
+
+    final savedCount = await Navigator.push<int>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TeacherFinalTouchImportScreen(
+          folderName: destinationLabel,
+          textbookFolderName: textbookFolder.isEmpty ? null : textbookFolder,
+          unitFolderName: unitFolder.isEmpty ? null : unitFolder,
+        ),
+      ),
+    );
+
+    if (!mounted || savedCount == null || savedCount <= 0) return;
+    final label = destinationLabel?.trim().isNotEmpty == true
+        ? destinationLabel!.trim()
+        : '미분류';
+    _showSnackBar('$label에 Final Touch $savedCount개를 저장했습니다.');
+  }
+
+  Widget _buildAnalysisInputHeader() {
+    final importButton = OutlinedButton.icon(
+      onPressed: _loading ? null : _openHwpxImport,
+      icon: const Icon(Icons.upload_file_rounded, size: 20),
+      label: const Text('HWPX 가져오기'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: _brandBlue,
+        side: const BorderSide(color: Color(0xFFBFDBFE)),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        textStyle: const TextStyle(fontWeight: FontWeight.w800),
+      ),
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stacked = constraints.maxWidth < 560;
+        const title = _SectionTitle(
+          title: '분석 입력',
+          subtitle: '학원 자료 관리에 필요한 출처를 함께 남겨두세요.',
+        );
+        final helper = Text(
+          'HWPX 파일을 불러와 Final Touch 자료를 자동 생성합니다.',
+          style: TextStyle(
+            color: Colors.blueGrey.shade600,
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+          ),
+        );
+
+        if (stacked) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              title,
+              const SizedBox(height: 10),
+              SizedBox(width: double.infinity, child: importButton),
+              const SizedBox(height: 8),
+              helper,
+            ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Expanded(child: title),
+            const SizedBox(width: 16),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                importButton,
+                const SizedBox(height: 8),
+                SizedBox(width: 280, child: helper),
+              ],
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> analyze() async {
@@ -512,10 +602,7 @@ class _TextAnalysisHubScreenState extends State<TextAnalysisHubScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const _SectionTitle(
-                          title: '분석 입력',
-                          subtitle: '학원 자료 관리에 필요한 출처를 함께 남겨두세요.',
-                        ),
+                        _buildAnalysisInputHeader(),
                         const SizedBox(height: 16),
                         TextField(
                           controller: _sourceController,
@@ -1001,11 +1088,20 @@ class _ResultCard extends StatelessWidget {
               titleKo: result['title_ko']?.toString() ?? '',
               gistEn: result['gist_en']?.toString() ?? '',
               gistKo: result['gist_ko']?.toString() ?? '',
+              topicFallback:
+                  _preferredResultText(result['topic_en'], result['topic_ko']),
+              titleFallback:
+                  _preferredResultText(result['title_en'], result['title_ko']),
+              gistFallback:
+                  _preferredResultText(result['gist_en'], result['gist_ko']),
               summaryEn: result['summary_en']?.toString() ?? '',
               summaryKo: result['summary_ko']?.toString() ?? '',
             ),
             const SizedBox(height: 8),
-            FinalTouchSentenceAnalysis(details: sentenceDetails),
+            FinalTouchSentenceAnalysis(
+              details: sentenceDetails,
+              translation: result['translation_bracketed']?.toString() ?? '',
+            ),
             if (sentenceDetails.isNotEmpty) const SizedBox(height: 12),
             FinalTouchFullBracketedPassage(
               body:
@@ -1020,6 +1116,8 @@ class _ResultCard extends StatelessWidget {
               title:
                   _preferredResultText(result['title_en'], result['title_ko']),
               gist: _preferredResultText(result['gist_en'], result['gist_ko']),
+              summary: _preferredResultText(
+                  result['summary_en'], result['summary_ko']),
               translation: result['translation_bracketed']?.toString() ?? '',
             ),
             const SizedBox(height: 12),
@@ -1042,7 +1140,7 @@ class _ResultCard extends StatelessWidget {
                   savingFinalTouch
                       ? 'Final Touch 저장 중...'
                       : isSaved
-                          ? 'Final Touch에 저장됨'
+                          ? 'Final Touch에 자동 저장됨'
                           : 'Final Touch로 저장',
                 ),
                 style: FilledButton.styleFrom(

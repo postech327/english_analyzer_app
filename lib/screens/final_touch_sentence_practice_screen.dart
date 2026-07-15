@@ -1012,22 +1012,52 @@ List<_PracticeItem> _buildItems(FinalTouchDetail detail) {
       kind: 'title',
       label: '제목 조립',
       instruction: '다음 제목을 완성하세요.',
-      english: detail.titleEn,
-      korean: detail.titleKo,
+      english: _firstPracticeText([
+        detail.titleEn,
+        _englishFromMixed(detail.titleKo),
+        detail.source,
+      ]),
+      korean: _firstPracticeText([
+        detail.titleKo,
+        detail.topicKo,
+        detail.gistKo,
+      ]),
     ),
     (
       kind: 'topic',
       label: '주제 조립',
       instruction: '다음 주제문을 완성하세요.',
-      english: detail.topicEn,
-      korean: detail.topicKo,
+      english: _firstPracticeText([
+        detail.topicEn,
+        _englishFromMixed(detail.topicKo),
+        detail.gistEn,
+        detail.summaryEn,
+        detail.titleEn,
+        _firstEnglishSentence(detail),
+      ]),
+      korean: _firstPracticeText([
+        detail.topicKo,
+        detail.gistKo,
+        detail.summaryKo,
+        detail.titleKo,
+      ]),
     ),
     (
       kind: 'gist',
       label: '요지 조립',
       instruction: '다음 요지문을 완성하세요.',
-      english: detail.gistEn,
-      korean: detail.gistKo,
+      english: _firstPracticeText([
+        detail.gistEn,
+        _englishFromMixed(detail.gistKo),
+        detail.summaryEn,
+        detail.topicEn,
+        _firstEnglishSentence(detail),
+      ]),
+      korean: _firstPracticeText([
+        detail.gistKo,
+        detail.summaryKo,
+        detail.topicKo,
+      ]),
     ),
   ];
 
@@ -1050,6 +1080,53 @@ List<_PracticeItem> _buildItems(FinalTouchDetail detail) {
     );
   }
   return items;
+}
+
+String _firstPracticeText(Iterable<String> values) {
+  for (final value in values) {
+    final trimmed = value.trim();
+    if (trimmed.isNotEmpty) return trimmed;
+  }
+  return '';
+}
+
+String _englishFromMixed(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) return '';
+  final lines = trimmed
+      .split(RegExp(r'\r?\n'))
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty);
+  for (final line in lines) {
+    final candidate = line.contains(RegExp(r'[\uAC00-\uD7A3]'))
+        ? line.substring(
+            0, RegExp(r'[\uAC00-\uD7A3]').firstMatch(line)?.start ?? 0)
+        : line;
+    final cleaned = candidate
+        .replaceAll(
+            RegExp(r'^(EN|영어|주제|제목|요지)\s*[:：]\s*', caseSensitive: false), '')
+        .trim();
+    if (RegExp(r'[A-Za-z]').hasMatch(cleaned) &&
+        !RegExp(r'[\uAC00-\uD7A3]').hasMatch(cleaned)) {
+      return cleaned;
+    }
+  }
+  return '';
+}
+
+String _firstEnglishSentence(FinalTouchDetail detail) {
+  for (final sentence in detail.sentenceDetails) {
+    final text = sentence.original.trim();
+    if (RegExp(r'[A-Za-z]').hasMatch(text)) return text;
+  }
+  final passage = detail.passage.trim();
+  if (passage.isEmpty) return '';
+  final firstLine =
+      passage.split(RegExp(r'\r?\n')).map((line) => line.trim()).firstWhere(
+            (line) => RegExp(r'[A-Za-z]').hasMatch(line),
+            orElse: () => '',
+          );
+  return firstLine;
 }
 
 bool _isValidPracticeText(String value, {required String kind}) {
