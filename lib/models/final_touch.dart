@@ -159,8 +159,22 @@ class FinalTouchSentenceDetail {
     return FinalTouchSentenceDetail(
       sentenceNo: _asInt(json['sentence_no']),
       original: _asString(json['original']),
-      translation: _asString(json['translation']),
-      translationBracketed: _asString(json['translation_bracketed']),
+      translation: _asString(
+        json['translation'] ??
+            json['translation_ko'] ??
+            json['translationKo'] ??
+            json['korean_translation'] ??
+            json['koreanTranslation'] ??
+            json['meaning_ko'],
+      ),
+      translationBracketed: _asString(
+        json['translation_bracketed'] ??
+            json['translationBracketed'] ??
+            json['translation'] ??
+            json['translation_ko'] ??
+            json['translationKo'] ??
+            json['korean_translation'],
+      ),
       bracketed: _asString(json['bracketed']),
       spans: FinalTouchStructureSpan.listFromJson(json['spans']),
       sentenceRole: _asString(json['sentence_role']),
