@@ -1715,12 +1715,12 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                             optionText,
                             style: TextStyle(
                               color:
-                                  isSelected ? _ink : const Color(0xFF1F2937),
-                              fontSize: 15,
-                              height: 1.42,
+                                  isSelected ? _ink : const Color(0xFF111827),
+                              fontSize: 16,
+                              height: 1.46,
                               fontWeight: isSelected
                                   ? FontWeight.w700
-                                  : FontWeight.w500,
+                                  : FontWeight.w600,
                             ),
                           ),
                         ),
