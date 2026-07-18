@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 
 import '../models/student_models.dart';
 import '../services/teacher_problem_set_service.dart';
-import 'teacher_problem_set_report_screen.dart';
+import '../widgets/problem_set_assignment_dialog.dart';
+import 'teacher/teacher_problem_set_preview_screen.dart';
 
 class TeacherProblemSetsScreen extends StatefulWidget {
   const TeacherProblemSetsScreen({super.key});
@@ -15,7 +16,6 @@ class TeacherProblemSetsScreen extends StatefulWidget {
 
 class _TeacherProblemSetsScreenState extends State<TeacherProblemSetsScreen> {
   static const _ink = Color(0xFF172033);
-  static const _line = Color(0xFFE2E8F0);
   static const _surface = Color(0xFFF4F7FB);
 
   bool _loading = false;
@@ -88,6 +88,29 @@ class _TeacherProblemSetsScreenState extends State<TeacherProblemSetsScreen> {
       setState(() => _bookFolder = null);
       _loadCurrent();
     }
+  }
+
+  Future<void> _showAssignmentDialog(StudentExamSummary item) async {
+    final result = await showDialog<ProblemSetAssignmentResult>(
+      context: context,
+      builder: (_) => ProblemSetAssignmentDialog(
+        problemSetId: item.problemSetId,
+        title: item.name,
+      ),
+    );
+    if (!mounted || result == null) return;
+    final message = result.failed.isEmpty
+        ? '${result.successCount}명에게 문제세트를 배포했습니다.'
+        : '${result.successCount}명 배포 완료 · ${result.failed.length}명 실패/중복';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        action: SnackBarAction(
+          label: '새로고침',
+          onPressed: _loadCurrent,
+        ),
+      ),
+    );
   }
 
   @override
@@ -219,23 +242,25 @@ class _TeacherProblemSetsScreenState extends State<TeacherProblemSetsScreen> {
 
     return Column(
       children: [
-        const _TableHeader(),
-        const Divider(height: 1, color: _line),
         ..._items.map((item) {
-          return _ProblemSetRowTile(
-            title: item.name,
-            folderLabel: item.folderName,
-            count: item.questionCount,
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => TeacherProblemSetReportScreen(
-                    problemSetId: item.problemSetId,
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _ProblemSetRowTile(
+              title: item.name,
+              folderLabel: item.folderName,
+              count: item.questionCount,
+              onAssign: () => _showAssignmentDialog(item),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => TeacherProblemSetPreviewScreen(
+                      problemSetId: item.problemSetId,
+                    ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           );
         }),
       ],
@@ -355,118 +380,137 @@ class _ProblemSetRowTile extends StatelessWidget {
     required this.title,
     required this.folderLabel,
     required this.count,
+    required this.onAssign,
     required this.onTap,
   });
 
   final String title;
   final String folderLabel;
   final int count;
+  final VoidCallback onAssign;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
+      borderRadius: BorderRadius.circular(16),
       onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        child: Row(
-          children: [
-            Expanded(
-              flex: 4,
-              child: Row(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEFF6FF),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(
-                      Icons.quiz_outlined,
-                      size: 18,
-                      color: _TeacherColors.blue,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: _TeacherColors.ink,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              flex: 2,
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: _Badge(label: folderLabel),
-              ),
-            ),
-            SizedBox(
-              width: 88,
-              child: Text(
-                '$count문항',
-                textAlign: TextAlign.right,
-                style: const TextStyle(
-                  color: _TeacherColors.muted,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Icon(
-              Icons.chevron_right,
-              color: _TeacherColors.muted,
-            ),
-          ],
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _TeacherColors.line),
         ),
-      ),
-    );
-  }
-}
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 680;
+            final info = Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.quiz_outlined,
+                    size: 22,
+                    color: _TeacherColors.blue,
+                  ),
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: _TeacherColors.ink,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 9),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _Badge(label: folderLabel),
+                          _Badge(label: '$count문항'),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
 
-class _TableHeader extends StatelessWidget {
-  const _TableHeader();
+            final actions = Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: compact ? WrapAlignment.start : WrapAlignment.end,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: onAssign,
+                  icon: const Icon(Icons.group_add_outlined, size: 18),
+                  label: const Text('학생에게 배포'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _TeacherColors.blue,
+                    side: const BorderSide(color: Color(0xFFBFDBFE)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 11,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: onTap,
+                  icon: const Icon(Icons.visibility_outlined, size: 18),
+                  label: const Text('미리보기'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 11,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ],
+            );
 
-  @override
-  Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        children: [
-          Expanded(flex: 4, child: _HeaderText('문제세트명')),
-          Expanded(flex: 2, child: _HeaderText('폴더')),
-          SizedBox(width: 88, child: _HeaderText('문항 수', alignRight: true)),
-          SizedBox(width: 32),
-        ],
-      ),
-    );
-  }
-}
+            if (compact) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  info,
+                  const SizedBox(height: 14),
+                  actions,
+                ],
+              );
+            }
 
-class _HeaderText extends StatelessWidget {
-  const _HeaderText(this.text, {this.alignRight = false});
-
-  final String text;
-  final bool alignRight;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text,
-      textAlign: alignRight ? TextAlign.right : TextAlign.left,
-      style: const TextStyle(
-        color: _TeacherColors.muted,
-        fontSize: 12,
-        fontWeight: FontWeight.w800,
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(child: info),
+                const SizedBox(width: 16),
+                actions,
+              ],
+            );
+          },
+        ),
       ),
     );
   }

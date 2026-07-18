@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/teacher_api.dart';
+import 'teacher_question_hwpx_import_screen.dart';
 import 'teacher_problem_sets_screen.dart';
 
 enum QuestionTypeKey {
@@ -145,6 +146,28 @@ class _TeacherQuestionMakerScreenState
           style: TextStyle(fontWeight: FontWeight.w800),
         ),
         actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: OutlinedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const TeacherQuestionHwpxImportScreen(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.upload_file_rounded, size: 18),
+              label: const Text('HWPX 문제 가져오기'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _brandBlue,
+                side: const BorderSide(color: Color(0xFFBFDBFE)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: OutlinedButton.icon(
