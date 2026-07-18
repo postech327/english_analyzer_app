@@ -9,6 +9,8 @@ class QuestionImportDraft {
     required this.answerIndex,
     required this.answerRaw,
     required this.explanation,
+    this.specialData,
+    this.answerText,
     required this.warnings,
     required this.isSpecialUnsupported,
   });
@@ -22,6 +24,8 @@ class QuestionImportDraft {
   final int? answerIndex;
   final String answerRaw;
   final String explanation;
+  final Map<String, dynamic>? specialData;
+  final String? answerText;
   final List<String> warnings;
   final bool isSpecialUnsupported;
 
@@ -29,10 +33,11 @@ class QuestionImportDraft {
       !isSpecialUnsupported &&
       questionType.trim().isNotEmpty &&
       questionText.trim().isNotEmpty &&
-      choices.length >= 2 &&
-      answerIndex != null &&
-      answerIndex! >= 0 &&
-      answerIndex! < choices.length;
+      ((specialData != null && specialData!.isNotEmpty) ||
+          (choices.length >= 2 &&
+              answerIndex != null &&
+              answerIndex! >= 0 &&
+              answerIndex! < choices.length));
 
   QuestionImportDraft copyWith({
     String? source,
@@ -44,6 +49,10 @@ class QuestionImportDraft {
     bool clearAnswerIndex = false,
     String? answerRaw,
     String? explanation,
+    Map<String, dynamic>? specialData,
+    bool clearSpecialData = false,
+    String? answerText,
+    bool clearAnswerText = false,
     List<String>? warnings,
     bool? isSpecialUnsupported,
   }) {
@@ -57,6 +66,8 @@ class QuestionImportDraft {
       answerIndex: clearAnswerIndex ? null : (answerIndex ?? this.answerIndex),
       answerRaw: answerRaw ?? this.answerRaw,
       explanation: explanation ?? this.explanation,
+      specialData: clearSpecialData ? null : (specialData ?? this.specialData),
+      answerText: clearAnswerText ? null : (answerText ?? this.answerText),
       warnings: warnings ?? this.warnings,
       isSpecialUnsupported: isSpecialUnsupported ?? this.isSpecialUnsupported,
     );
@@ -71,5 +82,9 @@ class QuestionImportDraft {
         'answer_index': answerIndex,
         'answer_raw': answerRaw,
         'explanation': explanation,
+        if (specialData != null && specialData!.isNotEmpty)
+          'special_data': specialData,
+        if (answerText != null && answerText!.trim().isNotEmpty)
+          'answer_text': answerText,
       };
 }
