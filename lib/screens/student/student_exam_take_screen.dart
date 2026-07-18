@@ -36,6 +36,102 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   /// 문제별 선택값 저장 question_id 기준
   Map<int, int> selectedAnswers = {};
 
+  int _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is double) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  String _questionPassage(
+    Map<String, dynamic> question, {
+    required String fallbackPassage,
+  }) {
+    final candidates = <String>[
+      question['passage']?.toString() ?? '',
+      question['passage_content']?.toString() ?? '',
+      question['passage_text']?.toString() ?? '',
+      question['blanked_passage']?.toString() ?? '',
+      fallbackPassage,
+    ];
+
+    for (var i = 0; i < candidates.length; i++) {
+      final raw = candidates[i].trim();
+      if (raw.isEmpty || raw == 'null') continue;
+
+      final cleaned = _cleanStudentPassage(raw);
+      if (cleaned.isEmpty) continue;
+
+      debugPrint(
+        '[StudentPassagePick] q=${question['question_id'] ?? question['id']} '
+        'sourceIndex=$i rawLength=${raw.length} cleanedLength=${cleaned.length}',
+      );
+      return cleaned;
+    }
+
+    return '';
+  }
+
+  String _cleanStudentPassage(String raw) {
+    final lines = raw
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n')
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .where((line) => !_shouldDropKoreanExplanationLine(line))
+        .toList();
+
+    return lines.join('\n').replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
+  }
+
+  bool _shouldDropKoreanExplanationLine(String rawLine) {
+    final line = rawLine.trim();
+    if (line.isEmpty) return true;
+
+    final lower = line.toLowerCase();
+    if (RegExp(
+            r'^\s*(?:\[?\uC815\uB2F5\]?|\[?\uD574\uC124\]?|\[?\uD574\uC11D\]?|answer|explanation)[:?\s]')
+        .hasMatch(lower)) {
+      return true;
+    }
+    if (lower.contains('\uC815\uB2F5:') ||
+        lower.contains('\uD574\uC124:') ||
+        lower.contains('\uD574\uC11D:') ||
+        lower.contains('[\uC815\uB2F5]') ||
+        lower.contains('[\uD574\uC124]') ||
+        lower.contains('[\uD574\uC11D]') ||
+        lower.contains('answer:') ||
+        lower.contains('explanation:')) {
+      return true;
+    }
+
+    final hasHangul = RegExp(r'[\uAC00-\uD7A3]').hasMatch(line);
+    if (!hasHangul) return false;
+
+    final hasEnglish = RegExp(r'[A-Za-z]').hasMatch(line);
+    final startsAsChoice = RegExp(
+            r'^\s*(?:[\u2460\u2461\u2462\u2463\u2464\u2465\u2466\u2467\u2468\u2469]|[1-5][\.)]|[A-E][\.)])\s*')
+        .hasMatch(line);
+    final hangulRatio = _charRatio(line, RegExp(r'[\uAC00-\uD7A3]'));
+    final englishRatio = _charRatio(line, RegExp(r'[A-Za-z]'));
+
+    if (startsAsChoice && hangulRatio > 0.15) return true;
+    if (!hasEnglish && hangulRatio > 0.25 && line.length >= 6) return true;
+    if (hangulRatio > 0.32 && englishRatio < 0.18) return true;
+
+    return false;
+  }
+
+  double _charRatio(String text, RegExp pattern) {
+    if (text.isEmpty) return 0;
+    final matches = pattern.allMatches(text).length;
+    return matches / text.length;
+  }
+
+  bool _hasMostlyEnglish(String text) {
+    return _charRatio(text, RegExp(r'[A-Za-z]')) > 0.35;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -111,7 +207,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
 
       for (int i = 0; i < questions.length; i++) {
         final q = questions[i];
-        final qId = q['question_id'];
+        final qId = _asInt(q['question_id'] ?? q['id']);
 
         if (!selectedAnswers.containsKey(qId)) {
           unanswered.add(i + 1);
@@ -747,22 +843,214 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   String _buildQuestionText(Map<String, dynamic> question) {
     final questionType =
         (question['question_type'] ?? '').toString().toLowerCase();
+    final rawPrompt =
+        (question['question_text'] ?? question['text'] ?? '').toString().trim();
 
-    final questionText = (question['question_text'] ?? '').toString();
+    final extracted = _extractStudentQuestionPrompt(rawPrompt);
+    final fallback = _fallbackPromptForType(questionType);
+    final finalPrompt = extracted.isNotEmpty ? extracted : fallback;
 
-    if (questionType == 'cloze' || questionType == 'blank') {
-      return '다음 빈칸에 들어갈 말로 가장 적절한 것은?';
+    debugPrint(
+      '[StudentDisplayCleanup] q=${question['question_id'] ?? question['id']} '
+      'type=$questionType rawPrompt="${_shortLog(rawPrompt)}" '
+      'finalPrompt="${_shortLog(finalPrompt)}"',
+    );
+
+    return finalPrompt;
+  }
+
+  String _extractStudentQuestionPrompt(String rawPrompt) {
+    final text = rawPrompt
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n')
+        .replaceAll(RegExp(r'\n{2,}'), '\n')
+        .trim();
+    if (text.isEmpty) return '';
+
+    final patterns = <RegExp>[
+      RegExp(
+          r'\uB2E4\uC74C\s*\uAE00\uC758\s*\uBE48\uCE78[^??\n]*\uAC00\uC7A5\s*\uC801\uC808\uD55C\s*\uAC83\uC740\s*[??]'),
+      RegExp(
+          r'\uB2E4\uC74C\s*\uBE48\uCE78[^??\n]*\uAC00\uC7A5\s*\uC801\uC808\uD55C\s*\uAC83\uC740\s*[??]'),
+      RegExp(
+          r'\uB2E4\uC74C\s*\uAE00\uC758\s*\uC8FC\uC81C\uB85C\s*\uAC00\uC7A5\s*\uC801\uC808\uD55C\s*\uAC83\uC740\s*[??]'),
+      RegExp(
+          r'\uB2E4\uC74C\s*\uAE00\uC758\s*\uC81C\uBAA9\uC73C\uB85C\s*\uAC00\uC7A5\s*\uC801\uC808\uD55C\s*\uAC83\uC740\s*[??]'),
+      RegExp(
+          r'\uB2E4\uC74C\s*\uAE00\uC758\s*\uC694\uC9C0\uB85C\s*\uAC00\uC7A5\s*\uC801\uC808\uD55C\s*\uAC83\uC740\s*[??]'),
+      RegExp(
+          r'\uBC11\uC904\s*\uCE5C[\s\S]{0,120}?\uC758\uBBF8\uD558\uB294\s*\uBC14\uB85C\s*\uAC00\uC7A5\s*\uC801\uC808\uD55C\s*\uAC83\uC740\s*[??]'),
+      RegExp(
+          r'\uB2E4\uC74C\s*\uAE00\uC758\s*\uB0B4\uC6A9\uACFC\s*\uC77C\uCE58\uD558\uC9C0\s*\uC54A\uB294\s*\uAC83\uC740\s*[??]'),
+      RegExp(
+          r'\uB2E4\uC74C\s*\uAE00\uC758\s*\uB0B4\uC6A9\uACFC\s*\uC77C\uCE58\uD558\uB294\s*\uAC83\uC740\s*[??]'),
+      RegExp(
+          r'\uB2E4\uC74C\s*\uAE00\uC758\s*\uBAA9\uC801\uC73C\uB85C\s*\uAC00\uC7A5\s*\uC801\uC808\uD55C\s*\uAC83\uC740\s*[??]'),
+    ];
+
+    for (final pattern in patterns) {
+      final matches = pattern.allMatches(text).toList();
+      if (matches.isNotEmpty) {
+        return matches.last.group(0)!.replaceAll(RegExp(r'\s+'), ' ').trim();
+      }
     }
 
-    if (questionType == 'order') {
-      return '주어진 글 다음에 이어질 글의 순서로 가장 적절한 것은?';
+    final lines = text
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .where((line) => !_shouldDropKoreanExplanationLine(line))
+        .toList();
+
+    if (lines.isEmpty) return '';
+    final cleaned = lines.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (_looksLikeQuestionPrompt(cleaned)) return cleaned;
+    return '';
+  }
+
+  bool _looksLikeQuestionPrompt(String text) {
+    if (text.isEmpty) return false;
+    if (_hasMostlyEnglish(text)) return false;
+    return text.contains('\uAC00\uC7A5 \uC801\uC808\uD55C \uAC83\uC740') ||
+        text.contains('\uC77C\uCE58\uD558\uB294 \uAC83\uC740') ||
+        text.contains('\uC77C\uCE58\uD558\uC9C0 \uC54A\uB294 \uAC83\uC740') ||
+        text.contains('\uB4E4\uC5B4\uAC08 \uB9D0') ||
+        text.contains('\uC758\uBBF8\uD558\uB294 \uBC14\uB85C');
+  }
+
+  String _fallbackPromptForType(String questionType) {
+    switch (questionType) {
+      case 'blank':
+      case 'cloze':
+        return '\uB2E4\uC74C \uAE00\uC758 \uBE48\uCE78\uC5D0 \uB4E4\uC5B4\uAC08 \uB9D0\uB85C \uAC00\uC7A5 \uC801\uC808\uD55C \uAC83\uC740?';
+      case 'topic':
+        return '\uB2E4\uC74C \uAE00\uC758 \uC8FC\uC81C\uB85C \uAC00\uC7A5 \uC801\uC808\uD55C \uAC83\uC740?';
+      case 'title':
+        return '\uB2E4\uC74C \uAE00\uC758 \uC81C\uBAA9\uC73C\uB85C \uAC00\uC7A5 \uC801\uC808\uD55C \uAC83\uC740?';
+      case 'gist':
+      case 'summary':
+        return '\uB2E4\uC74C \uAE00\uC758 \uC694\uC9C0\uB85C \uAC00\uC7A5 \uC801\uC808\uD55C \uAC83\uC740?';
+      case 'implication':
+        return '\uBC11\uC904 \uCE5C \uBD80\uBD84\uC774 \uB2E4\uC74C \uAE00\uC5D0\uC11C \uC758\uBBF8\uD558\uB294 \uBC14\uB85C \uAC00\uC7A5 \uC801\uC808\uD55C \uAC83\uC740?';
+      case 'purpose':
+        return '\uB2E4\uC74C \uAE00\uC758 \uBAA9\uC801\uC73C\uB85C \uAC00\uC7A5 \uC801\uC808\uD55C \uAC83\uC740?';
+      case 'mismatch':
+      case 'content_mismatch':
+        return '\uB2E4\uC74C \uAE00\uC758 \uB0B4\uC6A9\uACFC \uC77C\uCE58\uD558\uC9C0 \uC54A\uB294 \uAC83\uC740?';
+      case 'content':
+      case 'match':
+        return '\uB2E4\uC74C \uAE00\uC758 \uB0B4\uC6A9\uACFC \uC77C\uCE58\uD558\uB294 \uAC83\uC740?';
+      case 'order':
+        return '\uC8FC\uC5B4\uC9C4 \uAE00 \uB2E4\uC74C\uC5D0 \uC774\uC5B4\uC9C8 \uAE00\uC758 \uC21C\uC11C\uB85C \uAC00\uC7A5 \uC801\uC808\uD55C \uAC83\uC740?';
+      case 'insertion':
+        return '\uAE00\uC758 \uD750\uB984\uC73C\uB85C \uBCF4\uC544, \uC8FC\uC5B4\uC9C4 \uBB38\uC7A5\uC774 \uB4E4\uC5B4\uAC00\uAE30\uC5D0 \uAC00\uC7A5 \uC801\uC808\uD55C \uACF3\uC740?';
+      default:
+        return '\uB2E4\uC74C \uAE00\uC744 \uC77D\uACE0 \uBB3C\uC74C\uC5D0 \uB2F5\uD558\uC138\uC694.';
+    }
+  }
+
+  String _shortLog(String text) {
+    final normalized = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalized.length <= 120) return normalized;
+    return '${normalized.substring(0, 120)}...';
+  }
+
+  String _extractUnderlineTarget(String rawPrompt) {
+    final text = rawPrompt.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (text.isEmpty) return '';
+
+    final quoted = RegExp(
+      "[\"'“”‘’]([A-Za-z][A-Za-z0-9 ,;:!?\\-’']{10,}?[A-Za-z0-9])[\"'“”‘’]",
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (quoted != null) return _cleanUnderlineTarget(quoted.group(1) ?? '');
+
+    final matches = RegExp(
+      r"[A-Za-z][A-Za-z0-9 ,;:!?'\-’]{14,}[A-Za-z0-9]",
+    ).allMatches(text).map((match) => match.group(0) ?? '').toList();
+    if (matches.isEmpty) return '';
+
+    matches.sort((a, b) => b.length.compareTo(a.length));
+    return _cleanUnderlineTarget(matches.first);
+  }
+
+  String _cleanUnderlineTarget(String value) {
+    var text = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+    const wrappers = ['"', "'", '“', '”', '‘', '’'];
+    while (text.isNotEmpty && wrappers.contains(text[0])) {
+      text = text.substring(1).trimLeft();
+    }
+    while (text.isNotEmpty && wrappers.contains(text[text.length - 1])) {
+      text = text.substring(0, text.length - 1).trimRight();
+    }
+    return text.trim();
+  }
+
+  _TextRange? _findUnderlineRange(String passage, String target) {
+    final cleanTarget = _cleanUnderlineTarget(target);
+    if (passage.trim().isEmpty || cleanTarget.isEmpty) return null;
+
+    final directIndex =
+        passage.toLowerCase().indexOf(cleanTarget.toLowerCase());
+    if (directIndex >= 0) {
+      return _TextRange(directIndex, directIndex + cleanTarget.length);
     }
 
-    if (questionType == 'insertion') {
-      return '글의 흐름으로 보아, 주어진 문장이 들어가기에 가장 적절한 곳은?';
+    String normalizeChar(String char) {
+      return RegExp(r'[A-Za-z0-9]').hasMatch(char) ? char.toLowerCase() : '';
     }
 
-    return questionText;
+    final normalizedPassage = StringBuffer();
+    final normalizedToOriginal = <int>[];
+    for (var index = 0; index < passage.length; index++) {
+      final normalized = normalizeChar(passage[index]);
+      if (normalized.isEmpty) continue;
+      normalizedPassage.write(normalized);
+      normalizedToOriginal.add(index);
+    }
+
+    final normalizedTarget = cleanTarget
+        .split('')
+        .map(normalizeChar)
+        .where((char) => char.isNotEmpty)
+        .join();
+    if (normalizedTarget.length < 4) return null;
+
+    final normalizedIndex =
+        normalizedPassage.toString().indexOf(normalizedTarget);
+    if (normalizedIndex < 0) return null;
+
+    final start = normalizedToOriginal[normalizedIndex];
+    final end =
+        normalizedToOriginal[normalizedIndex + normalizedTarget.length - 1] + 1;
+    return _TextRange(start, end);
+  }
+
+  TextSpan _withUnderlineTarget({
+    required String text,
+    required String target,
+  }) {
+    final range = _findUnderlineRange(text, target);
+    if (range == null) return _passageTextSpan(text);
+
+    final spans = <TextSpan>[];
+    if (range.start > 0) {
+      spans.add(_passageTextSpan(text.substring(0, range.start)));
+    }
+    spans.add(
+      TextSpan(
+        text: text.substring(range.start, range.end),
+        style: _passageTextStyle().copyWith(
+          decoration: TextDecoration.underline,
+          decorationThickness: 1.6,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+    if (range.end < text.length) {
+      spans.add(_passageTextSpan(text.substring(range.end)));
+    }
+    return TextSpan(children: spans, style: _passageTextStyle());
   }
 
   @override
@@ -798,19 +1086,37 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
       currentIndex = 0;
     }
 
-    final currentQuestion = questions[currentIndex] as Map<String, dynamic>;
+    final currentQuestion =
+        Map<String, dynamic>.from(questions[currentIndex] as Map);
 
-    final qId = currentQuestion['question_id'];
+    final qId = _asInt(currentQuestion['question_id'] ?? currentQuestion['id']);
     final options = (currentQuestion['options'] ?? []) as List;
     final selectedIndex = selectedAnswers[qId];
 
     final bool isFirst = currentIndex == 0;
     final bool isLast = currentIndex == questions.length - 1;
 
+    final questionPassage = _questionPassage(
+      currentQuestion,
+      fallbackPassage: passage,
+    );
     final displayPassage = _buildDisplayPassage(
-      passage: passage,
+      passage: questionPassage,
       question: currentQuestion,
     );
+    final rawPrompt =
+        (currentQuestion['question_text'] ?? currentQuestion['text'] ?? '')
+            .toString();
+    final underlineTarget = _extractUnderlineTarget(rawPrompt);
+    final underlineFound =
+        _findUnderlineRange(displayPassage, underlineTarget) != null;
+    if (underlineTarget.isNotEmpty) {
+      debugPrint(
+        '[UnderlineTarget] q=${currentIndex + 1} '
+        'type=${(currentQuestion['question_type'] ?? '').toString()} '
+        'target="$underlineTarget" found=$underlineFound',
+      );
+    }
 
     return Scaffold(
       backgroundColor: _surface,
@@ -840,15 +1146,21 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  _buildQuestionCard(
+                    question: currentQuestion,
+                    questionNumber: currentIndex + 1,
+                  ),
+                  const SizedBox(height: 14),
                   _buildPassageCard(
                     passage: displayPassage,
                     questionType:
                         (currentQuestion['question_type'] ?? '').toString(),
+                    underlineTarget: underlineTarget,
                   ),
                   const SizedBox(height: 14),
-                  _buildQuestionCard(
-                    question: currentQuestion,
-                    questionNumber: currentIndex + 1,
+                  _buildOptionsCard(
+                    questionType:
+                        (currentQuestion['question_type'] ?? '').toString(),
                     options: options,
                     selectedIndex: selectedIndex,
                     qId: qId,
@@ -966,7 +1278,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
         alignment: WrapAlignment.center,
         children: List.generate(questions.length, (index) {
           final q = questions[index];
-          final qId = q['question_id'];
+          final qId = _asInt(q['question_id'] ?? q['id']);
 
           final bool isCurrent = index == currentIndex;
           final bool isAnswered = selectedAnswers.containsKey(qId);
@@ -1018,6 +1330,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   Widget _buildPassageCard({
     required String passage,
     required String questionType,
+    required String underlineTarget,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -1097,6 +1410,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
               child: _buildPassageContent(
                 passage: passage,
                 questionType: questionType.toLowerCase(),
+                underlineTarget: underlineTarget,
               ),
             ),
         ],
@@ -1107,6 +1421,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   Widget _buildPassageContent({
     required String passage,
     required String questionType,
+    required String underlineTarget,
   }) {
     final text = passage.trim();
     if (text.isEmpty) {
@@ -1159,13 +1474,17 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            SelectableText.rich(_passageTextSpan(body)),
+            SelectableText.rich(
+              _withUnderlineTarget(text: body, target: underlineTarget),
+            ),
           ],
         );
       }
     }
 
-    return SelectableText.rich(_passageTextSpan(text));
+    return SelectableText.rich(
+      _withUnderlineTarget(text: text, target: underlineTarget),
+    );
   }
 
   TextSpan _passageTextSpan(String text) {
@@ -1231,16 +1550,8 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   Widget _buildQuestionCard({
     required Map<String, dynamic> question,
     required int questionNumber,
-    required List options,
-    required int? selectedIndex,
-    required dynamic qId,
   }) {
     final questionType = (question['question_type'] ?? '').toString();
-    final normalizedType = questionType.toLowerCase();
-    final displayOptions = _displayOptions(
-      questionType: normalizedType,
-      options: options,
-    );
 
     return Container(
       decoration: BoxDecoration(
@@ -1300,7 +1611,51 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                 fontWeight: FontWeight.w800,
               ),
             ),
-            const SizedBox(height: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOptionsCard({
+    required String questionType,
+    required List options,
+    required int? selectedIndex,
+    required int qId,
+  }) {
+    final normalizedType = questionType.toLowerCase();
+    final displayOptions = _displayOptions(
+      questionType: normalizedType,
+      options: options,
+    );
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _line),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '\uBCF4\uAE30',
+              style: TextStyle(
+                color: _ink,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 14),
             ...displayOptions.asMap().entries.map((entry) {
               final idx = entry.key;
               final optionText = entry.value;
@@ -1455,35 +1810,49 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   }) {
     if (questionType == 'order') {
       return const [
-        '① (A)-(C)-(B)',
-        '② (B)-(A)-(C)',
-        '③ (B)-(C)-(A)',
-        '④ (C)-(A)-(B)',
-        '⑤ (C)-(B)-(A)',
+        '? (A)-(C)-(B)',
+        '? (B)-(A)-(C)',
+        '? (B)-(C)-(A)',
+        '? (C)-(A)-(B)',
+        '? (C)-(B)-(A)',
       ];
     }
 
     if (questionType == 'insertion') {
-      return const ['①', '②', '③', '④', '⑤'];
+      return const ['?', '?', '?', '?', '?'];
     }
 
-    return options.asMap().entries.map((entry) {
+    final cleaned = <String>[];
+    for (final entry in options.asMap().entries) {
       final idx = entry.key;
       final opt = entry.value;
       final circled = _circled(idx);
+      final rawText =
+          opt is Map ? (opt['text'] ?? '').toString() : opt.toString();
+      final optionText = _cleanStudentOptionText(rawText);
+      if (optionText.isEmpty) continue;
+      cleaned.add('$circled $optionText');
+    }
 
-      if (opt is Map) {
-        var text = (opt['text'] ?? '').toString().trim();
-        text = text.replaceFirst(
-          RegExp(r'^\s*(?:[①②③④⑤]|[1-5][\.\)]?|[A-E][\.\)]?)\s*'),
-          '',
-        );
-        return text.isEmpty ? circled : '$circled $text';
-      }
+    return cleaned;
+  }
 
-      final text = opt.toString().trim();
-      return text.isEmpty ? circled : '$circled $text';
-    }).toList();
+  String _cleanStudentOptionText(String raw) {
+    var normalized = raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim();
+    normalized = normalized.replaceFirst(
+      RegExp(r'^\s*(?:[??????????]|[1-5][\.)]?|[A-E][\.)]?)\s*'),
+      '',
+    );
+
+    final lines = normalized
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .where((line) => !_shouldDropKoreanExplanationLine(line))
+        .toList();
+
+    if (lines.isEmpty) return '';
+    return lines.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
   String _circled(int index) {
@@ -1556,4 +1925,11 @@ class _ProgressBadge extends StatelessWidget {
       ),
     );
   }
+}
+
+class _TextRange {
+  const _TextRange(this.start, this.end);
+
+  final int start;
+  final int end;
 }

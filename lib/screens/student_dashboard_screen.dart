@@ -4,10 +4,13 @@ import 'package:flutter/material.dart';
 
 import '../config/auth_store.dart';
 import '../models/learning_assignment.dart';
+import '../models/student_assigned_problem_set.dart';
 import '../services/api_service.dart';
 import '../services/learning_assignment_service.dart';
+import '../services/student_problem_set_assignment_service.dart';
 import 'final_touch_list_screen.dart';
 import 'student/mock_exam_list_screen.dart';
+import 'student/student_assigned_problem_sets_screen.dart';
 import 'student/student_exam_list_screen.dart';
 import 'student/student_results_hub_screen.dart';
 import 'student_learning_assignments_screen.dart';
@@ -26,24 +29,33 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   Map<String, dynamic>? dashboard;
   bool isLoading = true;
   final _assignmentService = const LearningAssignmentService();
+  final _problemSetAssignmentService =
+      const StudentProblemSetAssignmentService();
   late Future<List<LearningAssignment>> _workbookAssignmentsFuture;
+  late Future<List<StudentAssignedProblemSet>> _problemSetAssignmentsFuture;
 
   @override
   void initState() {
     super.initState();
     _workbookAssignmentsFuture =
         _assignmentService.fetchStudentAssignments(contentType: 'workbook');
+    _problemSetAssignmentsFuture =
+        _problemSetAssignmentService.fetchAssignedProblemSets();
     loadDashboard();
   }
 
   Future<void> loadDashboard() async {
     final workbookFuture =
         _assignmentService.fetchStudentAssignments(contentType: 'workbook');
+    final problemSetFuture =
+        _problemSetAssignmentService.fetchAssignedProblemSets();
     if (isLoading) {
       _workbookAssignmentsFuture = workbookFuture;
+      _problemSetAssignmentsFuture = problemSetFuture;
     } else {
       setState(() {
         _workbookAssignmentsFuture = workbookFuture;
+        _problemSetAssignmentsFuture = problemSetFuture;
       });
     }
     try {
@@ -381,6 +393,8 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
             color: Color(0xFF2563EB),
           ),
           const SizedBox(height: 14),
+          _assignedProblemSetTile(),
+          const SizedBox(height: 10),
           _LearningActionTile(
             icon: Icons.edit_note_rounded,
             title: 'Final Touch 복습',
@@ -421,6 +435,36 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _assignedProblemSetTile() {
+    return FutureBuilder<List<StudentAssignedProblemSet>>(
+      future: _problemSetAssignmentsFuture,
+      builder: (context, snapshot) {
+        final items = snapshot.data ?? const <StudentAssignedProblemSet>[];
+        final active = items.where((item) => !item.isCompleted).toList()
+          ..sort((a, b) => b.assignedAt.compareTo(a.assignedAt));
+        final isLoading = snapshot.connectionState == ConnectionState.waiting;
+        final subtitle = isLoading
+            ? '선생님이 배포한 문제세트를 확인하는 중입니다.'
+            : active.isEmpty
+                ? '새로 배포된 문제세트가 있으면 여기에 표시됩니다.'
+                : '새로 배포된 문제세트 ${active.length}개가 있습니다. 클릭해 바로 풀어보세요.';
+
+        return _LearningActionTile(
+          icon: Icons.assignment_turned_in_rounded,
+          title: '선생님 배포 문제세트',
+          subtitle: subtitle,
+          color: const Color(0xFFEA580C),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const StudentAssignedProblemSetsScreen(),
+            ),
+          ),
+        );
+      },
     );
   }
 

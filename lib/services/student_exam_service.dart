@@ -1,5 +1,6 @@
 // lib/services/student_exam_service.dart
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:english_analyzer_app/config/api.dart';
 import 'package:english_analyzer_app/config/auth_store.dart';
@@ -55,20 +56,40 @@ class StudentExamService {
       'answers': answers, // ✅ 이미 변환된 상태 그대로
     };
 
-    final res = await http.post(
-      uri,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ${AuthStore.accessToken}',
-      },
-      body: jsonEncode(payload),
+    debugPrint('[StudentExamService] submit url=$uri');
+    debugPrint('[StudentExamService] submit payload=${jsonEncode(payload)}');
+    debugPrint(
+      '[StudentExamService] submit answers=${answers.length} '
+      'question_ids=${answers.map((item) => item['question_id']).toList()}',
+    );
+
+    late final http.Response res;
+    try {
+      res = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': 'Bearer ${AuthStore.accessToken}',
+        },
+        body: jsonEncode(payload),
+      );
+    } catch (e, stackTrace) {
+      debugPrint('[StudentExamService] submit exception=$e');
+      debugPrint('[StudentExamService] submit stack=$stackTrace');
+      rethrow;
+    }
+
+    final bodyText = utf8.decode(res.bodyBytes);
+    debugPrint(
+      '[StudentExamService] submit response ${res.statusCode}: $bodyText',
     );
 
     if (res.statusCode != 200) {
       throw Exception('시험 제출 실패: ${res.body}');
     }
 
-    return jsonDecode(res.body) as Map<String, dynamic>;
+    return jsonDecode(bodyText) as Map<String, dynamic>;
   }
 
   /// 제출 후 결과/통계 요약

@@ -71,6 +71,26 @@ class TeacherProblemSetService {
     return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
   }
 
+  static Future<Map<String, dynamic>> assignProblemSetToStudent({
+    required int problemSetId,
+    required int studentId,
+  }) async {
+    final uri = ApiConfig.u('/teacher/assignments').replace(
+      queryParameters: {
+        'problem_set_id': '$problemSetId',
+        'student_id': '$studentId',
+      },
+    );
+
+    final res = await http.post(uri, headers: _headers());
+
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('assign failed ${res.statusCode}: ${res.body}');
+    }
+
+    return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+  }
+
   static Future<List<StudentExamFolder>> fetchFolders({int? parentId}) async {
     final query = <String, String>{};
     if (parentId != null) query['parent_id'] = '$parentId';
