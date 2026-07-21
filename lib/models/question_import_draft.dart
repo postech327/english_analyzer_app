@@ -29,15 +29,42 @@ class QuestionImportDraft {
   final List<String> warnings;
   final bool isSpecialUnsupported;
 
-  bool get isSaveable =>
-      !isSpecialUnsupported &&
-      questionType.trim().isNotEmpty &&
-      questionText.trim().isNotEmpty &&
-      ((specialData != null && specialData!.isNotEmpty) ||
-          (choices.length >= 2 &&
-              answerIndex != null &&
-              answerIndex! >= 0 &&
-              answerIndex! < choices.length));
+  bool get isSaveable {
+    final normalizedType = questionType.trim().toLowerCase();
+    if (isSpecialUnsupported || normalizedType.isEmpty) {
+      return false;
+    }
+    if (normalizedType == 'insertion' ||
+        normalizedType == 'irrelevant' ||
+        normalizedType == 'unrelated_sentence') {
+      return false;
+    }
+    if (questionText.trim().isEmpty) {
+      return false;
+    }
+
+    final special = specialData;
+    if (special != null && special.isNotEmpty) {
+      final kind = special['kind']?.toString().trim().toLowerCase();
+      if (kind == 'order' || normalizedType == 'order') {
+        final blocks = special['blocks'];
+        final answerOrder = special['answer_order'];
+        final blockCount = blocks is Map ? blocks.length : 0;
+        final answerCount = answerOrder is List ? answerOrder.length : 0;
+        return normalizedType == 'order' &&
+            (special['fixed_start'] ?? '').toString().trim().isNotEmpty &&
+            blockCount >= 3 &&
+            answerCount == blockCount &&
+            (answerText ?? '').trim().isNotEmpty;
+      }
+      return true;
+    }
+
+    return choices.length >= 2 &&
+        answerIndex != null &&
+        answerIndex! >= 0 &&
+        answerIndex! < choices.length;
+  }
 
   QuestionImportDraft copyWith({
     String? source,

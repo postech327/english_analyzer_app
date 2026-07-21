@@ -405,9 +405,50 @@ class _QuestionPreviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final answer =
-        question.answerIndex == null ? '-' : '①②③④⑤⑥⑦⑧⑨'[question.answerIndex!];
+    final normalizedType = question.questionType.trim().toLowerCase();
+    final isOrder = normalizedType == 'order' ||
+        question.specialData?['kind']?.toString() == 'order';
+    final isUnsupportedSpecial = normalizedType == 'insertion' ||
+        normalizedType == 'irrelevant' ||
+        normalizedType == 'unrelated_sentence';
+    final blocks = _questionImportBlocks(question.specialData);
+    final answer = isOrder
+        ? (question.answerText?.trim().isNotEmpty == true
+            ? question.answerText!.trim()
+            : '-')
+        : question.answerIndex == null
+            ? '-'
+            : _circledAnswerLabel(question.answerIndex!);
+    final hasFixedStart = (question.specialData?['fixed_start'] ?? '')
+        .toString()
+        .trim()
+        .isNotEmpty;
+    final hasFixedEnd =
+        (question.specialData?['fixed_end'] ?? '').toString().trim().isNotEmpty;
     final typeLabel = _questionImportTypeLabel(question.questionType);
+    final previewBadgeLabels = isOrder
+        ? <String>[
+            'blocks: ${blocks.length}',
+            'answer: $answer',
+            'start: ${hasFixedStart ? 'yes' : 'no'}',
+            'end: ${hasFixedEnd ? 'yes' : 'no'}',
+            'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
+          ]
+        : isUnsupportedSpecial
+            ? <String>[
+                'type: $typeLabel',
+                'status: unsupported',
+                'answer: $answer',
+                'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
+              ]
+            : <String>[
+                'choices: ${question.choices.length}',
+                'answer: $answer',
+                'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
+              ];
+    debugPrint(
+      '[PreviewBadge] no=${question.questionNo} labels=$previewBadgeLabels',
+    );
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -424,40 +465,31 @@ class _QuestionPreviewCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Checkbox(value: selected, onChanged: onSelected),
-              Expanded(
-                child: Text(
-                  '${question.questionNo}번 · ${typeLabel.isEmpty ? '유형 미확정' : typeLabel}',
-                  style: const TextStyle(fontWeight: FontWeight.w800),
-                ),
-              ),
-              _StatusChip(
-                label: question.isSaveable ? '저장 가능' : '저장 제외',
-                color: question.isSaveable
-                    ? const Color(0xFF16A34A)
-                    : const Color(0xFFD97706),
-              ),
-              const SizedBox(width: 8),
-              TextButton.icon(
-                onPressed: onEdit,
-                icon: const Icon(Icons.edit_outlined, size: 18),
-                label: const Text('수정'),
+              if (isOrder) ...[
+                _InfoPill(label: 'blocks:', value: '${blocks.length}'),
+                _InfoPill(label: 'answer:', value: answer),
+                _InfoPill(label: 'start:', value: hasFixedStart ? 'yes' : 'no'),
+                _InfoPill(label: 'end:', value: hasFixedEnd ? 'yes' : 'no'),
+              ] else if (isUnsupportedSpecial) ...[
+                _InfoPill(label: 'type:', value: typeLabel),
+                const _InfoPill(label: 'status:', value: 'unsupported'),
+                _InfoPill(label: 'answer:', value: answer),
+              ] else ...[
+                _InfoPill(
+                    label: 'choices:', value: '${question.choices.length}'),
+                _InfoPill(label: 'answer:', value: answer),
+              ],
+              _InfoPill(
+                label: 'warnings:',
+                value: question.warnings.isEmpty
+                    ? 'none'
+                    : '${question.warnings.length}',
               ),
             ],
           ),
           const SizedBox(height: 8),
           Text(question.questionText,
               style: const TextStyle(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _InfoPill(label: '선택지', value: '${question.choices.length}개'),
-              _InfoPill(label: '정답', value: answer),
-              _InfoPill(label: '경고', value: '${question.warnings.length}개'),
-            ],
-          ),
           if (question.warnings.isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(
@@ -469,6 +501,18 @@ class _QuestionPreviewCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String _circledAnswerLabel(int index) {
+  return '${index + 1}';
+}
+
+List<String> _questionImportBlocks(Map<String, dynamic>? specialData) {
+  final rawBlocks = specialData?['blocks'];
+  if (rawBlocks is Map) {
+    return rawBlocks.keys.map((key) => key.toString()).toList()..sort();
+  }
+  return const <String>[];
 }
 
 String _questionImportTypeLabel(String type) {
@@ -491,7 +535,10 @@ String _questionImportTypeLabel(String type) {
     case 'content':
       return '내용 일치';
     case 'insertion':
-      return '문장 삽입';
+      return 'insertion';
+    case 'irrelevant':
+    case 'unrelated_sentence':
+      return 'irrelevant';
     case 'order':
       return '순서 배열';
   }
@@ -694,30 +741,6 @@ class _SectionTitle extends StatelessWidget {
               fontSize: 13,
             )),
       ],
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({required this.label, required this.color});
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(label,
-          style: TextStyle(
-            color: color,
-            fontSize: 12,
-            fontWeight: FontWeight.w800,
-          )),
     );
   }
 }

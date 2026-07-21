@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:english_analyzer_app/services/teacher_problem_set_service.dart';
 import 'package:english_analyzer_app/widgets/problem_set_assignment_dialog.dart';
@@ -349,7 +351,7 @@ class _QuestionCard extends StatelessWidget {
     final order = _firstText([q['order'], q['question_number'], q['id']]);
     final type = _firstText([q['question_type'], q['type']]);
     final typeLabel = _questionTypeLabel(type);
-    final text = _firstText([q['question_text'], q['text']]);
+    final rawText = _firstText([q['question_text'], q['text']]);
     final explanation = _firstText([q['explanation']]);
     final passage = _firstText([
       q['passage'],
@@ -363,12 +365,23 @@ class _QuestionCard extends StatelessWidget {
       'passage="${_preview(passage)}"',
     );
     final options = _asMapList(q['options']);
+    final specialData = _specialData(q);
+    final isOrder = type.trim().toLowerCase() == 'order' ||
+        specialData['kind']?.toString() == 'order';
+    final text = isOrder
+        ? _teacherPreviewQuestionText(rawText, type, specialData)
+        : rawText;
     final answerIndex = _asInt(q['answer_index']);
     final answerOption =
         answerIndex != null && answerIndex >= 0 && answerIndex < options.length
             ? options[answerIndex]
             : _firstCorrectOption(options);
-    final answerLabel = _answerSummary(answerOption, answerIndex);
+    final orderAnswerLabel = _orderAnswerSummary(q, specialData);
+    final answerLabel =
+        isOrder ? orderAnswerLabel : _answerSummary(answerOption, answerIndex);
+    final answerChipLabel =
+        isOrder && answerLabel.isNotEmpty ? 'answer $answerLabel' : answerLabel;
+    final orderBlocks = _orderBlocks(specialData);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -414,8 +427,9 @@ class _QuestionCard extends StatelessWidget {
                 ),
               ),
               _SmallChip(text: typeLabel, color: const Color(0xFF7C3AED)),
-              if (answerLabel.isNotEmpty)
-                _SmallChip(text: answerLabel, color: const Color(0xFF059669)),
+              if (answerChipLabel.isNotEmpty)
+                _SmallChip(
+                    text: answerChipLabel, color: const Color(0xFF059669)),
             ],
           ),
           subtitle: Padding(
@@ -432,23 +446,48 @@ class _QuestionCard extends StatelessWidget {
           ),
           children: [
             if (text.isNotEmpty)
-              _SectionBlock(label: '문항', child: SelectableText(text)),
-            if (passage.isNotEmpty)
-              _SectionBlock(label: '지문', child: SelectableText(passage)),
-            if (options.isNotEmpty)
-              _SectionBlock(
-                label: '선택지',
-                child: Column(
-                  children: [
-                    for (final option in options)
-                      _OptionRow(
-                        option: option,
-                        isCorrect: option == answerOption ||
-                            option['is_correct'] == true,
-                      ),
-                  ],
+              _SectionBlock(label: '문제', child: SelectableText(text)),
+            if (isOrder) ...[
+              if (_firstText([specialData['fixed_start'], passage]).isNotEmpty)
+                _SectionBlock(
+                  label: '주어진 글',
+                  child: SelectableText(
+                    _firstText([specialData['fixed_start'], passage]),
+                  ),
                 ),
-              ),
+              if (orderBlocks.isNotEmpty)
+                _SectionBlock(
+                  label: '순서 블록',
+                  child: Column(
+                    children: [
+                      for (final entry in orderBlocks.entries)
+                        _OrderBlockRow(label: entry.key, text: entry.value),
+                    ],
+                  ),
+                ),
+              if (_firstText([specialData['fixed_end']]).isNotEmpty)
+                _SectionBlock(
+                  label: '이어질 글',
+                  child: SelectableText(_firstText([specialData['fixed_end']])),
+                ),
+            ] else ...[
+              if (passage.isNotEmpty)
+                _SectionBlock(label: '지문', child: SelectableText(passage)),
+              if (options.isNotEmpty)
+                _SectionBlock(
+                  label: '보기',
+                  child: Column(
+                    children: [
+                      for (final option in options)
+                        _OptionRow(
+                          option: option,
+                          isCorrect: option == answerOption ||
+                              option['is_correct'] == true,
+                        ),
+                    ],
+                  ),
+                ),
+            ],
             if (answerLabel.isNotEmpty)
               _SectionBlock(
                 label: '정답',
@@ -467,6 +506,59 @@ class _QuestionCard extends StatelessWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _OrderBlockRow extends StatelessWidget {
+  const _OrderBlockRow({required this.label, required this.text});
+
+  final String label;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              '($label)',
+              style: const TextStyle(
+                color: _TeacherProblemSetPreviewScreenState._blue,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: SelectableText(
+              text,
+              style: const TextStyle(
+                color: _TeacherProblemSetPreviewScreenState._ink,
+                height: 1.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -669,6 +761,109 @@ String _preview(String text) {
 int? _asInt(Object? value) {
   if (value is num) return value.toInt();
   return int.tryParse(value?.toString() ?? '');
+}
+
+Map<String, dynamic> _specialData(Map<String, dynamic> q) {
+  final value = q['special_data'] ?? q['specialData'];
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) return Map<String, dynamic>.from(value);
+  final raw = q['special_data_json']?.toString().trim() ?? '';
+  if (raw.isEmpty || raw == 'null') return <String, dynamic>{};
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is Map<String, dynamic>) return decoded;
+    if (decoded is Map) return Map<String, dynamic>.from(decoded);
+  } catch (_) {
+    return <String, dynamic>{};
+  }
+  return <String, dynamic>{};
+}
+
+Map<String, String> _orderBlocks(Map<String, dynamic> specialData) {
+  final rawBlocks = specialData['blocks'];
+  if (rawBlocks is! Map) return const <String, String>{};
+  final entries = rawBlocks.entries
+      .map((entry) => MapEntry(entry.key.toString(), entry.value.toString()))
+      .where((entry) =>
+          entry.key.trim().isNotEmpty && entry.value.trim().isNotEmpty)
+      .toList()
+    ..sort((a, b) => a.key.compareTo(b.key));
+  return Map<String, String>.fromEntries(entries);
+}
+
+String _orderAnswerSummary(
+  Map<String, dynamic> q,
+  Map<String, dynamic> specialData,
+) {
+  final direct = _firstText([q['answer_text'], specialData['answer_text']]);
+  if (direct.isNotEmpty) return _cleanOrderAnswerText(direct);
+  final order = specialData['answer_order'];
+  if (order is List && order.isNotEmpty) {
+    return order.map((item) => item.toString().trim()).join('-');
+  }
+  return '';
+}
+
+String _teacherPreviewQuestionText(
+  String raw,
+  String type,
+  Map<String, dynamic> specialData,
+) {
+  final cleaned = _stripLeadingAnswerLeak(raw);
+  if (cleaned.isNotEmpty) return cleaned;
+  if (type.trim().toLowerCase() == 'order' ||
+      specialData['kind']?.toString() == 'order') {
+    final mode = _firstText([specialData['order_mode']]).toLowerCase();
+    if (mode == 'between') {
+      return '주어진 글 사이에 이어질 글의 순서를 바르게 배열하시오.';
+    }
+    if (mode == 'after') {
+      return '주어진 글 다음에 이어질 글의 순서를 바르게 배열하시오.';
+    }
+    return '주어진 글의 순서를 바르게 배열하시오.';
+  }
+  return cleaned;
+}
+
+String _stripLeadingAnswerLeak(String raw) {
+  var text = raw.replaceAll('\r\n', '\n').trim();
+  if (text.isEmpty) return '';
+
+  for (var i = 0; i < 3; i++) {
+    final before = text;
+    text = text.replaceFirst(
+      RegExp(
+        r'^\s*\[[^\]]*(?:정답|답|answer|뺣떟)[^\]]*\]\s*',
+        caseSensitive: false,
+      ),
+      '',
+    );
+    text = text.replaceFirst(
+      RegExp(
+        r'^\s*(?:정답|답|answer|뺣떟)\s*[:：>▶\-]?\s*',
+        caseSensitive: false,
+      ),
+      '',
+    );
+    text = text.replaceFirst(
+      RegExp(
+        r'^\s*(?:[\(\[]?[A-Ea-e][\)\]]?\s*(?:[-–—]\s*)?){1,8}',
+      ),
+      '',
+    );
+    text = text.trimLeft();
+    if (text == before) break;
+  }
+
+  return text.trim();
+}
+
+String _cleanOrderAnswerText(String raw) {
+  final text = _stripLeadingAnswerLeak(raw)
+      .replaceAll(RegExp(r'[\(\)\[\]\s]+'), '')
+      .replaceAll(RegExp(r'[–—]'), '-')
+      .trim();
+  return text.isEmpty ? raw.trim() : text;
 }
 
 Map<String, int> _typeDistribution(List<Map<String, dynamic>> questions) {

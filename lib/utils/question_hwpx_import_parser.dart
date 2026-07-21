@@ -238,6 +238,27 @@ QuestionImportDraft _qmParseQuestionBlock(
       .toList();
   final number = block.number == 0 ? fallbackNo : block.number;
   final source = _q2ExtractSource(lines);
+  final typeDetection = _q2DetectSpecialQuestionType(lines, number: number);
+  if (typeDetection.type == 'insertion' || typeDetection.type == 'irrelevant') {
+    return _q2BuildUnsupportedSpecialQuestion(
+      lines,
+      number: number,
+      source: source,
+      detection: typeDetection,
+    );
+  }
+  if (typeDetection.type == 'order') {
+    final orderQuestion = _q2ParseOrderQuestion(
+      lines,
+      number: number,
+      source: source,
+      detection: typeDetection,
+    );
+    if (orderQuestion != null) return orderQuestion;
+  } else if (_q2HasOrderBlockMarkers(lines)) {
+    debugPrint('[OrderParserSkip] no=$number reason=prompt is not order');
+  }
+
   final answerInfo = _q2ExtractAnswer(lines);
   final choiceGroups = _q2ChoiceGroups(lines);
   final questionTypeWarnings = <String>[];
@@ -261,8 +282,22 @@ QuestionImportDraft _qmParseQuestionBlock(
     choiceStart: choiceGroup?.start,
   );
   final questionType = _q2InferQuestionType(questionText);
+  if (questionType == 'order' && _q2HasOrderBlockMarkers(lines)) {
+    final orderQuestion = _q2ParseOrderQuestion(
+      lines,
+      number: number,
+      source: source,
+      detection: _Q2TypeDetection(
+        type: 'order',
+        promptIndex: promptIndex,
+        prompt: questionText,
+        reason: 'inferred order after generic prompt parse',
+      ),
+    );
+    if (orderQuestion != null) return orderQuestion;
+  }
   if (questionType.isEmpty) {
-    questionTypeWarnings.add('문제 유형을 추론하지 못했습니다.');
+    questionTypeWarnings.add('Question type could not be detected');
   }
 
   final rawChoices = choiceGroup?.choices ?? const <String>[];
@@ -445,6 +480,599 @@ _QmAnswerInfo _q2ParseAnswerRaw(String raw) {
     index: null,
     warnings: const ['정답을 선택지 번호로 해석하지 못했습니다.'],
   );
+}
+
+QuestionImportDraft? _q2ParseOrderQuestion(
+  List<String> lines, {
+  required int number,
+  required String source,
+  required _Q2TypeDetection detection,
+}) {
+  if (detection.type != 'order') {
+    debugPrint(
+        '[OrderParserSkip] no=$number reason=detected ${detection.type}');
+    return null;
+  }
+
+  final markerIndexes = <int>[];
+  for (var i = 0; i < lines.length; i++) {
+    if (_q2OrderBlockMatch(lines[i]) != null) markerIndexes.add(i);
+  }
+  if (markerIndexes.length < 2) return null;
+
+  final promptIndex = detection.promptIndex;
+  final answerRaw = _q2ExtractAnswerRawFull(lines);
+  final answerOrder = _q2ParseOrderAnswer(answerRaw);
+  final firstMarker = markerIndexes.first;
+  final fixedStartLines = <String>[];
+  final fixedStartBegin = promptIndex >= 0 ? promptIndex + 1 : 0;
+  for (var i = fixedStartBegin; i < firstMarker; i++) {
+    final cleaned = _q2CleanOrderBodyLine(lines[i]);
+    if (cleaned.isNotEmpty) fixedStartLines.add(cleaned);
+  }
+
+  final blockEnd = _q2OrderContentEnd(lines, firstMarker);
+  final blocks = <String, String>{};
+  final fixedEndLines = <String>[];
+
+  for (var markerPosition = 0;
+      markerPosition < markerIndexes.length;
+      markerPosition++) {
+    final markerIndex = markerIndexes[markerPosition];
+    if (markerIndex >= blockEnd) continue;
+    final nextMarkerIndex = markerPosition + 1 < markerIndexes.length
+        ? markerIndexes[markerPosition + 1]
+        : blockEnd;
+    final markerMatch = _q2OrderBlockMatch(lines[markerIndex]);
+    if (markerMatch == null) continue;
+    final label = (markerMatch.group(1) ?? '').toUpperCase();
+    final segmentLines = <String>[];
+    final firstRest = (markerMatch.group(2) ?? '').trim();
+    if (firstRest.isNotEmpty) segmentLines.add(firstRest);
+    for (var i = markerIndex + 1; i < nextMarkerIndex; i++) {
+      final cleaned = _q2CleanOrderBodyLine(lines[i]);
+      if (cleaned.isNotEmpty) segmentLines.add(cleaned);
+    }
+
+    if (markerPosition == markerIndexes.length - 1) {
+      final split = _q2SplitLastOrderSegment(
+        label: label,
+        lines: segmentLines,
+        questionNo: number,
+      );
+      if (split.blockText.isNotEmpty) blocks[label] = split.blockText;
+      if (split.fixedEndText.isNotEmpty) fixedEndLines.add(split.fixedEndText);
+    } else {
+      final body = _q2NormalizeOrderText(segmentLines.join(' '));
+      if (body.isNotEmpty) blocks[label] = body;
+    }
+  }
+
+  if (blocks.length < 2) return null;
+
+  final fixedStart =
+      fixedStartLines.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+  final fixedEnd =
+      fixedEndLines.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+  final orderMode =
+      fixedEnd.isNotEmpty || detection.prompt.contains('\uC0AC\uC774')
+          ? 'between'
+          : 'after';
+  final rawQuestionText =
+      promptIndex >= 0 ? _qmCleanBodyLine(lines[promptIndex]) : '';
+  final questionText =
+      _q2CleanOrderQuestionText(rawQuestionText, orderMode: orderMode);
+  final answerText = answerOrder.join('-');
+  final passage = [
+    if (fixedStart.isNotEmpty) fixedStart,
+    for (final entry in blocks.entries) '(${entry.key}) ${entry.value}',
+    if (fixedEnd.isNotEmpty) fixedEnd,
+  ].join('\n\n').trim();
+  final explanation = _q2ExtractOrderExplanation(lines);
+  final missingAnswerBlocks = answerOrder
+      .where((label) => !blocks.keys.contains(label))
+      .toList(growable: false);
+  final warnings = <String>[
+    if (fixedStart.isEmpty)
+      '\uC21C\uC11C\uD615 \uACE0\uC815 \uC9C0\uBB38\uC774 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.',
+    if (blocks.length < 3)
+      '\uC21C\uC11C\uD615 \uBE14\uB85D\uC774 3\uAC1C \uBBF8\uB9CC\uC785\uB2C8\uB2E4.',
+    if (answerOrder.isEmpty)
+      '\uC21C\uC11C\uD615 \uC815\uB2F5 \uC21C\uC11C\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.',
+    if (answerOrder.isNotEmpty && answerOrder.length != blocks.length)
+      '\uC815\uB2F5 \uC21C\uC11C \uC218\uC640 \uBE14\uB85D \uC218\uAC00 \uB2E4\uB985\uB2C8\uB2E4.',
+    if (missingAnswerBlocks.isNotEmpty)
+      '\uC815\uB2F5\uC5D0 \uC5C6\uB294 \uBE14\uB85D\uC774 \uD3EC\uD568\uB418\uC5B4 \uC788\uC2B5\uB2C8\uB2E4: ${missingAnswerBlocks.join(', ')}',
+  ];
+
+  debugPrint(
+    '[OrderParser] no=$number mode=$orderMode blocks=${blocks.length} '
+    'answer=$answerText fixedStart=${fixedStart.isNotEmpty} fixedEnd=${fixedEnd.isNotEmpty}',
+  );
+
+  final draft = QuestionImportDraft(
+    questionNo: number,
+    source: source,
+    questionType: 'order',
+    passage: passage,
+    questionText: questionText,
+    choices: const <String>[],
+    answerIndex: null,
+    answerRaw: answerRaw,
+    explanation: explanation,
+    specialData: <String, dynamic>{
+      'kind': 'order',
+      'order_mode': orderMode,
+      'fixed_start': fixedStart,
+      'fixed_end': fixedEnd,
+      'blocks': blocks,
+      'answer_order': answerOrder,
+    },
+    answerText: answerText,
+    warnings: warnings,
+    isSpecialUnsupported: false,
+  );
+  debugPrint(
+    '[OrderSaveability] no=$number blocks=${blocks.length} answer=$answerText '
+    'fixedStart=${fixedStart.isNotEmpty} fixedEnd=${fixedEnd.isNotEmpty} '
+    'saveable=${draft.isSaveable} warnings=${draft.warnings.length}',
+  );
+  return draft;
+}
+
+_Q2FixedEndSplit _q2SplitLastOrderSegment({
+  required String label,
+  required List<String> lines,
+  required int questionNo,
+}) {
+  final cleanedLines = lines
+      .map(_q2StripInlineVocabularyNotes)
+      .where((line) => line.trim().isNotEmpty)
+      .where((line) => !_q2LooksLikeVocabularyNoteLine(line))
+      .toList(growable: false);
+  if (cleanedLines.isEmpty) {
+    return const _Q2FixedEndSplit(blockText: '', fixedEndText: '');
+  }
+
+  final joined = _q2NormalizeOrderText(cleanedLines.join(' '));
+  final splitIndex = _q2FixedEndStartIndex(joined);
+  if (splitIndex > 0) {
+    final blockText = _q2NormalizeOrderText(joined.substring(0, splitIndex));
+    final fixedEndText =
+        _q2NormalizeOrderText(joined.substring(splitIndex).trim());
+    debugPrint(
+      '[OrderFixedEnd] no=$questionNo label=$label '
+      'fixedEndStart="${_q2FixedEndStartPreview(fixedEndText)}" '
+      'extracted=${fixedEndText.isNotEmpty}',
+    );
+    return _Q2FixedEndSplit(
+      blockText: blockText,
+      fixedEndText: fixedEndText,
+    );
+  }
+
+  return _Q2FixedEndSplit(blockText: joined, fixedEndText: '');
+}
+
+int _q2FixedEndStartIndex(String text) {
+  final candidates = <int>[];
+  const patterns = <String>[
+    'In the future,',
+    'In the south',
+    'This is how',
+    'Thus,',
+    'Therefore,',
+    'As a result,',
+  ];
+  for (final pattern in patterns) {
+    var start = 0;
+    while (start < text.length) {
+      final index = text.indexOf(pattern, start);
+      if (index == -1) break;
+      if (_q2LooksLikeFixedEndBoundary(text, index)) {
+        candidates.add(index);
+      }
+      start = index + pattern.length;
+    }
+  }
+  if (candidates.isEmpty) return -1;
+  candidates.sort();
+  return candidates.first;
+}
+
+bool _q2LooksLikeFixedEndBoundary(String text, int index) {
+  if (index <= 0) return false;
+  final before = text.substring(0, index).trimRight();
+  if (before.length < 30) return false;
+  return RegExp(r'[.!?]["”’\)]?$').hasMatch(before);
+}
+
+String _q2FixedEndStartPreview(String text) {
+  final compact = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (compact.length <= 18) return compact;
+  return compact.substring(0, 18);
+}
+
+String _q2NormalizeOrderText(String text) {
+  return _q2StripInlineVocabularyNotes(text)
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+}
+
+bool _q2LooksLikeVocabularyNoteLine(String line) {
+  return RegExp(r'^\s*\*{1,3}[A-Za-z][A-Za-z-]*\s+').hasMatch(line.trim());
+}
+
+String _q2StripInlineVocabularyNotes(String text) {
+  return text
+      .replaceFirst(
+        RegExp(r'\s+\*{1,3}[A-Za-z][A-Za-z-]*\s+[^.!?]*$'),
+        '',
+      )
+      .trim();
+}
+
+class _Q2FixedEndSplit {
+  const _Q2FixedEndSplit({
+    required this.blockText,
+    required this.fixedEndText,
+  });
+
+  final String blockText;
+  final String fixedEndText;
+}
+
+String _q2CleanOrderQuestionText(
+  String raw, {
+  required String orderMode,
+}) {
+  var text = raw.replaceAll('\r\n', '\n').trim();
+  for (var i = 0; i < 3; i++) {
+    final before = text;
+    text = text.replaceFirst(
+      RegExp(
+        r'^\s*\[[^\]]*(?:정답|답|answer|뺣떟)[^\]]*\]\s*',
+        caseSensitive: false,
+      ),
+      '',
+    );
+    text = text.replaceFirst(
+      RegExp(
+        r'^\s*(?:정답|답|answer|뺣떟)\s*[:：>▶\-]?\s*',
+        caseSensitive: false,
+      ),
+      '',
+    );
+    text = text.replaceFirst(
+      RegExp(
+        r'^\s*(?:[\(\[]?[A-Ea-e][\)\]]?\s*(?:[-–—]\s*)?){1,8}',
+      ),
+      '',
+    );
+    text = text.trimLeft();
+    if (text == before) break;
+  }
+  if (text.trim().isNotEmpty) return text.trim();
+  return _q2OrderFallbackQuestion(orderMode);
+}
+
+String _q2OrderFallbackQuestion(String orderMode) {
+  if (orderMode == 'between') {
+    return '\uC8FC\uC5B4\uC9C4 \uAE00 \uC0AC\uC774\uC5D0 \uC774\uC5B4\uC9C8 \uAE00\uC758 \uC21C\uC11C\uB97C \uBC14\uB974\uAC8C \uBC30\uC5F4\uD558\uC2DC\uC624.';
+  }
+  if (orderMode == 'after') {
+    return '\uC8FC\uC5B4\uC9C4 \uAE00 \uB2E4\uC74C\uC5D0 \uC774\uC5B4\uC9C8 \uAE00\uC758 \uC21C\uC11C\uB97C \uBC14\uB974\uAC8C \uBC30\uC5F4\uD558\uC2DC\uC624.';
+  }
+  return '\uC8FC\uC5B4\uC9C4 \uAE00\uC758 \uC21C\uC11C\uB97C \uBC14\uB974\uAC8C \uBC30\uC5F4\uD558\uC2DC\uC624.';
+}
+
+bool _q2HasOrderBlockMarkers(List<String> lines) {
+  return lines.where((line) => _q2OrderBlockMatch(line) != null).length >= 2;
+}
+
+_Q2TypeDetection _q2DetectSpecialQuestionType(
+  List<String> lines, {
+  required int number,
+}) {
+  final candidates = <MapEntry<int, String>>[];
+  final answerIndex = lines.indexWhere(_q2IsAnswerLine);
+  final end = answerIndex == -1 ? lines.length : answerIndex;
+  for (var index = 0; index < end; index++) {
+    final line = lines[index].trim();
+    if (line.isEmpty || _q2IsSourceLine(line) || _q2IsControlLine(line)) {
+      continue;
+    }
+    if (_q2LooksLikePrompt(line) || _q2LooksLikeAnySpecialPrompt(line)) {
+      candidates.add(MapEntry(index, line));
+    }
+  }
+  final joined =
+      lines.take(end).join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (joined.isNotEmpty &&
+      !candidates.any((candidate) => candidate.value == joined)) {
+    candidates.add(MapEntry(-1, joined));
+  }
+
+  for (final candidate in candidates) {
+    if (_q2LooksLikeInsertionPrompt(candidate.value)) {
+      return _q2LogTypeDetection(
+        number: number,
+        promptIndex: candidate.key,
+        prompt: candidate.value,
+        type: 'insertion',
+        reason: 'contains inserted sentence prompt',
+      );
+    }
+  }
+  for (final candidate in candidates) {
+    if (_q2LooksLikeIrrelevantPrompt(candidate.value)) {
+      debugPrint(
+        '[IrrelevantDetect] no=$number detected=true reason=prompt-pattern',
+      );
+      return _q2LogTypeDetection(
+        number: number,
+        promptIndex: candidate.key,
+        prompt: candidate.value,
+        type: 'irrelevant',
+        reason: 'contains unrelated sentence prompt',
+      );
+    }
+  }
+  if (_q2LooksLikeIrrelevantFallback(lines)) {
+    debugPrint(
+      '[IrrelevantDetect] no=$number detected=true reason=numbered-sentence-fallback',
+    );
+    return _q2LogTypeDetection(
+      number: number,
+      promptIndex: -1,
+      prompt: joined,
+      type: 'irrelevant',
+      reason: 'fallback unrelated sentence block',
+    );
+  }
+  for (final candidate in candidates) {
+    if (_q2LooksLikeOrderPrompt(candidate.value)) {
+      return _q2LogTypeDetection(
+        number: number,
+        promptIndex: candidate.key,
+        prompt: candidate.value,
+        type: 'order',
+        reason: 'contains order prompt',
+      );
+    }
+  }
+  return const _Q2TypeDetection(
+      type: '', promptIndex: -1, prompt: '', reason: '');
+}
+
+_Q2TypeDetection _q2LogTypeDetection({
+  required int number,
+  required int promptIndex,
+  required String prompt,
+  required String type,
+  required String reason,
+}) {
+  debugPrint(
+    '[QuestionTypeDetect] no=$number prompt="${_qmPreview(prompt)}" '
+    'detected=$type reason=$reason',
+  );
+  if (type == 'insertion' || type == 'irrelevant') {
+    debugPrint('[OrderParserSkip] no=$number reason=detected $type');
+  }
+  return _Q2TypeDetection(
+    type: type,
+    promptIndex: promptIndex,
+    prompt: prompt,
+    reason: reason,
+  );
+}
+
+bool _q2LooksLikeAnySpecialPrompt(String line) {
+  return _q2LooksLikeInsertionPrompt(line) ||
+      _q2LooksLikeIrrelevantPrompt(line) ||
+      _q2LooksLikeOrderPrompt(line);
+}
+
+String _q2CompactKoreanPrompt(String line) {
+  return line.replaceAll(RegExp(r'\s+'), '');
+}
+
+String _q2LoosePromptKey(String line) {
+  return line
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z\u3131-\u318e\uac00-\ud7a3]'), '');
+}
+
+bool _q2LooksLikeInsertionPrompt(String line) {
+  final text = _q2CompactKoreanPrompt(line);
+  return text.contains('\uC0BD\uC785') ||
+      (text.contains('\uB4E4\uC5B4\uAC00\uAE30\uC5D0') &&
+          (text.contains('\uC8FC\uC5B4\uC9C4\uBB38\uC7A5') ||
+              text.contains('\uBB38\uC7A5')) &&
+          (text.contains('\uC801\uC808\uD55C\uACF3') ||
+              text.contains('\uAC00\uC7A5\uC801\uC808'))) ||
+      RegExp(r'insertion|insert(ed)? sentence', caseSensitive: false)
+          .hasMatch(line);
+}
+
+bool _q2LooksLikeIrrelevantPrompt(String line) {
+  final text = _q2CompactKoreanPrompt(line);
+  final loose = _q2LoosePromptKey(line);
+  final lower = line.toLowerCase();
+  final compactLower = text.toLowerCase();
+  return text.contains('\uBB34\uAD00\uD55C\uBB38\uC7A5') ||
+      (text.contains('\uBB34\uAD00') && text.contains('\uBB38\uC7A5')) ||
+      (text.contains('\uC804\uCCB4\uD750\uB984') &&
+          text.contains('\uAD00\uACC4') &&
+          text.contains('\uBB38\uC7A5')) ||
+      (text.contains('\uD750\uB984') &&
+          text.contains('\uAD00\uACC4') &&
+          text.contains('\uBB38\uC7A5')) ||
+      (text.contains('\uAD00\uACC4\uC5C6') && text.contains('\uBB38\uC7A5')) ||
+      (text.contains('\uAD00\uACC4\uC5C6\uB294') &&
+          text.contains('\uBB38\uC7A5')) ||
+      (loose.contains('\uC804\uCCB4\uD750\uB984') &&
+          loose.contains('\uAD00\uACC4') &&
+          loose.contains('\uBB38\uC7A5')) ||
+      (loose.contains('\uD750\uB984') &&
+          loose.contains('\uAD00\uACC4') &&
+          loose.contains('\uBB38\uC7A5')) ||
+      loose.contains('\uAD00\uACC4\uC5C6\uB294\uBB38\uC7A5') ||
+      (loose.contains('\uAD00\uACC4\uC5C6') &&
+          loose.contains('\uBB38\uC7A5')) ||
+      loose.contains('\uBB34\uAD00\uD55C\uBB38\uC7A5') ||
+      (compactLower.contains('irrelevant') &&
+          compactLower.contains('sentence')) ||
+      (compactLower.contains('unrelated') &&
+          compactLower.contains('sentence')) ||
+      RegExp(r'irrelevant|unrelated sentence|not related.*sentence',
+              caseSensitive: false)
+          .hasMatch(lower);
+}
+
+bool _q2LooksLikeIrrelevantFallback(List<String> lines) {
+  final joined = lines.join(' ');
+  if (!_q2LooksLikeIrrelevantPrompt(joined)) return false;
+  if (_q2HasOrderBlockMarkers(lines)) return false;
+
+  final markerCount = lines.where(_q2LooksLikeNumberedSentenceLine).length;
+  final answerRaw = _q2ExtractAnswerRawFull(lines).trim();
+  return markerCount >= 5 && answerRaw.isNotEmpty;
+}
+
+bool _q2LooksLikeNumberedSentenceLine(String line) {
+  final trimmed = line.trim();
+  return RegExp(r'^(?:[①②③④⑤⑥⑦⑧⑨⑩⑪⑫]|[1-9][\).]|[（(][1-9][）)])\s*')
+      .hasMatch(trimmed);
+}
+
+QuestionImportDraft _q2BuildUnsupportedSpecialQuestion(
+  List<String> lines, {
+  required int number,
+  required String source,
+  required _Q2TypeDetection detection,
+}) {
+  final answerInfo = _q2ExtractAnswer(lines);
+  final promptIndex = detection.promptIndex >= 0
+      ? detection.promptIndex
+      : _q2FindPromptIndex(lines, lines.length);
+  final extractedQuestionText =
+      promptIndex >= 0 ? _qmCleanBodyLine(lines[promptIndex]) : '';
+  final questionText = extractedQuestionText.trim().isNotEmpty
+      ? extractedQuestionText.trim()
+      : _q2UnsupportedFallbackPrompt(detection.type);
+  final passage = _q2ExtractActualPassage(
+    lines,
+    start: promptIndex >= 0 ? promptIndex + 1 : 0,
+    end: lines.indexWhere(_q2IsAnswerLine) == -1
+        ? lines.length
+        : lines.indexWhere(_q2IsAnswerLine),
+  );
+  final explanation = _q2ExtractOrderExplanation(lines);
+  debugPrint(
+    '[SpecialUnsupported] no=$number type=${detection.type} saveable=false',
+  );
+  return QuestionImportDraft(
+    questionNo: number,
+    source: source,
+    questionType: detection.type,
+    passage: passage,
+    questionText: questionText,
+    choices: const <String>[],
+    answerIndex: answerInfo.index,
+    answerRaw: answerInfo.raw,
+    explanation: explanation,
+    warnings: <String>[
+      'Unsupported type: ${detection.type}',
+    ],
+    isSpecialUnsupported: true,
+  );
+}
+
+String _q2UnsupportedFallbackPrompt(String type) {
+  if (type == 'insertion') {
+    return '\uAE00\uC758 \uD750\uB984\uC73C\uB85C \uBCF4\uC544, \uC8FC\uC5B4\uC9C4 \uBB38\uC7A5\uC774 \uB4E4\uC5B4\uAC00\uAE30\uC5D0 \uAC00\uC7A5 \uC801\uC808\uD55C \uACF3\uC740?';
+  }
+  if (type == 'irrelevant' || type == 'unrelated_sentence') {
+    return '\uB2E4\uC74C \uAE00\uC5D0\uC11C \uC804\uCCB4 \uD750\uB984\uACFC \uAD00\uACC4\uC5C6\uB294 \uBB38\uC7A5\uB294?';
+  }
+  return '';
+}
+
+int _q2OrderContentEnd(List<String> lines, int start) {
+  for (var index = start + 1; index < lines.length; index++) {
+    final line = lines[index].trim();
+    if (_q2IsAnswerLine(line) ||
+        _q2IsExplanationLine(line) ||
+        _q2IsVocabularyLine(line) ||
+        _qmQuestionNumberFromLine(line) != null ||
+        _q2IsSourceLine(line)) {
+      return index;
+    }
+  }
+  return lines.length;
+}
+
+RegExpMatch? _q2OrderBlockMatch(String line) {
+  return RegExp(r'^\s*[\(（]?([A-Ea-e])[\)）]\s*(.*)$').firstMatch(line.trim());
+}
+
+bool _q2LooksLikeOrderPrompt(String line) {
+  final clean = line.replaceAll(RegExp(r'\s+'), ' ').trim();
+  return clean.contains('순서') ||
+      clean.contains('배열') ||
+      RegExp(r'order|arrange|sequence', caseSensitive: false).hasMatch(clean);
+}
+
+String _q2CleanOrderBodyLine(String line) {
+  var clean = _qmCleanBodyLine(line).trim();
+  if (clean.isEmpty) return '';
+  if (_q2IsSourceLine(clean) ||
+      _q2IsControlLine(clean) ||
+      _q2LooksLikeOrderPrompt(clean)) {
+    return '';
+  }
+  if (_q2ParseChoiceLine(clean) != null) return '';
+  return clean;
+}
+
+String _q2ExtractAnswerRawFull(List<String> lines) {
+  for (var index = 0; index < lines.length; index++) {
+    final line = lines[index].trim();
+    final match = RegExp(r'^\[?\s*정답\s*\]?[:：]?\s*(.*)$').firstMatch(line);
+    if (match == null) continue;
+    var raw = (match.group(1) ?? '').trim();
+    raw = raw.replaceAll(RegExp(r'\[?\s*정답\s*\]?[:：]?'), '').trim();
+    if (raw.isEmpty && index + 1 < lines.length) raw = lines[index + 1].trim();
+    return raw.split(RegExp(r'\[?\s*(해설|해석)\s*\]?')).first.trim();
+  }
+  return '';
+}
+
+List<String> _q2ParseOrderAnswer(String raw) {
+  final matches = RegExp(r'[\(（]?([A-Ea-e])[\)）]?').allMatches(raw);
+  final labels = <String>[];
+  for (final match in matches) {
+    final label = (match.group(1) ?? '').toUpperCase();
+    if (label.isNotEmpty) labels.add(label);
+  }
+  return labels;
+}
+
+String _q2ExtractOrderExplanation(List<String> lines) {
+  final start = lines.indexWhere(_q2IsExplanationLine);
+  if (start == -1) return '';
+  final items = <String>[];
+  for (var index = start; index < lines.length; index++) {
+    var line = lines[index].trim();
+    if (index == start) {
+      line =
+          line.replaceFirst(RegExp(r'^\[?\s*(해설|해석)\s*\]?[:：]?\s*'), '').trim();
+    }
+    if (_q2IsAnswerLine(line) || _q2IsVocabularyLine(line)) break;
+    if (line.isNotEmpty) items.add(line);
+  }
+  return items.join('\n').trim();
 }
 
 String _q2ExtractExplanation(
@@ -879,6 +1507,20 @@ void _qmDebugQuestions(List<QuestionImportDraft> questions) {
       'warnings=${question.warnings.length}',
     );
   }
+}
+
+class _Q2TypeDetection {
+  const _Q2TypeDetection({
+    required this.type,
+    required this.promptIndex,
+    required this.prompt,
+    required this.reason,
+  });
+
+  final String type;
+  final int promptIndex;
+  final String prompt;
+  final String reason;
 }
 
 class _QmQuestionBlock {
