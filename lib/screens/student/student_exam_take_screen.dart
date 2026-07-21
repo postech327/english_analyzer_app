@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import '../../services/student_exam_service.dart';
 import 'student_exam_result_screen.dart';
@@ -35,11 +37,70 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
 
   /// 문제별 선택값 저장 question_id 기준
   Map<int, int> selectedAnswers = {};
+  Map<int, List<String>> orderAnswers = {};
 
   int _asInt(dynamic value) {
     if (value is int) return value;
     if (value is double) return value.toInt();
     return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  Map<String, dynamic> _specialData(Map<String, dynamic> question) {
+    final value = question['special_data'] ?? question['specialData'];
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
+    final raw = question['special_data_json']?.toString().trim() ?? '';
+    if (raw.isEmpty || raw == 'null') return <String, dynamic>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+    return <String, dynamic>{};
+  }
+
+  bool _isOrderQuestion(
+    Map<String, dynamic> question, [
+    Map<String, dynamic>? specialData,
+  ]) {
+    final type = (question['question_type'] ?? '').toString().toLowerCase();
+    final data = specialData ?? _specialData(question);
+    return type == 'order' || data['kind']?.toString().toLowerCase() == 'order';
+  }
+
+  Map<String, String> _orderBlocks(Map<String, dynamic> specialData) {
+    final rawBlocks = specialData['blocks'];
+    if (rawBlocks is! Map) return const <String, String>{};
+    final entries = rawBlocks.entries
+        .map((entry) => MapEntry(entry.key.toString(), entry.value.toString()))
+        .where((entry) =>
+            entry.key.trim().isNotEmpty && entry.value.trim().isNotEmpty)
+        .toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    return Map<String, String>.fromEntries(entries);
+  }
+
+  bool _isQuestionAnswered(Map<String, dynamic> question) {
+    final qId = _asInt(question['question_id'] ?? question['id']);
+    final specialData = _specialData(question);
+    if (_isOrderQuestion(question, specialData)) {
+      final blocks = _orderBlocks(specialData);
+      final selected = orderAnswers[qId] ?? const <String>[];
+      return blocks.isNotEmpty && selected.length == blocks.length;
+    }
+    return selectedAnswers.containsKey(qId);
+  }
+
+  int _answeredCount(List questions) {
+    var count = 0;
+    for (final item in questions) {
+      if (item is Map && _isQuestionAnswered(Map<String, dynamic>.from(item))) {
+        count++;
+      }
+    }
+    return count;
   }
 
   String _questionPassage(
@@ -201,23 +262,17 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
 
     final questions = (_questionSet!['questions'] ?? []) as List;
 
-    /// 모든 문제 선택 체크
-    if (selectedAnswers.length != questions.length) {
-      final unanswered = <int>[];
+    final unanswered = <int>[];
+    for (int i = 0; i < questions.length; i++) {
+      final q = Map<String, dynamic>.from(questions[i] as Map);
+      if (!_isQuestionAnswered(q)) unanswered.add(i + 1);
+    }
 
-      for (int i = 0; i < questions.length; i++) {
-        final q = questions[i];
-        final qId = _asInt(q['question_id'] ?? q['id']);
-
-        if (!selectedAnswers.containsKey(qId)) {
-          unanswered.add(i + 1);
-        }
-      }
-
+    if (unanswered.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '아직 선택하지 않은 문제가 있습니다: ${unanswered.join(", ")}번',
+            '\uC544\uC9C1 \uC120\uD0DD\uD558\uC9C0 \uC54A\uC740 \uBB38\uC81C\uAC00 \uC788\uC2B5\uB2C8\uB2E4: ${unanswered.join(", ")}\uBC88',
           ),
         ),
       );
@@ -229,16 +284,29 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     });
 
     try {
+      final answers = <Map<String, dynamic>>[];
+      for (final item in questions) {
+        final q = Map<String, dynamic>.from(item as Map);
+        final qId = _asInt(q['question_id'] ?? q['id']);
+        final specialData = _specialData(q);
+        if (_isOrderQuestion(q, specialData)) {
+          final answerText = (orderAnswers[qId] ?? const <String>[]).join('-');
+          debugPrint('[StudentOrderAnswer] q=$qId selected=$answerText');
+          answers.add({
+            'question_id': qId,
+            'answer_text': answerText,
+          });
+        } else {
+          answers.add({
+            'question_id': qId,
+            'selected_index': selectedAnswers[qId],
+          });
+        }
+      }
+
       final result = await StudentExamService.submitExam(
         problemSetId: widget.problemSetId,
-        answers: selectedAnswers.entries
-            .map(
-              (e) => {
-                "question_id": e.key,
-                "selected_index": e.value,
-              },
-            )
-            .toList(),
+        answers: answers,
       );
 
       if (!mounted) return;
@@ -257,7 +325,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('시험 제출 실패: $e')),
+        SnackBar(content: Text('\uC2DC\uD5D8 \uC81C\uCD9C \uC2E4\uD328: $e')),
       );
     } finally {
       if (mounted) {
@@ -268,8 +336,6 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     }
   }
 
-  /// 현재 문제에 보여줄 지문
-  /// 다음 단계에서 cloze/order/insertion 유형별 전용 지문 표시를 여기서 처리하면 됨.
   String _buildDisplayPassage({
     required String passage,
     required Map<String, dynamic> question,
@@ -1091,7 +1157,10 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
 
     final qId = _asInt(currentQuestion['question_id'] ?? currentQuestion['id']);
     final options = (currentQuestion['options'] ?? []) as List;
+    final specialData = _specialData(currentQuestion);
+    final bool isOrder = _isOrderQuestion(currentQuestion, specialData);
     final selectedIndex = selectedAnswers[qId];
+    final answeredTotal = _answeredCount(questions);
 
     final bool isFirst = currentIndex == 0;
     final bool isLast = currentIndex == questions.length - 1;
@@ -1100,10 +1169,12 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
       currentQuestion,
       fallbackPassage: passage,
     );
-    final displayPassage = _buildDisplayPassage(
-      passage: questionPassage,
-      question: currentQuestion,
-    );
+    final displayPassage = isOrder
+        ? ''
+        : _buildDisplayPassage(
+            passage: questionPassage,
+            question: currentQuestion,
+          );
     final rawPrompt =
         (currentQuestion['question_text'] ?? currentQuestion['text'] ?? '')
             .toString();
@@ -1138,6 +1209,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
           _buildProgressHeader(
             current: currentIndex + 1,
             total: questions.length,
+            answered: answeredTotal,
           ),
           _buildQuestionNavigator(questions),
           Expanded(
@@ -1151,20 +1223,27 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                     questionNumber: currentIndex + 1,
                   ),
                   const SizedBox(height: 14),
-                  _buildPassageCard(
-                    passage: displayPassage,
-                    questionType:
-                        (currentQuestion['question_type'] ?? '').toString(),
-                    underlineTarget: underlineTarget,
-                  ),
-                  const SizedBox(height: 14),
-                  _buildOptionsCard(
-                    questionType:
-                        (currentQuestion['question_type'] ?? '').toString(),
-                    options: options,
-                    selectedIndex: selectedIndex,
-                    qId: qId,
-                  ),
+                  if (isOrder)
+                    _buildOrderAnswerCard(
+                      qId: qId,
+                      specialData: specialData,
+                    )
+                  else ...[
+                    _buildPassageCard(
+                      passage: displayPassage,
+                      questionType:
+                          (currentQuestion['question_type'] ?? '').toString(),
+                      underlineTarget: underlineTarget,
+                    ),
+                    const SizedBox(height: 14),
+                    _buildOptionsCard(
+                      questionType:
+                          (currentQuestion['question_type'] ?? '').toString(),
+                      options: options,
+                      selectedIndex: selectedIndex,
+                      qId: qId,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1182,6 +1261,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   Widget _buildProgressHeader({
     required int current,
     required int total,
+    required int answered,
   }) {
     final double progress = total == 0 ? 0 : current / total;
 
@@ -1278,10 +1358,10 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
         alignment: WrapAlignment.center,
         children: List.generate(questions.length, (index) {
           final q = questions[index];
-          final qId = _asInt(q['question_id'] ?? q['id']);
 
           final bool isCurrent = index == currentIndex;
-          final bool isAnswered = selectedAnswers.containsKey(qId);
+          final bool isAnswered =
+              _isQuestionAnswered(Map<String, dynamic>.from(q as Map));
 
           Color backgroundColor;
           Color textColor;
@@ -1617,6 +1697,209 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     );
   }
 
+  Widget _buildOrderAnswerCard({
+    required int qId,
+    required Map<String, dynamic> specialData,
+  }) {
+    final blocks = _orderBlocks(specialData);
+    final selected = orderAnswers[qId] ?? const <String>[];
+    final fixedStart = (specialData['fixed_start'] ?? '').toString().trim();
+    final fixedEnd = (specialData['fixed_end'] ?? '').toString().trim();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _line),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '\uC21C\uC11C \uBC30\uC5F4',
+              style: TextStyle(
+                color: _ink,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'A, B, C \uBE14\uB85D\uC744 \uC62C\uBC14\uB978 \uC21C\uC11C\uB300\uB85C \uB20C\uB7EC \uBC30\uC5F4\uD558\uC138\uC694.',
+              style: TextStyle(
+                color: _muted,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (fixedStart.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              _buildOrderTextBox(
+                  label: '\uC8FC\uC5B4\uC9C4 \uAE00', text: fixedStart),
+            ],
+            const SizedBox(height: 14),
+            ...blocks.entries.map((entry) {
+              final selectedOrder = selected.indexOf(entry.key);
+              final isSelected = selectedOrder >= 0;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(18),
+                  onTap: () => _toggleOrderBlock(qId, entry.key, blocks.length),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color:
+                          isSelected ? const Color(0xFFEFF6FF) : Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: isSelected ? _blue : _line,
+                        width: isSelected ? 1.6 : 1,
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 36,
+                          height: 36,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: isSelected ? _blue : const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(12),
+                            border:
+                                Border.all(color: isSelected ? _blue : _line),
+                          ),
+                          child: Text(
+                            isSelected
+                                ? '${selectedOrder + 1}'
+                                : '(${entry.key})',
+                            style: TextStyle(
+                              color: isSelected ? Colors.white : _blue,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: SelectableText(
+                            entry.value,
+                            style: const TextStyle(
+                              color: _ink,
+                              fontSize: 15.5,
+                              height: 1.58,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+            if (fixedEnd.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              _buildOrderTextBox(
+                  label: '\uB9C8\uBB34\uB9AC \uAE00', text: fixedEnd),
+            ],
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    selected.isEmpty
+                        ? '\uC120\uD0DD\uD55C \uC21C\uC11C: -'
+                        : '\uC120\uD0DD\uD55C \uC21C\uC11C: ${selected.join('-')}',
+                    style: const TextStyle(
+                      color: _ink,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: selected.isEmpty
+                      ? null
+                      : () {
+                          setState(() => orderAnswers.remove(qId));
+                          debugPrint('[StudentOrderAnswer] q=$qId selected=');
+                        },
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('\uCD08\uAE30\uD654'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOrderTextBox({required String label, required String text}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _line),
+      ),
+      child: SelectableText.rich(
+        TextSpan(
+          children: [
+            TextSpan(
+              text: '$label\n',
+              style: const TextStyle(
+                color: _blue,
+                fontSize: 12,
+                height: 1.55,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            TextSpan(
+              text: text,
+              style: const TextStyle(
+                color: _ink,
+                fontSize: 15.5,
+                height: 1.62,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _toggleOrderBlock(int qId, String label, int totalBlocks) {
+    final current = List<String>.from(orderAnswers[qId] ?? const <String>[]);
+    if (current.contains(label)) {
+      current.remove(label);
+    } else if (current.length < totalBlocks) {
+      current.add(label);
+    }
+    setState(() {
+      if (current.isEmpty) {
+        orderAnswers.remove(qId);
+      } else {
+        orderAnswers[qId] = current;
+      }
+    });
+    debugPrint('[StudentOrderAnswer] q=$qId selected=${current.join('-')}');
+  }
+
   Widget _buildOptionsCard({
     required String questionType,
     required List options,
@@ -1808,16 +2091,6 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     required String questionType,
     required List options,
   }) {
-    if (questionType == 'order') {
-      return const [
-        '? (A)-(C)-(B)',
-        '? (B)-(A)-(C)',
-        '? (B)-(C)-(A)',
-        '? (C)-(A)-(B)',
-        '? (C)-(B)-(A)',
-      ];
-    }
-
     if (questionType == 'insertion') {
       return const ['?', '?', '?', '?', '?'];
     }
