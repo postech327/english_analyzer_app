@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import '../../services/student_exam_service.dart';
+import '../../utils/insertion_display_prompt.dart';
 import 'student_exam_result_screen.dart';
 
 class StudentExamTakeScreen extends StatefulWidget {
@@ -39,6 +40,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   Map<int, int> selectedAnswers = {};
   Map<int, List<String>> orderAnswers = {};
   Map<int, int> insertionAnswers = {};
+  Map<int, Map<String, int>> multipleInsertionAnswers = {};
 
   int _asInt(dynamic value) {
     if (value is int) return value;
@@ -94,6 +96,23 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     return Map<String, String>.fromEntries(entries);
   }
 
+  bool _isMultipleInsertion(Map<String, dynamic> specialData) =>
+      (specialData['mode'] ?? '').toString().trim().toLowerCase() == 'multiple';
+
+  Map<String, String> _multipleInsertionSentences(
+    Map<String, dynamic> specialData,
+  ) {
+    final raw = specialData['insert_sentences'];
+    if (raw is! Map) return const <String, String>{};
+    final entries = raw.entries
+        .map((entry) => MapEntry(entry.key.toString(), entry.value.toString()))
+        .where((entry) =>
+            entry.key.trim().isNotEmpty && entry.value.trim().isNotEmpty)
+        .toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    return Map<String, String>.fromEntries(entries);
+  }
+
   bool _isQuestionAnswered(Map<String, dynamic> question) {
     final qId = _asInt(question['question_id'] ?? question['id']);
     final specialData = _specialData(question);
@@ -103,6 +122,11 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
       return blocks.isNotEmpty && selected.length == blocks.length;
     }
     if (_isInsertionQuestion(question, specialData)) {
+      if (_isMultipleInsertion(specialData)) {
+        final labels = _multipleInsertionSentences(specialData).keys;
+        final selected = multipleInsertionAnswers[qId] ?? const <String, int>{};
+        return labels.isNotEmpty && labels.every(selected.containsKey);
+      }
       return insertionAnswers.containsKey(qId);
     }
     return selectedAnswers.containsKey(qId);
@@ -312,7 +336,9 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
             'answer_text': answerText,
           });
         } else if (_isInsertionQuestion(q, specialData)) {
-          final answerText = '${insertionAnswers[qId]}';
+          final answerText = _isMultipleInsertion(specialData)
+              ? _multipleInsertionAnswerText(qId, specialData)
+              : '${insertionAnswers[qId]}';
           debugPrint('[StudentInsertionAnswer] q=$qId selected=$answerText');
           answers.add({
             'question_id': qId,
@@ -498,6 +524,15 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
         (specialData['insert_sentence'] ?? '').toString().trim();
     final passageWithPositions =
         (specialData['passage_with_positions'] ?? '').toString().trim();
+    final insertSentences = _multipleInsertionSentences(specialData);
+    if (_isMultipleInsertion(specialData) &&
+        insertSentences.isNotEmpty &&
+        passageWithPositions.isNotEmpty) {
+      final given = insertSentences.entries
+          .map((entry) => '(${entry.key}) ${entry.value}')
+          .join('\n');
+      return '$given\n\n$passageWithPositions';
+    }
     if (insertSentence.isNotEmpty && passageWithPositions.isNotEmpty) {
       return '$insertSentence\n\n$passageWithPositions';
     }
@@ -940,16 +975,26 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   String _buildQuestionText(Map<String, dynamic> question) {
     final questionType =
         (question['question_type'] ?? '').toString().toLowerCase();
+    final specialData = _specialData(question);
+    final insertionMode =
+        (specialData['mode'] ?? '').toString().trim().toLowerCase();
     final rawPrompt =
         (question['question_text'] ?? question['text'] ?? '').toString().trim();
 
     final extracted = _extractStudentQuestionPrompt(rawPrompt);
     final fallback = _fallbackPromptForType(questionType);
-    final finalPrompt = extracted.isNotEmpty ? extracted : fallback;
+    final isInsertion = questionType == 'insertion' ||
+        specialData['kind']?.toString().trim().toLowerCase() == 'insertion';
+    final finalPrompt = isInsertion
+        ? insertionDisplayPromptForMode(insertionMode)
+        : extracted.isNotEmpty
+            ? extracted
+            : fallback;
 
     debugPrint(
       '[StudentDisplayCleanup] q=${question['question_id'] ?? question['id']} '
-      'type=$questionType rawPrompt="${_shortLog(rawPrompt)}" '
+      'type=$questionType mode=$insertionMode '
+      'rawPrompt="${_shortLog(rawPrompt)}" '
       'finalPrompt="${_shortLog(finalPrompt)}"',
     );
 
@@ -1560,6 +1605,10 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
       if (parts.length >= 2) {
         final givenSentence = parts.first.trim();
         final body = parts.skip(1).join('\n\n').trim();
+        final isMultiple = RegExp(r'^\s*\([A-E]\)', multiLine: true)
+                .allMatches(givenSentence)
+                .length >=
+            2;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1575,9 +1624,9 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
               child: SelectableText.rich(
                 TextSpan(
                   children: [
-                    const TextSpan(
-                      text: '주어진 문장\n',
-                      style: TextStyle(
+                    TextSpan(
+                      text: '${isMultiple ? '주어진 문장들' : '주어진 문장'}\n',
+                      style: const TextStyle(
                         color: _blue,
                         fontSize: 13,
                         fontWeight: FontWeight.w800,
@@ -1949,6 +1998,13 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     required Map<String, dynamic> specialData,
   }) {
     final positions = _insertionPositions(specialData);
+    if (_isMultipleInsertion(specialData)) {
+      return _buildMultipleInsertionAnswerCard(
+        qId: qId,
+        specialData: specialData,
+        positions: positions,
+      );
+    }
     final selected = insertionAnswers[qId];
 
     return Container(
@@ -2020,6 +2076,119 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildMultipleInsertionAnswerCard({
+    required int qId,
+    required Map<String, dynamic> specialData,
+    required List<int> positions,
+  }) {
+    final sentences = _multipleInsertionSentences(specialData);
+    final selected = multipleInsertionAnswers[qId] ?? const <String, int>{};
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _line),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '문장별 위치 선택',
+            style: TextStyle(
+              color: _ink,
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '각 문장이 들어갈 위치를 모두 선택하세요.',
+            style: TextStyle(
+              color: _muted,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 16),
+          for (final entry in sentences.entries) ...[
+            Text(
+              '${entry.key}:',
+              style: const TextStyle(
+                color: _ink,
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final position in positions)
+                  ChoiceChip(
+                    label: Text(_circledPosition(position)),
+                    selected: selected[entry.key] == position,
+                    onSelected: (_) {
+                      setState(() {
+                        final next = Map<String, int>.from(
+                          multipleInsertionAnswers[qId] ??
+                              const <String, int>{},
+                        );
+                        next[entry.key] = position;
+                        multipleInsertionAnswers[qId] = next;
+                      });
+                      debugPrint(
+                        '[StudentInsertionAnswer] q=$qId selected=${_multipleInsertionAnswerText(qId, specialData)}',
+                      );
+                    },
+                    selectedColor: const Color(0xFFEFF6FF),
+                    backgroundColor: Colors.white,
+                    labelStyle: TextStyle(
+                      color: selected[entry.key] == position ? _blue : _ink,
+                      fontWeight: FontWeight.w900,
+                    ),
+                    side: BorderSide(
+                      color: selected[entry.key] == position ? _blue : _line,
+                      width: selected[entry.key] == position ? 1.6 : 1,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _multipleInsertionAnswerText(
+    int qId,
+    Map<String, dynamic> specialData,
+  ) {
+    final labels = _multipleInsertionSentences(specialData).keys.toList()
+      ..sort();
+    final selected = multipleInsertionAnswers[qId] ?? const <String, int>{};
+    return labels
+        .where(selected.containsKey)
+        .map((label) => '$label:${selected[label]}')
+        .join(',');
+  }
+
+  String _circledPosition(int position) {
+    const labels = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨'];
+    return position >= 1 && position <= labels.length
+        ? labels[position - 1]
+        : '$position';
   }
 
   List<int> _insertionPositions(Map<String, dynamic> specialData) {
