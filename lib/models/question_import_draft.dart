@@ -29,21 +29,51 @@ class QuestionImportDraft {
   final List<String> warnings;
   final bool isSpecialUnsupported;
 
-  bool get isSaveable {
+  bool get isSaveable => saveabilityReason == 'ok';
+
+  String get saveabilityReason {
     final normalizedType = questionType.trim().toLowerCase();
     if (isSpecialUnsupported || normalizedType.isEmpty) {
-      return false;
+      return isSpecialUnsupported ? 'unsupported' : 'missing_type';
     }
-    if (normalizedType == 'insertion' ||
-        normalizedType == 'irrelevant' ||
+    if (normalizedType == 'irrelevant' ||
         normalizedType == 'unrelated_sentence') {
-      return false;
+      return 'unsupported';
     }
     if (questionText.trim().isEmpty) {
-      return false;
+      return 'missing_question_text';
     }
 
     final special = specialData;
+    if (normalizedType == 'insertion') {
+      if (special == null || special.isEmpty) return 'missing_special_data';
+      final kind = special['kind']?.toString().trim().toLowerCase();
+      if (kind != 'insertion') return 'not_insertion_kind';
+      final mode = (special['mode'] ?? '').toString().trim().toLowerCase();
+      final insertSentence =
+          (special['insert_sentence'] ?? '').toString().trim();
+      final passageWithPositions =
+          (special['passage_with_positions'] ?? '').toString().trim();
+      final positions = special['positions'];
+      final answerPosition = special['answer_position'];
+      final positionCount = positions is List ? positions.length : 0;
+      if (mode != 'single') return 'not_single_mode';
+      if (insertSentence.isEmpty) return 'missing_insert_sentence';
+      if (passageWithPositions.isEmpty) {
+        return 'missing_passage_with_positions';
+      }
+      if (positionCount == 0) return 'positions_empty';
+      if (positionCount < 2) return 'not_enough_positions';
+      if (answerPosition == null) return 'missing_answer_position';
+      if ((answerText ?? '').trim().isEmpty) return 'missing_answer_text';
+      if (warnings.isNotEmpty) return 'has_warnings';
+      return 'ok';
+    }
+
+    if (normalizedType == 'order' && (special == null || special.isEmpty)) {
+      return 'missing_special_data';
+    }
+
     if (special != null && special.isNotEmpty) {
       final kind = special['kind']?.toString().trim().toLowerCase();
       if (kind == 'order' || normalizedType == 'order') {
@@ -51,19 +81,24 @@ class QuestionImportDraft {
         final answerOrder = special['answer_order'];
         final blockCount = blocks is Map ? blocks.length : 0;
         final answerCount = answerOrder is List ? answerOrder.length : 0;
-        return normalizedType == 'order' &&
-            (special['fixed_start'] ?? '').toString().trim().isNotEmpty &&
-            blockCount >= 3 &&
-            answerCount == blockCount &&
-            (answerText ?? '').trim().isNotEmpty;
+        if (normalizedType != 'order') return 'not_order_type';
+        if ((special['fixed_start'] ?? '').toString().trim().isEmpty) {
+          return 'missing_fixed_start';
+        }
+        if (blockCount < 3) return 'not_enough_order_blocks';
+        if (answerCount != blockCount) return 'answer_block_count_mismatch';
+        if ((answerText ?? '').trim().isEmpty) return 'missing_answer_text';
+        return 'ok';
       }
-      return true;
+      return 'ok';
     }
 
-    return choices.length >= 2 &&
-        answerIndex != null &&
-        answerIndex! >= 0 &&
-        answerIndex! < choices.length;
+    if (choices.length < 2) return 'not_enough_choices';
+    if (answerIndex == null) return 'missing_answer_index';
+    if (answerIndex! < 0 || answerIndex! >= choices.length) {
+      return 'answer_index_out_of_range';
+    }
+    return 'ok';
   }
 
   QuestionImportDraft copyWith({

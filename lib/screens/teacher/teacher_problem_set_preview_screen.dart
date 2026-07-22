@@ -368,7 +368,9 @@ class _QuestionCard extends StatelessWidget {
     final specialData = _specialData(q);
     final isOrder = type.trim().toLowerCase() == 'order' ||
         specialData['kind']?.toString() == 'order';
-    final text = isOrder
+    final isInsertion = type.trim().toLowerCase() == 'insertion' ||
+        specialData['kind']?.toString() == 'insertion';
+    final text = isOrder || isInsertion
         ? _teacherPreviewQuestionText(rawText, type, specialData)
         : rawText;
     final answerIndex = _asInt(q['answer_index']);
@@ -377,10 +379,15 @@ class _QuestionCard extends StatelessWidget {
             ? options[answerIndex]
             : _firstCorrectOption(options);
     final orderAnswerLabel = _orderAnswerSummary(q, specialData);
-    final answerLabel =
-        isOrder ? orderAnswerLabel : _answerSummary(answerOption, answerIndex);
-    final answerChipLabel =
-        isOrder && answerLabel.isNotEmpty ? 'answer $answerLabel' : answerLabel;
+    final insertionAnswerLabel = _insertionAnswerSummary(q, specialData);
+    final answerLabel = isOrder
+        ? orderAnswerLabel
+        : isInsertion
+            ? insertionAnswerLabel
+            : _answerSummary(answerOption, answerIndex);
+    final answerChipLabel = (isOrder || isInsertion) && answerLabel.isNotEmpty
+        ? 'answer $answerLabel'
+        : answerLabel;
     final orderBlocks = _orderBlocks(specialData);
 
     return Card(
@@ -469,6 +476,25 @@ class _QuestionCard extends StatelessWidget {
                 _SectionBlock(
                   label: '이어질 글',
                   child: SelectableText(_firstText([specialData['fixed_end']])),
+                ),
+            ] else if (isInsertion) ...[
+              if (_firstText([specialData['insert_sentence']]).isNotEmpty)
+                _SectionBlock(
+                  label: '\uC8FC\uC5B4\uC9C4 \uBB38\uC7A5',
+                  child: SelectableText(
+                    _firstText([specialData['insert_sentence']]),
+                  ),
+                ),
+              if (_firstText([specialData['passage_with_positions'], passage])
+                  .isNotEmpty)
+                _SectionBlock(
+                  label: '\uBCF8\uBB38',
+                  child: SelectableText(
+                    _firstText([
+                      specialData['passage_with_positions'],
+                      passage,
+                    ]),
+                  ),
                 ),
             ] else ...[
               if (passage.isNotEmpty)
@@ -804,6 +830,22 @@ String _orderAnswerSummary(
   return '';
 }
 
+String _insertionAnswerSummary(
+  Map<String, dynamic> q,
+  Map<String, dynamic> specialData,
+) {
+  final direct = _firstText([q['answer_text'], specialData['answer_text']]);
+  if (direct.isNotEmpty) return _cleanInsertionAnswerText(direct);
+  final position = specialData['answer_position'];
+  if (position != null) return _cleanInsertionAnswerText(position.toString());
+  return '';
+}
+
+String _cleanInsertionAnswerText(String raw) {
+  final digit = RegExp(r'[1-9]').firstMatch(raw)?.group(0);
+  return digit ?? raw.trim();
+}
+
 String _teacherPreviewQuestionText(
   String raw,
   String type,
@@ -829,8 +871,27 @@ String _stripLeadingAnswerLeak(String raw) {
   var text = raw.replaceAll('\r\n', '\n').trim();
   if (text.isEmpty) return '';
 
+  final bracketedAnswerPattern = RegExp(
+    '^\\s*\\[[^\\]]*(?:\\uC815\\uB2F5|\\uB2F5|answer)[^\\]]*\\]\\s*',
+    caseSensitive: false,
+  );
+  final answerPrefixPattern = RegExp(
+    '^\\s*(?:\\uC815\\uB2F5|\\uB2F5|answer)\\s*[:：>▶\\-]?\\s*',
+    caseSensitive: false,
+  );
+  const circledDigits =
+      '\u2460\u2461\u2462\u2463\u2464\u2465\u2466\u2467\u2468';
+  final leadingAnswerNumberPattern = RegExp(
+    '^\\s*(?:[\\(（\\[]?\\s*[$circledDigits]\\s*[\\)）\\]]?\\s*|'
+    '[\\(（\\[]?\\s*[1-9]\\s*[\\)）\\].:]\\s*|'
+    '[1-9]\\s+)',
+  );
+
   for (var i = 0; i < 3; i++) {
     final before = text;
+    text = text.replaceFirst(bracketedAnswerPattern, '');
+    text = text.replaceFirst(answerPrefixPattern, '');
+    text = text.replaceFirst(leadingAnswerNumberPattern, '');
     text = text.replaceFirst(
       RegExp(
         r'^\s*\[[^\]]*(?:정답|답|answer|뺣떟)[^\]]*\]\s*',

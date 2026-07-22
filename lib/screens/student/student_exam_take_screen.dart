@@ -38,6 +38,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   /// 문제별 선택값 저장 question_id 기준
   Map<int, int> selectedAnswers = {};
   Map<int, List<String>> orderAnswers = {};
+  Map<int, int> insertionAnswers = {};
 
   int _asInt(dynamic value) {
     if (value is int) return value;
@@ -70,6 +71,17 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     return type == 'order' || data['kind']?.toString().toLowerCase() == 'order';
   }
 
+  bool _isInsertionQuestion(
+    Map<String, dynamic> question, [
+    Map<String, dynamic>? specialData,
+  ]) {
+    final type =
+        (question['question_type'] ?? '').toString().trim().toLowerCase();
+    final data = specialData ?? _specialData(question);
+    return type == 'insertion' ||
+        data['kind']?.toString().trim().toLowerCase() == 'insertion';
+  }
+
   Map<String, String> _orderBlocks(Map<String, dynamic> specialData) {
     final rawBlocks = specialData['blocks'];
     if (rawBlocks is! Map) return const <String, String>{};
@@ -89,6 +101,9 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
       final blocks = _orderBlocks(specialData);
       final selected = orderAnswers[qId] ?? const <String>[];
       return blocks.isNotEmpty && selected.length == blocks.length;
+    }
+    if (_isInsertionQuestion(question, specialData)) {
+      return insertionAnswers.containsKey(qId);
     }
     return selectedAnswers.containsKey(qId);
   }
@@ -296,6 +311,13 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
             'question_id': qId,
             'answer_text': answerText,
           });
+        } else if (_isInsertionQuestion(q, specialData)) {
+          final answerText = '${insertionAnswers[qId]}';
+          debugPrint('[StudentInsertionAnswer] q=$qId selected=$answerText');
+          answers.add({
+            'question_id': qId,
+            'answer_text': answerText,
+          });
         } else {
           answers.add({
             'question_id': qId,
@@ -471,6 +493,15 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     required String passage,
     required Map<String, dynamic> question,
   }) {
+    final specialData = _specialData(question);
+    final insertSentence =
+        (specialData['insert_sentence'] ?? '').toString().trim();
+    final passageWithPositions =
+        (specialData['passage_with_positions'] ?? '').toString().trim();
+    if (insertSentence.isNotEmpty && passageWithPositions.isNotEmpty) {
+      return '$insertSentence\n\n$passageWithPositions';
+    }
+
     final insertionText = (question['question_text'] ?? '').toString().trim();
 
     if (insertionText.isEmpty) {
@@ -1159,6 +1190,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     final options = (currentQuestion['options'] ?? []) as List;
     final specialData = _specialData(currentQuestion);
     final bool isOrder = _isOrderQuestion(currentQuestion, specialData);
+    final bool isInsertion = _isInsertionQuestion(currentQuestion, specialData);
     final selectedIndex = selectedAnswers[qId];
     final answeredTotal = _answeredCount(questions);
 
@@ -1228,7 +1260,19 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                       qId: qId,
                       specialData: specialData,
                     )
-                  else ...[
+                  else if (isInsertion) ...[
+                    _buildPassageCard(
+                      passage: displayPassage,
+                      questionType:
+                          (currentQuestion['question_type'] ?? '').toString(),
+                      underlineTarget: underlineTarget,
+                    ),
+                    const SizedBox(height: 14),
+                    _buildInsertionAnswerCard(
+                      qId: qId,
+                      specialData: specialData,
+                    ),
+                  ] else ...[
                     _buildPassageCard(
                       passage: displayPassage,
                       questionType:
@@ -1898,6 +1942,96 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
       }
     });
     debugPrint('[StudentOrderAnswer] q=$qId selected=${current.join('-')}');
+  }
+
+  Widget _buildInsertionAnswerCard({
+    required int qId,
+    required Map<String, dynamic> specialData,
+  }) {
+    final positions = _insertionPositions(specialData);
+    final selected = insertionAnswers[qId];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _line),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '\uC704\uCE58 \uC120\uD0DD',
+              style: TextStyle(
+                color: _ink,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '\uC8FC\uC5B4\uC9C4 \uBB38\uC7A5\uC774 \uB4E4\uC5B4\uAC08 \uC704\uCE58\uB97C \uD558\uB098 \uC120\uD0DD\uD558\uC138\uC694.',
+              style: TextStyle(
+                color: _muted,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final position in positions)
+                  ChoiceChip(
+                    label: Text('$position'),
+                    selected: selected == position,
+                    onSelected: (_) {
+                      setState(() {
+                        insertionAnswers[qId] = position;
+                      });
+                      debugPrint(
+                        '[StudentInsertionAnswer] q=$qId selected=$position',
+                      );
+                    },
+                    selectedColor: const Color(0xFFEFF6FF),
+                    backgroundColor: Colors.white,
+                    labelStyle: TextStyle(
+                      color: selected == position ? _blue : _ink,
+                      fontWeight: FontWeight.w900,
+                    ),
+                    side: BorderSide(
+                      color: selected == position ? _blue : _line,
+                      width: selected == position ? 1.6 : 1,
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<int> _insertionPositions(Map<String, dynamic> specialData) {
+    final raw = specialData['positions'];
+    if (raw is List) {
+      final parsed = raw
+          .map((item) => int.tryParse(item.toString()))
+          .whereType<int>()
+          .toList(growable: false);
+      if (parsed.isNotEmpty) return parsed;
+    }
+    return const [1, 2, 3, 4, 5];
   }
 
   Widget _buildOptionsCard({
