@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+
+import '../../utils/insertion_display_prompt.dart';
 import 'package:english_analyzer_app/services/teacher_problem_set_service.dart';
 import 'package:english_analyzer_app/widgets/problem_set_assignment_dialog.dart';
 
@@ -389,6 +391,7 @@ class _QuestionCard extends StatelessWidget {
         ? 'answer $answerLabel'
         : answerLabel;
     final orderBlocks = _orderBlocks(specialData);
+    final insertionSentences = _insertionSentences(specialData);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -478,7 +481,17 @@ class _QuestionCard extends StatelessWidget {
                   child: SelectableText(_firstText([specialData['fixed_end']])),
                 ),
             ] else if (isInsertion) ...[
-              if (_firstText([specialData['insert_sentence']]).isNotEmpty)
+              if (insertionSentences.isNotEmpty)
+                _SectionBlock(
+                  label: '주어진 문장들',
+                  child: Column(
+                    children: [
+                      for (final entry in insertionSentences.entries)
+                        _OrderBlockRow(label: entry.key, text: entry.value),
+                    ],
+                  ),
+                )
+              else if (_firstText([specialData['insert_sentence']]).isNotEmpty)
                 _SectionBlock(
                   label: '\uC8FC\uC5B4\uC9C4 \uBB38\uC7A5',
                   child: SelectableText(
@@ -817,6 +830,18 @@ Map<String, String> _orderBlocks(Map<String, dynamic> specialData) {
   return Map<String, String>.fromEntries(entries);
 }
 
+Map<String, String> _insertionSentences(Map<String, dynamic> specialData) {
+  final rawSentences = specialData['insert_sentences'];
+  if (rawSentences is! Map) return const <String, String>{};
+  final entries = rawSentences.entries
+      .map((entry) => MapEntry(entry.key.toString(), entry.value.toString()))
+      .where((entry) =>
+          entry.key.trim().isNotEmpty && entry.value.trim().isNotEmpty)
+      .toList()
+    ..sort((a, b) => a.key.compareTo(b.key));
+  return Map<String, String>.fromEntries(entries);
+}
+
 String _orderAnswerSummary(
   Map<String, dynamic> q,
   Map<String, dynamic> specialData,
@@ -835,10 +860,38 @@ String _insertionAnswerSummary(
   Map<String, dynamic> specialData,
 ) {
   final direct = _firstText([q['answer_text'], specialData['answer_text']]);
-  if (direct.isNotEmpty) return _cleanInsertionAnswerText(direct);
+  final mode = _firstText([specialData['mode']]).toLowerCase();
+  if (direct.isNotEmpty) {
+    return mode == 'multiple'
+        ? _cleanMultipleInsertionAnswerText(direct)
+        : _cleanInsertionAnswerText(direct);
+  }
+  final positions = specialData['answer_positions'];
+  if (positions is Map && positions.isNotEmpty) {
+    final entries = positions.entries.toList()
+      ..sort((a, b) => a.key.toString().compareTo(b.key.toString()));
+    return entries.map((entry) => '${entry.key}:${entry.value}').join(', ');
+  }
   final position = specialData['answer_position'];
   if (position != null) return _cleanInsertionAnswerText(position.toString());
   return '';
+}
+
+String _cleanMultipleInsertionAnswerText(String raw) {
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is Map) {
+      final entries = decoded.entries.toList()
+        ..sort((a, b) => a.key.toString().compareTo(b.key.toString()));
+      return entries.map((entry) => '${entry.key}:${entry.value}').join(', ');
+    }
+  } catch (_) {
+    // The canonical non-JSON form is handled below.
+  }
+  return raw
+      .replaceAll(RegExp(r'\s*,\s*'), ', ')
+      .replaceAll(RegExp(r'\s*:\s*'), ':')
+      .trim();
 }
 
 String _cleanInsertionAnswerText(String raw) {
@@ -851,6 +904,11 @@ String _teacherPreviewQuestionText(
   String type,
   Map<String, dynamic> specialData,
 ) {
+  final isInsertion = type.trim().toLowerCase() == 'insertion' ||
+      specialData['kind']?.toString().trim().toLowerCase() == 'insertion';
+  if (isInsertion) {
+    return insertionDisplayPromptForMode(specialData['mode']);
+  }
   final cleaned = _stripLeadingAnswerLeak(raw);
   if (cleaned.isNotEmpty) return cleaned;
   if (type.trim().toLowerCase() == 'order' ||

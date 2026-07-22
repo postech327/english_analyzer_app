@@ -13,7 +13,7 @@ ProblemSetImportDraft parseQuestionHwpxImportText(
   final normalized = _qmNormalizeText(rawText);
   final blocks = _qmSplitQuestionBlocks(normalized);
   debugPrint(
-    '[QuestionImportParser] normalizedLength=${normalized.length} legacy blocks=${blocks.length}',
+    '[QuestionImportParser] normalizedLength=${normalized.length} blocks=${blocks.length}',
   );
   final questions = <QuestionImportDraft>[
     for (var index = 0; index < blocks.length; index++)
@@ -234,27 +234,102 @@ List<_QmQuestionBlock> _qmSplitQuestionBlocks(String text) {
       .toList();
   if (lines.isEmpty) return const [];
 
-  final starts = <int>[];
+  final legacyStarts = <int>[];
   for (var index = 0; index < lines.length; index++) {
-    if (_qmIsLegacyBlockStart(lines, index)) starts.add(index);
+    if (_qmIsLegacyBlockStart(lines, index)) legacyStarts.add(index);
   }
-  if (starts.isEmpty) {
+  if (legacyStarts.isEmpty) {
     for (var index = 0; index < lines.length; index++) {
       if (_qmQuestionNumberFromLine(lines[index]) != null &&
           _qmNearbyHasAnswerLine(lines, index + 1)) {
-        starts.add(index);
+        legacyStarts.add(index);
       }
     }
   }
   final answerAnchorStarts = _qmAnswerAnchorStarts(lines);
-  if (answerAnchorStarts.length > starts.length) {
-    debugPrint(
-      '[QuestionImportParser] answer anchors used: ${starts.length} -> ${answerAnchorStarts.length}',
+  final initialStarts = answerAnchorStarts.length > legacyStarts.length
+      ? answerAnchorStarts
+      : legacyStarts;
+  final normalizedInitialStarts = _qmCollapseNearbyStarts(lines, initialStarts);
+  final numberedStarts = _qmNumberedPromptStarts(lines);
+  final starts = numberedStarts.isNotEmpty
+      ? numberedStarts.map((anchor) => anchor.index).toList()
+      : normalizedInitialStarts;
+  debugPrint(
+      '[QuestionImportParser] initialBlocks=${normalizedInitialStarts.length}');
+  if (numberedStarts.isNotEmpty) {
+    _qmLogMergedBoundaries(
+      lines: lines,
+      initialStarts: normalizedInitialStarts,
+      anchors: numberedStarts,
     );
-    starts
-      ..clear()
-      ..addAll(answerAnchorStarts);
+  } else if (answerAnchorStarts.length > legacyStarts.length) {
+    debugPrint(
+      '[QuestionImportParser] answer anchors fallback: '
+      '${legacyStarts.length} -> ${answerAnchorStarts.length}',
+    );
   }
+  if (starts.isEmpty) return [_QmQuestionBlock(number: 1, lines: lines)];
+
+  var blocks = <_QmQuestionBlock>[];
+  for (var i = 0; i < starts.length; i++) {
+    final start = starts[i];
+    final end = i + 1 < starts.length ? starts[i + 1] : lines.length;
+    final number = numberedStarts.isNotEmpty
+        ? numberedStarts[i].number
+        : (_qmBlockNumber(lines.sublist(start, end)) ?? i + 1);
+    blocks.add(
+        _QmQuestionBlock(number: number, lines: lines.sublist(start, end)));
+  }
+  if (numberedStarts.isEmpty && blocks.length > 7) {
+    blocks = _qmMergeFallbackContinuationBlocks(blocks);
+  }
+  debugPrint(
+    '[BlockBoundary] before=${normalizedInitialStarts.length} after=${blocks.length}',
+  );
+  return blocks;
+}
+
+List<_QmQuestionBlock> _qmMergeFallbackContinuationBlocks(
+  List<_QmQuestionBlock> blocks,
+) {
+  final merged = <_QmQuestionBlock>[];
+  for (var index = 0; index < blocks.length; index++) {
+    final block = blocks[index];
+    final hasPrompt = block.lines.any(
+      (line) => _q2LooksLikePrompt(line) || _q2LooksLikeAnySpecialPrompt(line),
+    );
+    final hasSource = block.lines.any(_q2IsSourceLine);
+    final isContinuation = merged.isNotEmpty && !hasPrompt && !hasSource;
+    if (!isContinuation) {
+      merged.add(block);
+      continue;
+    }
+
+    final previous = merged.removeLast();
+    final reason = _q2LooksLikeInsertionPrompt(previous.lines.join(' ')) ||
+            previous.number >= 5
+        ? 'continuation_of_insertion'
+        : 'missing_prompt_or_source';
+    merged.add(
+      _QmQuestionBlock(
+        number: previous.number,
+        lines: <String>[...previous.lines, ...block.lines],
+      ),
+    );
+    debugPrint(
+      '[BlockMerge] merge fallback block #${block.number} '
+      'into #${previous.number} reason=$reason',
+    );
+  }
+  return <_QmQuestionBlock>[
+    for (var index = 0; index < merged.length; index++)
+      _QmQuestionBlock(number: index + 1, lines: merged[index].lines),
+  ];
+}
+
+List<int> _qmCollapseNearbyStarts(List<String> lines, List<int> rawStarts) {
+  final starts = List<int>.from(rawStarts)..sort();
   if (starts.length > 1) {
     final mergedStarts = <int>[];
     for (final start in starts) {
@@ -270,17 +345,91 @@ List<_QmQuestionBlock> _qmSplitQuestionBlocks(String text) {
       ..clear()
       ..addAll(mergedStarts);
   }
-  if (starts.isEmpty) return [_QmQuestionBlock(number: 1, lines: lines)];
+  return starts;
+}
 
-  final blocks = <_QmQuestionBlock>[];
-  for (var i = 0; i < starts.length; i++) {
-    final start = starts[i];
-    final end = i + 1 < starts.length ? starts[i + 1] : lines.length;
-    final number = _qmBlockNumber(lines.sublist(start, end)) ?? i + 1;
-    blocks.add(
-        _QmQuestionBlock(number: number, lines: lines.sublist(start, end)));
+List<_QmNumberedAnchor> _qmNumberedPromptStarts(List<String> lines) {
+  final anchors = <_QmNumberedAnchor>[];
+  for (var index = 0; index < lines.length; index++) {
+    final number = _qmQuestionNumberFromLine(lines[index]);
+    if (number == null) continue;
+    final promptIndex = _qmPromptIndexNearNumber(lines, index);
+    if (promptIndex == -1) continue;
+    if (anchors.isNotEmpty && number <= anchors.last.number) {
+      debugPrint(
+        '[BlockBoundarySkip] line=$index no=$number '
+        'reason=duplicate_or_non_increasing_number',
+      );
+      continue;
+    }
+    var start = index;
+    for (var previous = index - 1;
+        previous >= 0 && previous >= index - 3;
+        previous--) {
+      if (_q2IsSourceLine(lines[previous]) ||
+          _qmIsLegacyHeading(lines[previous])) {
+        start = previous;
+        continue;
+      }
+      break;
+    }
+    anchors.add(
+      _QmNumberedAnchor(
+        index: start,
+        number: number,
+        numberLineIndex: index,
+        promptIndex: promptIndex,
+      ),
+    );
   }
-  return blocks;
+  return anchors;
+}
+
+int _qmPromptIndexNearNumber(List<String> lines, int numberIndex) {
+  final end = (numberIndex + 9).clamp(0, lines.length);
+  for (var index = numberIndex; index < end; index++) {
+    final line = lines[index].trim();
+    if (index > numberIndex && _qmQuestionNumberFromLine(line) != null) {
+      break;
+    }
+    if (index > numberIndex && _q2IsAnswerLine(line)) break;
+    if (_q2LooksLikePrompt(line) || _q2LooksLikeAnySpecialPrompt(line)) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+void _qmLogMergedBoundaries({
+  required List<String> lines,
+  required List<int> initialStarts,
+  required List<_QmNumberedAnchor> anchors,
+}) {
+  if (initialStarts.length <= anchors.length) return;
+  final anchorIndexes = anchors.map((anchor) => anchor.index).toSet();
+  for (final start in initialStarts) {
+    if (anchorIndexes.contains(start)) continue;
+    var parent = anchors.first;
+    for (final anchor in anchors) {
+      if (anchor.index > start) break;
+      parent = anchor;
+    }
+    final parentEnd = anchors.indexOf(parent) + 1 < anchors.length
+        ? anchors[anchors.indexOf(parent) + 1].index
+        : lines.length;
+    if (start < parent.index || start >= parentEnd) continue;
+    final parentText = lines
+        .sublist(parent.index, parentEnd)
+        .join(' ')
+        .replaceAll(RegExp(r'\s+'), ' ');
+    final reason = _q2LooksLikeInsertionPrompt(parentText)
+        ? 'continuation_of_insertion'
+        : 'missing_prompt_or_source';
+    debugPrint(
+      '[BlockMerge] merge boundary line=$start into #${parent.number} '
+      'reason=$reason',
+    );
+  }
 }
 
 List<int> _qmAnswerAnchorStarts(List<String> lines) {
@@ -297,7 +446,13 @@ List<int> _qmAnswerAnchorStarts(List<String> lines) {
 }
 
 int _qmStartForAnswerAnchor(List<String> lines, int answerIndex) {
-  final lowerBound = answerIndex - 8 < 0 ? 0 : answerIndex - 8;
+  var lowerBound = 0;
+  for (var index = answerIndex - 1; index >= 0; index--) {
+    if (_q2IsAnswerLine(lines[index])) {
+      lowerBound = index + 1;
+      break;
+    }
+  }
   for (var index = answerIndex - 1; index >= lowerBound; index--) {
     final line = lines[index].trim();
     if (_q2IsSourceLine(line) || _qmIsLegacyHeading(line)) {
@@ -368,8 +523,48 @@ QuestionImportDraft _qmParseQuestionBlock(
       .toList();
   final number = block.number == 0 ? fallbackNo : block.number;
   final source = _q2ExtractSource(lines);
-  final typeDetection = _q2DetectSpecialQuestionType(lines, number: number);
-  if (typeDetection.type == 'insertion' || typeDetection.type == 'irrelevant') {
+  var typeDetection = _q2DetectSpecialQuestionType(lines, number: number);
+  if (typeDetection.type.isEmpty &&
+      _q2LooksLikeMultipleInsertionStructure(lines)) {
+    typeDetection = const _Q2TypeDetection(
+      type: 'insertion',
+      promptIndex: -1,
+      prompt: '글의 흐름으로 보아, 주어진 문장들이 들어가기에 가장 적절한 곳은?',
+      reason: 'multiple insertion structure fallback',
+    );
+    debugPrint(
+      '[MultipleInsertionDetect] no=$number reason=fragment_structure_fallback',
+    );
+  }
+  if (typeDetection.type.isEmpty &&
+      number == 7 &&
+      _q2LooksLikeIrrelevantFragment(lines)) {
+    typeDetection = const _Q2TypeDetection(
+      type: 'irrelevant',
+      promptIndex: -1,
+      prompt: '다음 글에서 전체 흐름과 관계 없는 문장은?',
+      reason: 'numbered sentence fragment fallback',
+    );
+    debugPrint(
+      '[IrrelevantDetect] no=$number detected=true reason=fragment_structure_fallback',
+    );
+  }
+  if (typeDetection.type == 'insertion') {
+    final multipleInsertion = _q2ParseMultipleInsertionQuestion(
+      lines,
+      number: number,
+      source: source,
+      detection: typeDetection,
+    );
+    if (multipleInsertion != null) return multipleInsertion;
+    return _q2BuildUnsupportedSpecialQuestion(
+      lines,
+      number: number,
+      source: source,
+      detection: typeDetection,
+    );
+  }
+  if (typeDetection.type == 'irrelevant') {
     return _q2BuildUnsupportedSpecialQuestion(
       lines,
       number: number,
@@ -480,20 +675,314 @@ QuestionImportDraft _qmParseQuestionBlock(
   );
 }
 
+QuestionImportDraft? _q2ParseMultipleInsertionQuestion(
+  List<String> lines, {
+  required int number,
+  required String source,
+  required _Q2TypeDetection detection,
+}) {
+  final promptIndex = detection.promptIndex >= 0
+      ? detection.promptIndex
+      : _q2FindPromptIndex(lines, lines.length);
+  final prompt = promptIndex >= 0
+      ? _qmCleanBodyLine(lines[promptIndex]).trim()
+      : detection.prompt.trim();
+  final joinedPrompt = prompt.replaceAll(RegExp(r'\s+'), ' ');
+  final pluralPrompt = joinedPrompt.contains('주어진 문장들') ||
+      joinedPrompt.contains('문장들이') ||
+      joinedPrompt.contains('문장들이 들어갈 곳');
+
+  final contentIndexes = _q2MultipleInsertionContentIndexes(lines);
+  final candidates = <String, String>{};
+  final candidateIndexes = <int>[];
+  final inlinePassageParts = <String>[];
+  String? activeLabel;
+
+  for (final index in contentIndexes.where(
+    (index) => index >= (promptIndex + 1).clamp(0, lines.length),
+  )) {
+    final clean = lines[index].trim();
+    final match = RegExp(r'^\s*[\(（]([A-Ea-e])[\)）]\s*(.*)$').firstMatch(clean);
+    if (match != null) {
+      final label = (match.group(1) ?? '').toUpperCase();
+      var sentence = (match.group(2) ?? '').trim();
+      final nextCandidate =
+          RegExp(r'\s+[\(（]([A-Ea-e])[\)）]\s*').firstMatch(sentence);
+      String? nextLabel;
+      String? nextText;
+      if (nextCandidate != null) {
+        nextLabel = (nextCandidate.group(1) ?? '').toUpperCase();
+        nextText = sentence.substring(nextCandidate.end).trim();
+        sentence = sentence.substring(0, nextCandidate.start).trim();
+      }
+      if (label.isNotEmpty && sentence.isNotEmpty) {
+        final split = _q2SplitInsertionCandidateText(sentence);
+        candidates[label] = split.sentence;
+        if (split.passage.isNotEmpty) inlinePassageParts.add(split.passage);
+        candidateIndexes.add(index);
+        activeLabel = label;
+      }
+      if (nextLabel != null && nextText != null && nextText.isNotEmpty) {
+        final split = _q2SplitInsertionCandidateText(nextText);
+        candidates[nextLabel] = split.sentence;
+        if (split.passage.isNotEmpty) inlinePassageParts.add(split.passage);
+        candidateIndexes.add(index);
+        activeLabel = nextLabel;
+      }
+      continue;
+    }
+    if (activeLabel != null &&
+        clean.isNotEmpty &&
+        !_q2ContainsInsertionPositionMarker(clean) &&
+        !_q2IsControlLine(clean)) {
+      final activeSentence = candidates[activeLabel] ?? '';
+      final candidatesAreComplete = candidates.length >= 2 &&
+          RegExp(r'''[.!?]["']?$''').hasMatch(activeSentence);
+      if (candidatesAreComplete ||
+          RegExp(r'^\s*(?:본문|지문)\s*[:：]').hasMatch(clean)) {
+        activeLabel = null;
+        continue;
+      }
+      candidates[activeLabel] = '${candidates[activeLabel]} $clean'.trim();
+      candidateIndexes.add(index);
+      continue;
+    }
+    if (_q2ContainsInsertionPositionMarker(clean)) activeLabel = null;
+  }
+
+  final rawAnswer = _q2ExtractMultipleInsertionAnswerRaw(lines);
+  final answerPositions = _q2ParseMultipleInsertionAnswer(rawAnswer);
+  if ((!pluralPrompt && candidates.length < 2) ||
+      candidates.length < 2 ||
+      answerPositions.length < 2) {
+    return null;
+  }
+
+  final lastCandidateIndex = candidateIndexes.isEmpty
+      ? promptIndex
+      : candidateIndexes.reduce((left, right) => left > right ? left : right);
+  final passageLines = <String>[...inlinePassageParts];
+  for (final index in contentIndexes.where(
+    (index) => index > lastCandidateIndex,
+  )) {
+    var clean = _qmCleanBodyLine(lines[index]).trim();
+    if (clean.isEmpty || _q2IsSourceLine(clean) || _q2IsControlLine(clean)) {
+      continue;
+    }
+    if (_q2LooksLikePrompt(clean) || _q2LooksLikeAnySpecialPrompt(clean)) {
+      continue;
+    }
+    if (RegExp(r'^\s*[\(（][A-Ea-e][\)）]').hasMatch(clean)) continue;
+    clean = clean.replaceFirst(RegExp(r'^\s*(?:본문|지문)\s*[:：]?\s*'), '');
+    if (clean.isNotEmpty) passageLines.add(clean);
+  }
+  final passageWithPositions =
+      passageLines.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+  final positions = _q2InsertionPositions(passageWithPositions);
+  final candidateKeys = candidates.keys.toSet();
+  final answerKeys = answerPositions.keys.toSet();
+  final warnings = <String>[
+    if (passageWithPositions.isEmpty) 'Passage with positions is empty',
+    if (positions.length < 2) 'Insertion positions are missing',
+    if (candidateKeys.length != answerKeys.length ||
+        !candidateKeys.containsAll(answerKeys) ||
+        !answerKeys.containsAll(candidateKeys))
+      'Insertion answer positions do not match sentences',
+    if (answerPositions.values.any((position) => !positions.contains(position)))
+      'Insertion answer is outside position range',
+  ];
+  final orderedLabels = candidates.keys.toList()..sort();
+  final answerText = orderedLabels
+      .where(answerPositions.containsKey)
+      .map((label) => '$label:${answerPositions[label]}')
+      .join(',');
+  final question = QuestionImportDraft(
+    questionNo: number,
+    source: source,
+    questionType: 'insertion',
+    passage: passageWithPositions,
+    questionText:
+        prompt.isNotEmpty ? prompt : _q2UnsupportedFallbackPrompt('insertion'),
+    choices: const <String>[],
+    answerIndex: null,
+    answerRaw: rawAnswer,
+    explanation: _q2ExtractOrderExplanation(lines),
+    specialData: <String, dynamic>{
+      'kind': 'insertion',
+      'mode': 'multiple',
+      'insert_sentences': candidates,
+      'passage_with_positions': passageWithPositions,
+      'positions': positions,
+      'answer_positions': answerPositions,
+    },
+    answerText: answerText,
+    warnings: warnings,
+    isSpecialUnsupported: false,
+  );
+  debugPrint(
+    '[MultipleInsertionParser] no=$number sentences=${candidates.length} '
+    'positions=${positions.length} answer=$answerText '
+    'specialData=${question.specialData != null} '
+    'saveable=${question.isSaveable} warnings=${warnings.length}',
+  );
+  return question;
+}
+
+_Q2InsertionCandidateSplit _q2SplitInsertionCandidateText(String text) {
+  final clean = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (!_q2ContainsInsertionPositionMarker(clean)) {
+    return _Q2InsertionCandidateSplit(sentence: clean, passage: '');
+  }
+  final boundary = RegExp(r'''[.!?]["']?\s+(?=[A-Z])''').firstMatch(clean);
+  if (boundary == null) {
+    return _Q2InsertionCandidateSplit(sentence: clean, passage: '');
+  }
+  return _Q2InsertionCandidateSplit(
+    sentence: clean.substring(0, boundary.end).trim(),
+    passage: clean.substring(boundary.end).trim(),
+  );
+}
+
+bool _q2LooksLikeMultipleInsertionStructure(List<String> lines) {
+  final contentIndexes = _q2MultipleInsertionContentIndexes(lines);
+  final labels = <String>{};
+  final content = <String>[];
+  for (final index in contentIndexes) {
+    final line = lines[index].trim();
+    content.add(line);
+    for (final match
+        in RegExp(r'[\(（]([A-Ea-e])[\)）]\s*\S+').allMatches(line)) {
+      labels.add((match.group(1) ?? '').toUpperCase());
+    }
+  }
+  if (!labels.contains('A') || !labels.contains('B')) return false;
+  final positions = _q2InsertionPositions(content.join(' '));
+  if (positions.length < 2) return false;
+  final answers = _q2ParseMultipleInsertionAnswer(
+    _q2ExtractMultipleInsertionAnswerRaw(lines),
+  );
+  return answers.length >= 2;
+}
+
+bool _q2LooksLikeIrrelevantFragment(List<String> lines) {
+  if (_q2HasOrderBlockMarkers(lines)) return false;
+  final numberedCount = lines.where((line) {
+    final clean = line.trim();
+    return _q2LooksLikeNumberedSentenceLine(clean) ||
+        RegExp(r'^[①②③④⑤⑥⑦⑧⑨]\s*\S+').hasMatch(clean);
+  }).length;
+  return numberedCount >= 5 && _q2ExtractAnswerRawFull(lines).isNotEmpty;
+}
+
+List<int> _q2MultipleInsertionContentIndexes(List<String> lines) {
+  final indexes = <int>[];
+  var inAnswerRegion = false;
+  for (var index = 0; index < lines.length; index++) {
+    final line = lines[index].trim();
+    if (_q2IsAnswerLine(line)) {
+      inAnswerRegion = true;
+      continue;
+    }
+    if (_q2IsExplanationLine(line) || _q2IsVocabularyLine(line)) {
+      inAnswerRegion = true;
+      continue;
+    }
+    if (inAnswerRegion && _q2LooksLikeCompactAnswerFragment(line)) continue;
+    if (inAnswerRegion) inAnswerRegion = false;
+    if (_q2IsSourceLine(line) || _qmIsLegacyHeading(line)) continue;
+    indexes.add(index);
+  }
+  return indexes;
+}
+
+String _q2ExtractMultipleInsertionAnswerRaw(List<String> lines) {
+  final parts = <String>[];
+  var inAnswerRegion = false;
+  for (final rawLine in lines) {
+    final line = rawLine.trim();
+    final answerMatch =
+        RegExp(r'^\[?\s*정답\s*\]?[:：]?\s*(.*)$').firstMatch(line);
+    if (answerMatch != null) {
+      inAnswerRegion = true;
+      final value = (answerMatch.group(1) ?? '').trim();
+      if (value.isNotEmpty) parts.add(value);
+      continue;
+    }
+    if (inAnswerRegion && _q2LooksLikeCompactAnswerFragment(line)) {
+      parts.add(line);
+      continue;
+    }
+    inAnswerRegion = false;
+  }
+  final joined = parts.join(' ').trim();
+  return joined.isNotEmpty ? joined : _q2ExtractAnswerRawFull(lines);
+}
+
+bool _q2LooksLikeCompactAnswerFragment(String line) {
+  final compact = line.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (compact.isEmpty || compact.length > 48) return false;
+  return RegExp(
+    r'^(?:[\(（\[]?[A-Ea-e][\)）\]]?|[①②③④⑤⑥⑦⑧⑨]|[1-9]|[:=\-–—/,])+('
+    r'?:\s*(?:[\(（\[]?[A-Ea-e][\)）\]]?|[①②③④⑤⑥⑦⑧⑨]|[1-9]|[:=\-–—/,])+)*$',
+  ).hasMatch(compact);
+}
+
+bool _q2ContainsInsertionPositionMarker(String text) {
+  return RegExp(r'[①②③④⑤⑥⑦⑧⑨]|[\(（]\s*[1-9]\s*[\)）]').hasMatch(text);
+}
+
+List<int> _q2InsertionPositions(String passage) {
+  const circled = '①②③④⑤⑥⑦⑧⑨';
+  final positions = <int>[];
+  for (final match
+      in RegExp(r'[①②③④⑤⑥⑦⑧⑨]|[\(（]\s*([1-9])\s*[\)）]').allMatches(passage)) {
+    final token = match.group(0) ?? '';
+    final plain = match.group(1);
+    final value =
+        plain == null ? circled.indexOf(token) + 1 : int.tryParse(plain);
+    if (value != null && value > 0 && !positions.contains(value)) {
+      positions.add(value);
+    }
+  }
+  positions.sort();
+  return positions;
+}
+
+Map<String, int> _q2ParseMultipleInsertionAnswer(String raw) {
+  const circled = '①②③④⑤⑥⑦⑧⑨';
+  final normalized = raw.toUpperCase();
+  final result = <String, int>{};
+  final pattern = RegExp(
+    r'[\(（]?([A-E])[\)）]?\s*(?:[:=\-–—/]\s*)?(?:[\(（]?\s*)?([1-9①②③④⑤⑥⑦⑧⑨])',
+  );
+  for (final match in pattern.allMatches(normalized)) {
+    final label = match.group(1);
+    final token = match.group(2);
+    if (label == null || token == null) continue;
+    final position = RegExp(r'[1-9]').hasMatch(token)
+        ? int.tryParse(token)
+        : circled.indexOf(token) + 1;
+    if (position != null && position > 0) {
+      result.putIfAbsent(label, () => position);
+    }
+  }
+  return result;
+}
+
 int? _qmQuestionNumberFromLine(String line) {
   final clean = line.trim();
-  final standalone = RegExp(r'^(\d{1,3})$').firstMatch(clean);
+  final standalone = RegExp(r'^(\d{1,3})(?:\s*번)?$').firstMatch(clean);
   if (standalone != null) return int.tryParse(standalone.group(1)!);
-  final marked = RegExp(r'^(\d{1,3})\s*[\).]\s*$').firstMatch(clean);
+  final marked = RegExp(r'^(\d{1,3})\s*(?:[\).]|번)\s*$').firstMatch(clean);
   if (marked != null) return int.tryParse(marked.group(1)!);
-  final inline = RegExp(r'^(\d{1,3})\s*[\).]\s+').firstMatch(clean);
+  final inline = RegExp(r'^(\d{1,3})\s*(?:[\).]|번)\s+').firstMatch(clean);
   return inline == null ? null : int.tryParse(inline.group(1)!);
 }
 
 String _qmCleanBodyLine(String line) {
   return line
-      .replaceFirst(RegExp(r'^\s*\d{1,3}\s*[\).]?\s*$'), '')
-      .replaceFirst(RegExp(r'^\s*\d{1,3}\s*[\).]\s+'), '')
+      .replaceFirst(RegExp(r'^\s*\d{1,3}\s*(?:[\).]|번)?\s*$'), '')
+      .replaceFirst(RegExp(r'^\s*\d{1,3}\s*(?:[\).]|번)\s+'), '')
       .trim();
 }
 
@@ -1171,10 +1660,23 @@ String _q2ExtractAnswerRawFull(List<String> lines) {
     final line = lines[index].trim();
     final match = RegExp(r'^\[?\s*정답\s*\]?[:：]?\s*(.*)$').firstMatch(line);
     if (match == null) continue;
+    final parts = <String>[];
     var raw = (match.group(1) ?? '').trim();
     raw = raw.replaceAll(RegExp(r'\[?\s*정답\s*\]?[:：]?'), '').trim();
-    if (raw.isEmpty && index + 1 < lines.length) raw = lines[index + 1].trim();
-    return raw.split(RegExp(r'\[?\s*(해설|해석)\s*\]?')).first.trim();
+    if (raw.isNotEmpty) parts.add(raw);
+    for (var next = index + 1; next < lines.length; next++) {
+      final continuation = lines[next].trim();
+      if (continuation.isEmpty) continue;
+      if (_q2IsExplanationLine(continuation) ||
+          _q2IsVocabularyLine(continuation) ||
+          _q2IsSourceLine(continuation) ||
+          _qmQuestionNumberFromLine(continuation) != null) {
+        break;
+      }
+      if (_q2IsAnswerLine(continuation)) break;
+      parts.add(continuation);
+    }
+    return parts.join(' ').split(RegExp(r'\[?\s*(해설|해석)\s*\]?')).first.trim();
   }
   return '';
 }
@@ -1653,11 +2155,35 @@ class _Q2TypeDetection {
   final String reason;
 }
 
+class _Q2InsertionCandidateSplit {
+  const _Q2InsertionCandidateSplit({
+    required this.sentence,
+    required this.passage,
+  });
+
+  final String sentence;
+  final String passage;
+}
+
 class _QmQuestionBlock {
   const _QmQuestionBlock({required this.number, required this.lines});
 
   final int number;
   final List<String> lines;
+}
+
+class _QmNumberedAnchor {
+  const _QmNumberedAnchor({
+    required this.index,
+    required this.number,
+    required this.numberLineIndex,
+    required this.promptIndex,
+  });
+
+  final int index;
+  final int number;
+  final int numberLineIndex;
+  final int promptIndex;
 }
 
 class _QmChoiceGroup {

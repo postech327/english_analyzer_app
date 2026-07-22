@@ -50,21 +50,36 @@ class QuestionImportDraft {
       final kind = special['kind']?.toString().trim().toLowerCase();
       if (kind != 'insertion') return 'not_insertion_kind';
       final mode = (special['mode'] ?? '').toString().trim().toLowerCase();
-      final insertSentence =
-          (special['insert_sentence'] ?? '').toString().trim();
       final passageWithPositions =
           (special['passage_with_positions'] ?? '').toString().trim();
       final positions = special['positions'];
-      final answerPosition = special['answer_position'];
       final positionCount = positions is List ? positions.length : 0;
-      if (mode != 'single') return 'not_single_mode';
-      if (insertSentence.isEmpty) return 'missing_insert_sentence';
       if (passageWithPositions.isEmpty) {
         return 'missing_passage_with_positions';
       }
       if (positionCount == 0) return 'positions_empty';
       if (positionCount < 2) return 'not_enough_positions';
-      if (answerPosition == null) return 'missing_answer_position';
+      if (mode == 'single') {
+        final insertSentence =
+            (special['insert_sentence'] ?? '').toString().trim();
+        if (insertSentence.isEmpty) return 'missing_insert_sentence';
+        if (special['answer_position'] == null) {
+          return 'missing_answer_position';
+        }
+      } else if (mode == 'multiple') {
+        final insertSentences = special['insert_sentences'];
+        final answerPositions = special['answer_positions'];
+        final sentenceCount =
+            insertSentences is Map ? insertSentences.length : 0;
+        final answerCount = answerPositions is Map ? answerPositions.length : 0;
+        if (sentenceCount < 2) return 'missing_insert_sentences';
+        if (answerCount == 0) return 'missing_answer_positions';
+        if (answerCount != sentenceCount) {
+          return 'answer_positions_mismatch';
+        }
+      } else {
+        return 'unsupported_insertion_mode';
+      }
       if ((answerText ?? '').trim().isEmpty) return 'missing_answer_text';
       if (warnings.isNotEmpty) return 'has_warnings';
       return 'ok';

@@ -458,6 +458,8 @@ class _QuestionPreviewCard extends StatelessWidget {
     final insertionMode =
         (question.specialData?['mode'] ?? '').toString().trim().toLowerCase();
     final insertionPositions = _questionImportPositions(question.specialData);
+    final insertionSentences =
+        _questionImportInsertionSentences(question.specialData);
     final isUnsupportedSpecial = (isInsertion && !question.isSaveable) ||
         normalizedType == 'irrelevant' ||
         normalizedType == 'unrelated_sentence';
@@ -496,7 +498,10 @@ class _QuestionPreviewCard extends StatelessWidget {
                 'mode: ${insertionMode.isEmpty ? 'single' : insertionMode}',
                 'answer: $answer',
                 'positions: ${insertionPositions.length}',
-                'sentence: ${(question.specialData?['insert_sentence'] ?? '').toString().trim().isNotEmpty ? 'yes' : 'no'}',
+                if (insertionMode == 'multiple')
+                  'sentences: ${insertionSentences.length}'
+                else
+                  'sentence: ${(question.specialData?['insert_sentence'] ?? '').toString().trim().isNotEmpty ? 'yes' : 'no'}',
                 'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
               ]
             : isUnsupportedSpecial
@@ -545,15 +550,21 @@ class _QuestionPreviewCard extends StatelessWidget {
                 _InfoPill(label: 'answer:', value: answer),
                 _InfoPill(
                     label: 'positions:', value: '${insertionPositions.length}'),
-                _InfoPill(
-                  label: 'sentence:',
-                  value: (question.specialData?['insert_sentence'] ?? '')
-                          .toString()
-                          .trim()
-                          .isNotEmpty
-                      ? 'yes'
-                      : 'no',
-                ),
+                if (insertionMode == 'multiple')
+                  _InfoPill(
+                    label: 'sentences:',
+                    value: '${insertionSentences.length}',
+                  )
+                else
+                  _InfoPill(
+                    label: 'sentence:',
+                    value: (question.specialData?['insert_sentence'] ?? '')
+                            .toString()
+                            .trim()
+                            .isNotEmpty
+                        ? 'yes'
+                        : 'no',
+                  ),
               ] else if (isUnsupportedSpecial) ...[
                 _InfoPill(label: 'type:', value: typeLabel),
                 const _InfoPill(label: 'status:', value: 'unsupported'),
@@ -610,6 +621,20 @@ List<int> _questionImportPositions(Map<String, dynamic>? specialData) {
         .toList(growable: false);
   }
   return const <int>[];
+}
+
+Map<String, String> _questionImportInsertionSentences(
+  Map<String, dynamic>? specialData,
+) {
+  final raw = specialData?['insert_sentences'];
+  if (raw is! Map) return const <String, String>{};
+  final entries = raw.entries
+      .map((entry) => MapEntry(entry.key.toString(), entry.value.toString()))
+      .where((entry) =>
+          entry.key.trim().isNotEmpty && entry.value.trim().isNotEmpty)
+      .toList()
+    ..sort((a, b) => a.key.compareTo(b.key));
+  return Map<String, String>.fromEntries(entries);
 }
 
 String _questionImportTypeLabel(String type) {
