@@ -80,6 +80,7 @@ class _TeacherQuestionHwpxImportScreenState
               if (parsed.questions[index].isSaveable) index,
           ]);
       });
+      _debugSelectionSummary(parsed);
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -103,6 +104,7 @@ class _TeacherQuestionHwpxImportScreenState
             if (draft.questions[index].isSaveable) index,
         ]);
     });
+    _debugSelectionSummary(draft);
   }
 
   void _clearSelection() => setState(_selected.clear);
@@ -116,9 +118,47 @@ class _TeacherQuestionHwpxImportScreenState
         'question="${_preview(question.questionText)}" '
         'passage="${_preview(question.passage)}" '
         'choices=${question.choices.length} '
-        'answer=${question.answerIndex}',
+        'answer=${question.answerIndex} '
+        'isSaveable=${question.isSaveable} '
+        'reason=${question.saveabilityReason}',
       );
     }
+  }
+
+  void _debugSelectionSummary(ProblemSetImportDraft draft) {
+    final selectedNos = <int>[
+      for (var index = 0; index < draft.questions.length; index++)
+        if (_selected.contains(index) && draft.questions[index].isSaveable)
+          draft.questions[index].questionNo,
+    ];
+    final saveableCount =
+        draft.questions.where((question) => question.isSaveable).length;
+    debugPrint(
+      '[ImportPreviewSummary] candidates=${draft.questions.length} '
+      'saveable=$saveableCount selected=${selectedNos.length} '
+      'selectedNos=$selectedNos',
+    );
+    debugPrint('[ImportPreviewSelected] selectedNos=$selectedNos');
+    for (var index = 0; index < draft.questions.length; index++) {
+      final question = draft.questions[index];
+      debugPrint(
+        '[ImportPreviewSaveable] no=${question.questionNo} '
+        'type=${question.questionType} '
+        'isSaveable=${question.isSaveable} '
+        'selected=${_selected.contains(index) && question.isSaveable} '
+        'reason=${question.saveabilityReason}',
+      );
+    }
+  }
+
+  int _selectedSaveableCount(ProblemSetImportDraft draft) {
+    var count = 0;
+    for (var index = 0; index < draft.questions.length; index++) {
+      if (_selected.contains(index) && draft.questions[index].isSaveable) {
+        count++;
+      }
+    }
+    return count;
   }
 
   Future<void> _save() async {
@@ -214,6 +254,8 @@ class _TeacherQuestionHwpxImportScreenState
     final draft = _draft;
     final saveableCount =
         draft?.questions.where((question) => question.isSaveable).length ?? 0;
+    final selectedSaveableCount =
+        draft == null ? 0 : _selectedSaveableCount(draft);
     return Scaffold(
       backgroundColor: _surface,
       appBar: AppBar(
@@ -318,7 +360,7 @@ class _TeacherQuestionHwpxImportScreenState
                               child: _SectionTitle(
                                 title: '파싱 미리보기',
                                 subtitle:
-                                    '후보 ${draft.questions.length}개 · 저장 가능 $saveableCount개 · 선택 ${_selected.length}개',
+                                    '후보 ${draft.questions.length}개 · 저장 가능 $saveableCount개 · 선택 $selectedSaveableCount개',
                               ),
                             ),
                             OutlinedButton(
@@ -338,7 +380,8 @@ class _TeacherQuestionHwpxImportScreenState
                             index++) ...[
                           _QuestionPreviewCard(
                             question: draft.questions[index],
-                            selected: _selected.contains(index),
+                            selected: _selected.contains(index) &&
+                                draft.questions[index].isSaveable,
                             onSelected: draft.questions[index].isSaveable
                                 ? (value) {
                                     setState(() {
@@ -373,7 +416,8 @@ class _TeacherQuestionHwpxImportScreenState
                   border: Border(top: BorderSide(color: _line)),
                 ),
                 child: FilledButton.icon(
-                  onPressed: _selected.isEmpty || _saving ? null : _save,
+                  onPressed:
+                      selectedSaveableCount == 0 || _saving ? null : _save,
                   icon: _saving
                       ? const SizedBox(
                           width: 18,
@@ -382,7 +426,8 @@ class _TeacherQuestionHwpxImportScreenState
                         )
                       : const Icon(Icons.save_alt_rounded),
                   label: Text(
-                      _saving ? '저장 중...' : '선택한 ${_selected.length}개 문제 저장'),
+                    _saving ? '저장 중...' : '선택한 $selectedSaveableCount개 문제 저장',
+                  ),
                 ),
               ),
             ),
@@ -408,7 +453,12 @@ class _QuestionPreviewCard extends StatelessWidget {
     final normalizedType = question.questionType.trim().toLowerCase();
     final isOrder = normalizedType == 'order' ||
         question.specialData?['kind']?.toString() == 'order';
-    final isUnsupportedSpecial = normalizedType == 'insertion' ||
+    final isInsertion = normalizedType == 'insertion' ||
+        question.specialData?['kind']?.toString() == 'insertion';
+    final insertionMode =
+        (question.specialData?['mode'] ?? '').toString().trim().toLowerCase();
+    final insertionPositions = _questionImportPositions(question.specialData);
+    final isUnsupportedSpecial = (isInsertion && !question.isSaveable) ||
         normalizedType == 'irrelevant' ||
         normalizedType == 'unrelated_sentence';
     final blocks = _questionImportBlocks(question.specialData);
@@ -416,9 +466,15 @@ class _QuestionPreviewCard extends StatelessWidget {
         ? (question.answerText?.trim().isNotEmpty == true
             ? question.answerText!.trim()
             : '-')
-        : question.answerIndex == null
-            ? '-'
-            : _circledAnswerLabel(question.answerIndex!);
+        : isInsertion
+            ? (question.answerText?.trim().isNotEmpty == true
+                ? question.answerText!.trim()
+                : question.answerIndex == null
+                    ? '-'
+                    : _circledAnswerLabel(question.answerIndex!))
+            : question.answerIndex == null
+                ? '-'
+                : _circledAnswerLabel(question.answerIndex!);
     final hasFixedStart = (question.specialData?['fixed_start'] ?? '')
         .toString()
         .trim()
@@ -434,18 +490,29 @@ class _QuestionPreviewCard extends StatelessWidget {
             'end: ${hasFixedEnd ? 'yes' : 'no'}',
             'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
           ]
-        : isUnsupportedSpecial
+        : isInsertion && question.isSaveable
             ? <String>[
-                'type: $typeLabel',
-                'status: unsupported',
+                'type: insertion',
+                'mode: ${insertionMode.isEmpty ? 'single' : insertionMode}',
                 'answer: $answer',
+                'positions: ${insertionPositions.length}',
+                'sentence: ${(question.specialData?['insert_sentence'] ?? '').toString().trim().isNotEmpty ? 'yes' : 'no'}',
                 'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
               ]
-            : <String>[
-                'choices: ${question.choices.length}',
-                'answer: $answer',
-                'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
-              ];
+            : isUnsupportedSpecial
+                ? <String>[
+                    'type: $typeLabel',
+                    'status: unsupported',
+                    if (isInsertion && insertionMode.isNotEmpty)
+                      'mode: $insertionMode',
+                    'answer: $answer',
+                    'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
+                  ]
+                : <String>[
+                    'choices: ${question.choices.length}',
+                    'answer: $answer',
+                    'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
+                  ];
     debugPrint(
       '[PreviewBadge] no=${question.questionNo} labels=$previewBadgeLabels',
     );
@@ -470,9 +537,28 @@ class _QuestionPreviewCard extends StatelessWidget {
                 _InfoPill(label: 'answer:', value: answer),
                 _InfoPill(label: 'start:', value: hasFixedStart ? 'yes' : 'no'),
                 _InfoPill(label: 'end:', value: hasFixedEnd ? 'yes' : 'no'),
+              ] else if (isInsertion && question.isSaveable) ...[
+                const _InfoPill(label: 'type:', value: 'insertion'),
+                _InfoPill(
+                    label: 'mode:',
+                    value: insertionMode.isEmpty ? 'single' : insertionMode),
+                _InfoPill(label: 'answer:', value: answer),
+                _InfoPill(
+                    label: 'positions:', value: '${insertionPositions.length}'),
+                _InfoPill(
+                  label: 'sentence:',
+                  value: (question.specialData?['insert_sentence'] ?? '')
+                          .toString()
+                          .trim()
+                          .isNotEmpty
+                      ? 'yes'
+                      : 'no',
+                ),
               ] else if (isUnsupportedSpecial) ...[
                 _InfoPill(label: 'type:', value: typeLabel),
                 const _InfoPill(label: 'status:', value: 'unsupported'),
+                if (isInsertion && insertionMode.isNotEmpty)
+                  _InfoPill(label: 'mode:', value: insertionMode),
                 _InfoPill(label: 'answer:', value: answer),
               ] else ...[
                 _InfoPill(
@@ -513,6 +599,17 @@ List<String> _questionImportBlocks(Map<String, dynamic>? specialData) {
     return rawBlocks.keys.map((key) => key.toString()).toList()..sort();
   }
   return const <String>[];
+}
+
+List<int> _questionImportPositions(Map<String, dynamic>? specialData) {
+  final rawPositions = specialData?['positions'];
+  if (rawPositions is List) {
+    return rawPositions
+        .map((item) => int.tryParse(item.toString()))
+        .whereType<int>()
+        .toList(growable: false);
+  }
+  return const <int>[];
 }
 
 String _questionImportTypeLabel(String type) {

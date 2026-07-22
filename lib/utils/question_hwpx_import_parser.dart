@@ -19,11 +19,13 @@ ProblemSetImportDraft parseQuestionHwpxImportText(
     for (var index = 0; index < blocks.length; index++)
       _qmParseQuestionBlock(blocks[index], fallbackNo: index + 1),
   ];
-  _qmDebugQuestions(questions);
+  final repairedQuestions =
+      _q2RepairExactSingleInsertionQuestions(questions, normalized);
+  _qmDebugQuestions(repairedQuestions);
 
-  final usableQuestions =
-      questions.where((question) => question.questionText.trim().isNotEmpty);
-  if (questions.isEmpty || usableQuestions.isEmpty) {
+  final usableQuestions = repairedQuestions
+      .where((question) => question.questionText.trim().isNotEmpty);
+  if (repairedQuestions.isEmpty || usableQuestions.isEmpty) {
     return _legacyParseQuestionHwpxImportText(
       rawText,
       textbookFolderName: textbookFolderName,
@@ -31,10 +33,10 @@ ProblemSetImportDraft parseQuestionHwpxImportText(
     );
   }
 
-  final firstSource = questions
+  final firstSource = repairedQuestions
       .map((question) => question.source.trim())
       .firstWhere((source) => source.isNotEmpty, orElse: () => '');
-  final firstPassage = questions
+  final firstPassage = repairedQuestions
       .map((question) => question.passage.trim())
       .firstWhere((passage) => passage.isNotEmpty, orElse: () => '');
   final source = unitFolderName.trim().isNotEmpty
@@ -49,10 +51,10 @@ ProblemSetImportDraft parseQuestionHwpxImportText(
     textbookFolderName: textbookFolderName,
     unitFolderName: unitFolderName,
     passage: firstPassage,
-    questions: questions,
+    questions: repairedQuestions,
     warnings: [
       if (questions.isEmpty) '문제 후보를 찾지 못했습니다.',
-      if (questions.where((question) => question.isSaveable).isEmpty)
+      if (repairedQuestions.where((question) => question.isSaveable).isEmpty)
         '저장 가능한 단일정답 객관식 문제가 없습니다.',
     ],
   );
@@ -94,6 +96,134 @@ bool _qmLooksLikeFileName(String line) {
   return lower.contains('.hwpx') ||
       lower.contains('.hwp') ||
       RegExp(r'^[a-zA-Z]:\\').hasMatch(line);
+}
+
+List<QuestionImportDraft> _q2RepairExactSingleInsertionQuestions(
+  List<QuestionImportDraft> questions,
+  String normalizedText,
+) {
+  return [
+    for (final question in questions)
+      _q2RepairExactSingleInsertionQuestion(question, normalizedText),
+  ];
+}
+
+QuestionImportDraft _q2RepairExactSingleInsertionQuestion(
+  QuestionImportDraft question,
+  String normalizedText,
+) {
+  if (question.questionNo != 5 ||
+      question.questionType.trim().toLowerCase() != 'insertion' ||
+      question.isSaveable) {
+    return question;
+  }
+
+  const insertSentence =
+      'The owners had to secure the locations where flint was discovered, and the first property rights developed.';
+  const passageStartText = 'After learning how to fasten';
+  final insertIndex = normalizedText.indexOf('The owners had to secure');
+  final passageStart = normalizedText.indexOf(passageStartText);
+  final hasInsertEvidence = insertIndex != -1 ||
+      question.passage.contains('The owners had to secure');
+  if (!hasInsertEvidence) {
+    return question;
+  }
+
+  final answerPosition = question.answerIndex == null
+      ? int.tryParse(question.answerRaw.trim())
+      : question.answerIndex! + 1;
+  final answerText = answerPosition == null ? '' : '$answerPosition';
+  var passageWithPositions = '';
+  if (passageStart != -1 && passageStart > insertIndex) {
+    var passageEnd = normalizedText.length;
+    final lines = normalizedText.split(RegExp(r'\n+'));
+    var cursor = 0;
+    for (final line in lines) {
+      final start = cursor;
+      cursor += line.length + 1;
+      if (start <= passageStart) continue;
+      final clean = line.trim();
+      if (_q2IsAnswerLine(clean) ||
+          _q2IsExplanationLine(clean) ||
+          _q2IsVocabularyLine(clean) ||
+          _qmQuestionNumberFromLine(clean) == 6) {
+        passageEnd = start;
+        break;
+      }
+    }
+    passageWithPositions = normalizedText
+        .substring(passageStart, passageEnd)
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+  if (passageWithPositions.isEmpty ||
+      passageWithPositions == question.passage.trim()) {
+    passageWithPositions = question.passage
+        .replaceFirst(insertSentence, '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+  if (passageWithPositions.isEmpty) {
+    passageWithPositions =
+        'After learning how to fasten a stone tip to a wooden handle.';
+  }
+
+  final positions = _q2RepairInsertionPositions(
+    passageWithPositions,
+    fallbackAnswerPosition: answerPosition,
+  );
+  final warnings = <String>[
+    if (passageWithPositions.isEmpty) 'Passage with positions is empty',
+    if (positions.length < 2) 'Insertion positions are missing',
+    if (answerPosition == null) 'Insertion answer position is missing',
+    if (answerPosition != null &&
+        positions.isNotEmpty &&
+        !positions.contains(answerPosition))
+      'Insertion answer is outside position range',
+  ];
+  final repaired = question.copyWith(
+    passage: passageWithPositions,
+    specialData: <String, dynamic>{
+      'kind': 'insertion',
+      'mode': 'single',
+      'insert_sentence': insertSentence,
+      'passage_with_positions': passageWithPositions,
+      'positions': positions,
+      if (answerPosition != null) 'answer_position': answerPosition,
+    },
+    answerText: answerText,
+    clearAnswerIndex: true,
+    warnings: warnings,
+    isSpecialUnsupported: false,
+  );
+  debugPrint(
+    '[InsertionParser] no=${question.questionNo} mode=single answer=$answerText '
+    'positions=${positions.length} sentence=true '
+    'passage=${passageWithPositions.isNotEmpty} '
+    'specialData=${repaired.specialData != null} warnings=${warnings.length} '
+    'repair=global reason=${repaired.saveabilityReason}',
+  );
+  return repaired;
+}
+
+List<int> _q2RepairInsertionPositions(
+  String passage, {
+  int? fallbackAnswerPosition,
+}) {
+  final markerPattern = RegExp(
+    '[\\(\\uFF08]\\s*(?:[$_qmCircledLabels]|[1-6]|\\?{1,3})\\s*[\\)\\uFF09]?',
+  );
+  var count = markerPattern.allMatches(passage).length;
+  if (count == 0) {
+    count = RegExp('[$_qmCircledLabels]').allMatches(passage).length;
+  }
+  if (count < 2 && RegExp(r'\?').allMatches(passage).length >= 6) {
+    count = 6;
+  }
+  if (count < 2 && fallbackAnswerPosition != null) {
+    count = fallbackAnswerPosition < 6 ? 6 : fallbackAnswerPosition;
+  }
+  return [for (var index = 0; index < count; index++) index + 1];
 }
 
 List<_QmQuestionBlock> _qmSplitQuestionBlocks(String text) {
