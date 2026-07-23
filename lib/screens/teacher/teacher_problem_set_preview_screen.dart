@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../../utils/insertion_display_prompt.dart';
+import '../../utils/irrelevant_display_passage.dart';
 import 'package:english_analyzer_app/services/teacher_problem_set_service.dart';
 import 'package:english_analyzer_app/widgets/problem_set_assignment_dialog.dart';
 
@@ -372,7 +373,11 @@ class _QuestionCard extends StatelessWidget {
         specialData['kind']?.toString() == 'order';
     final isInsertion = type.trim().toLowerCase() == 'insertion' ||
         specialData['kind']?.toString() == 'insertion';
-    final text = isOrder || isInsertion
+    final isIrrelevant = type.trim().toLowerCase() == 'irrelevant' ||
+        type.trim().toLowerCase() == 'unrelated_sentence' ||
+        specialData['kind']?.toString() == 'irrelevant' ||
+        specialData['kind']?.toString() == 'unrelated_sentence';
+    final text = isOrder || isInsertion || isIrrelevant
         ? _teacherPreviewQuestionText(rawText, type, specialData)
         : rawText;
     final answerIndex = _asInt(q['answer_index']);
@@ -382,16 +387,37 @@ class _QuestionCard extends StatelessWidget {
             : _firstCorrectOption(options);
     final orderAnswerLabel = _orderAnswerSummary(q, specialData);
     final insertionAnswerLabel = _insertionAnswerSummary(q, specialData);
+    final irrelevantAnswerLabel = _irrelevantAnswerSummary(q, specialData);
     final answerLabel = isOrder
         ? orderAnswerLabel
         : isInsertion
             ? insertionAnswerLabel
-            : _answerSummary(answerOption, answerIndex);
-    final answerChipLabel = (isOrder || isInsertion) && answerLabel.isNotEmpty
-        ? 'answer $answerLabel'
-        : answerLabel;
+            : isIrrelevant
+                ? irrelevantAnswerLabel
+                : _answerSummary(answerOption, answerIndex);
+    final answerChipLabel =
+        (isOrder || isInsertion || isIrrelevant) && answerLabel.isNotEmpty
+            ? 'answer $answerLabel'
+            : answerLabel;
     final orderBlocks = _orderBlocks(specialData);
     final insertionSentences = _insertionSentences(specialData);
+    final irrelevantRawPassage =
+        (specialData['passage_with_numbers'] ?? passage).toString();
+    final irrelevantDisplayPassage = irrelevantPassageForDisplay(
+      specialData,
+      fallbackPassage: passage,
+    );
+    if (isIrrelevant) {
+      final questionId = q['question_id'] ?? q['id'] ?? '';
+      debugPrint(
+        '[IrrelevantDisplayRaw] questionId=$questionId '
+        'raw="${irrelevantRawPassage.replaceAll('\n', r'\n')}"',
+      );
+      debugPrint(
+        '[IrrelevantDisplayClean] questionId=$questionId '
+        'clean="${irrelevantDisplayPassage.replaceAll('\n', r'\n')}"',
+      );
+    }
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -508,6 +534,12 @@ class _QuestionCard extends StatelessWidget {
                       passage,
                     ]),
                   ),
+                ),
+            ] else if (isIrrelevant) ...[
+              if (irrelevantDisplayPassage.isNotEmpty)
+                _SectionBlock(
+                  label: '본문',
+                  child: SelectableText(irrelevantDisplayPassage),
                 ),
             ] else ...[
               if (passage.isNotEmpty)
@@ -877,6 +909,16 @@ String _insertionAnswerSummary(
   return '';
 }
 
+String _irrelevantAnswerSummary(
+  Map<String, dynamic> q,
+  Map<String, dynamic> specialData,
+) {
+  final direct = _firstText([q['answer_text'], specialData['answer_text']]);
+  if (direct.isNotEmpty) return _cleanInsertionAnswerText(direct);
+  final position = specialData['answer_position'];
+  return position == null ? '' : _cleanInsertionAnswerText(position.toString());
+}
+
 String _cleanMultipleInsertionAnswerText(String raw) {
   try {
     final decoded = jsonDecode(raw);
@@ -908,6 +950,14 @@ String _teacherPreviewQuestionText(
       specialData['kind']?.toString().trim().toLowerCase() == 'insertion';
   if (isInsertion) {
     return insertionDisplayPromptForMode(specialData['mode']);
+  }
+  final normalizedType = type.trim().toLowerCase();
+  final kind = specialData['kind']?.toString().trim().toLowerCase();
+  if (normalizedType == 'irrelevant' ||
+      normalizedType == 'unrelated_sentence' ||
+      kind == 'irrelevant' ||
+      kind == 'unrelated_sentence') {
+    return '다음 글에서 전체 흐름과 관계없는 문장은?';
   }
   final cleaned = _stripLeadingAnswerLeak(raw);
   if (cleaned.isNotEmpty) return cleaned;

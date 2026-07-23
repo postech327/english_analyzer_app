@@ -99,14 +99,15 @@ This is the fixed opening paragraph.
     );
     expect(
       draft.questions.where((question) => question.isSaveable).length,
-      6,
+      7,
     );
     final multiple = draft.questions[5];
     expect(multiple.questionType, 'insertion');
     expect(multiple.specialData?['mode'], 'multiple');
     expect(multiple.answerText, 'A:2,B:5');
     expect(multiple.specialData?['positions'], <int>[1, 2, 3, 4, 5, 6]);
-    expect(draft.questions[6].isSaveable, isFalse);
+    expect(draft.questions[6].isSaveable, isTrue);
+    expect(draft.questions[6].answerText, '3');
   });
 
   test('merges ten prompt-less fallback fragments into seven candidates', () {
@@ -119,7 +120,7 @@ This is the fixed opening paragraph.
     );
     expect(
       draft.questions.where((question) => question.isSaveable).length,
-      6,
+      7,
     );
     final multiple = draft.questions[5];
     expect(multiple.questionType, 'insertion');
@@ -136,7 +137,8 @@ This is the fixed opening paragraph.
       startsWith('Environmental taxes can be precisely targeted.'),
     );
     expect(multiple.specialData?['positions'], <int>[1, 2, 3, 4, 5, 6]);
-    expect(draft.questions[6].isSaveable, isFalse);
+    expect(draft.questions[6].isSaveable, isTrue);
+    expect(draft.questions[6].answerText, '3');
     expect(draft.questions[6].questionType, 'irrelevant');
     expect(draft.questions[6].questionText, isNotEmpty);
   });

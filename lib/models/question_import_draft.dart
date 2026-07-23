@@ -36,15 +36,43 @@ class QuestionImportDraft {
     if (isSpecialUnsupported || normalizedType.isEmpty) {
       return isSpecialUnsupported ? 'unsupported' : 'missing_type';
     }
-    if (normalizedType == 'irrelevant' ||
-        normalizedType == 'unrelated_sentence') {
-      return 'unsupported';
-    }
     if (questionText.trim().isEmpty) {
       return 'missing_question_text';
     }
 
     final special = specialData;
+    if (normalizedType == 'irrelevant' ||
+        normalizedType == 'unrelated_sentence') {
+      if (special == null || special.isEmpty) return 'missing_special_data';
+      final kind = special['kind']?.toString().trim().toLowerCase();
+      if (kind != 'irrelevant' && kind != 'unrelated_sentence') {
+        return 'not_irrelevant_kind';
+      }
+      if ((special['mode'] ?? '').toString().trim().toLowerCase() != 'single') {
+        return 'unsupported_irrelevant_mode';
+      }
+      if ((special['passage_with_numbers'] ?? '').toString().trim().isEmpty) {
+        return 'missing_passage_with_numbers';
+      }
+      final numberedSentences = special['numbered_sentences'];
+      final positions = special['positions'];
+      if (numberedSentences is! List || numberedSentences.length < 5) {
+        return 'not_enough_numbered_sentences';
+      }
+      if (positions is! List || positions.length < 5) {
+        return 'not_enough_positions';
+      }
+      final answerPosition = special['answer_position'];
+      if (answerPosition == null) return 'missing_answer_position';
+      final normalizedPositions =
+          positions.map((item) => item.toString()).toSet();
+      if (!normalizedPositions.contains(answerPosition.toString())) {
+        return 'answer_position_out_of_range';
+      }
+      if ((answerText ?? '').trim().isEmpty) return 'missing_answer_text';
+      if (warnings.isNotEmpty) return 'has_warnings';
+      return 'ok';
+    }
     if (normalizedType == 'insertion') {
       if (special == null || special.isEmpty) return 'missing_special_data';
       final kind = special['kind']?.toString().trim().toLowerCase();
