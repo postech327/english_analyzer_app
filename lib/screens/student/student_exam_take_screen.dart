@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../services/student_exam_service.dart';
 import '../../utils/insertion_display_prompt.dart';
+import '../../utils/irrelevant_display_passage.dart';
 import 'student_exam_result_screen.dart';
 
 class StudentExamTakeScreen extends StatefulWidget {
@@ -41,6 +42,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   Map<int, List<String>> orderAnswers = {};
   Map<int, int> insertionAnswers = {};
   Map<int, Map<String, int>> multipleInsertionAnswers = {};
+  Map<int, int> irrelevantAnswers = {};
 
   int _asInt(dynamic value) {
     if (value is int) return value;
@@ -82,6 +84,22 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     final data = specialData ?? _specialData(question);
     return type == 'insertion' ||
         data['kind']?.toString().trim().toLowerCase() == 'insertion';
+  }
+
+  bool _isIrrelevantQuestion(
+    Map<String, dynamic> question, [
+    Map<String, dynamic>? specialData,
+  ]) {
+    final type =
+        (question['question_type'] ?? '').toString().trim().toLowerCase();
+    final kind = (specialData ?? _specialData(question))['kind']
+        ?.toString()
+        .trim()
+        .toLowerCase();
+    return type == 'irrelevant' ||
+        type == 'unrelated_sentence' ||
+        kind == 'irrelevant' ||
+        kind == 'unrelated_sentence';
   }
 
   Map<String, String> _orderBlocks(Map<String, dynamic> specialData) {
@@ -128,6 +146,9 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
         return labels.isNotEmpty && labels.every(selected.containsKey);
       }
       return insertionAnswers.containsKey(qId);
+    }
+    if (_isIrrelevantQuestion(question, specialData)) {
+      return irrelevantAnswers.containsKey(qId);
     }
     return selectedAnswers.containsKey(qId);
   }
@@ -344,6 +365,13 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
             'question_id': qId,
             'answer_text': answerText,
           });
+        } else if (_isIrrelevantQuestion(q, specialData)) {
+          final answerText = '${irrelevantAnswers[qId]}';
+          debugPrint('[StudentIrrelevantAnswer] q=$qId selected=$answerText');
+          answers.add({
+            'question_id': qId,
+            'answer_text': answerText,
+          });
         } else {
           answers.add({
             'question_id': qId,
@@ -407,6 +435,13 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
 
     if (questionType == 'insertion') {
       return _buildInsertionPassage(
+        passage: passage,
+        question: question,
+      );
+    }
+
+    if (questionType == 'irrelevant' || questionType == 'unrelated_sentence') {
+      return _buildIrrelevantPassage(
         passage: passage,
         question: question,
       );
@@ -547,6 +582,29 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
       passage: passage,
       insertionText: insertionText,
     );
+  }
+
+  String _buildIrrelevantPassage({
+    required String passage,
+    required Map<String, dynamic> question,
+  }) {
+    final specialData = _specialData(question);
+    final rawPassage =
+        (specialData['passage_with_numbers'] ?? passage).toString();
+    final displayPassage = irrelevantPassageForDisplay(
+      specialData,
+      fallbackPassage: passage,
+    );
+    final questionId = question['question_id'] ?? question['id'] ?? '';
+    debugPrint(
+      '[IrrelevantDisplayRaw] questionId=$questionId '
+      'raw="${rawPassage.replaceAll('\n', r'\n')}"',
+    );
+    debugPrint(
+      '[IrrelevantDisplayClean] questionId=$questionId '
+      'clean="${displayPassage.replaceAll('\n', r'\n')}"',
+    );
+    return displayPassage;
   }
 
   String _formatInsertionText({
@@ -985,11 +1043,14 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     final fallback = _fallbackPromptForType(questionType);
     final isInsertion = questionType == 'insertion' ||
         specialData['kind']?.toString().trim().toLowerCase() == 'insertion';
+    final isIrrelevant = _isIrrelevantQuestion(question, specialData);
     final finalPrompt = isInsertion
         ? insertionDisplayPromptForMode(insertionMode)
-        : extracted.isNotEmpty
-            ? extracted
-            : fallback;
+        : isIrrelevant
+            ? '다음 글에서 전체 흐름과 관계없는 문장은?'
+            : extracted.isNotEmpty
+                ? extracted
+                : fallback;
 
     debugPrint(
       '[StudentDisplayCleanup] q=${question['question_id'] ?? question['id']} '
@@ -1086,6 +1147,9 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
         return '\uC8FC\uC5B4\uC9C4 \uAE00 \uB2E4\uC74C\uC5D0 \uC774\uC5B4\uC9C8 \uAE00\uC758 \uC21C\uC11C\uB85C \uAC00\uC7A5 \uC801\uC808\uD55C \uAC83\uC740?';
       case 'insertion':
         return '\uAE00\uC758 \uD750\uB984\uC73C\uB85C \uBCF4\uC544, \uC8FC\uC5B4\uC9C4 \uBB38\uC7A5\uC774 \uB4E4\uC5B4\uAC00\uAE30\uC5D0 \uAC00\uC7A5 \uC801\uC808\uD55C \uACF3\uC740?';
+      case 'irrelevant':
+      case 'unrelated_sentence':
+        return '\uB2E4\uC74C \uAE00\uC5D0\uC11C \uC804\uCCB4 \uD750\uB984\uACFC \uAD00\uACC4\uC5C6\uB294 \uBB38\uC7A5\uC740?';
       default:
         return '\uB2E4\uC74C \uAE00\uC744 \uC77D\uACE0 \uBB3C\uC74C\uC5D0 \uB2F5\uD558\uC138\uC694.';
     }
@@ -1236,6 +1300,8 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     final specialData = _specialData(currentQuestion);
     final bool isOrder = _isOrderQuestion(currentQuestion, specialData);
     final bool isInsertion = _isInsertionQuestion(currentQuestion, specialData);
+    final bool isIrrelevant =
+        _isIrrelevantQuestion(currentQuestion, specialData);
     final selectedIndex = selectedAnswers[qId];
     final answeredTotal = _answeredCount(questions);
 
@@ -1314,6 +1380,18 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                     ),
                     const SizedBox(height: 14),
                     _buildInsertionAnswerCard(
+                      qId: qId,
+                      specialData: specialData,
+                    ),
+                  ] else if (isIrrelevant) ...[
+                    _buildPassageCard(
+                      passage: displayPassage,
+                      questionType:
+                          (currentQuestion['question_type'] ?? '').toString(),
+                      underlineTarget: underlineTarget,
+                    ),
+                    const SizedBox(height: 14),
+                    _buildIrrelevantAnswerCard(
                       qId: qId,
                       specialData: specialData,
                     ),
@@ -1597,6 +1675,13 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
       return const SelectableText(
         '-',
         style: TextStyle(fontSize: 15, height: 1.72, color: _ink),
+      );
+    }
+
+    if (questionType == 'irrelevant' || questionType == 'unrelated_sentence') {
+      return SelectableText(
+        text,
+        style: _passageTextStyle(),
       );
     }
 
@@ -2166,6 +2251,81 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
             ),
             const SizedBox(height: 16),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildIrrelevantAnswerCard({
+    required int qId,
+    required Map<String, dynamic> specialData,
+  }) {
+    final positions = _insertionPositions(specialData);
+    final selected = irrelevantAnswers[qId];
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _line),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '문장 선택',
+            style: TextStyle(
+              color: _ink,
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '전체 흐름과 관계없는 문장의 번호를 하나 선택하세요.',
+            style: TextStyle(
+              color: _muted,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final position in positions)
+                ChoiceChip(
+                  label: Text(_circledPosition(position)),
+                  selected: selected == position,
+                  onSelected: (_) {
+                    setState(() {
+                      irrelevantAnswers[qId] = position;
+                    });
+                    debugPrint(
+                      '[StudentIrrelevantAnswer] q=$qId selected=$position',
+                    );
+                  },
+                  selectedColor: const Color(0xFFEFF6FF),
+                  backgroundColor: Colors.white,
+                  labelStyle: TextStyle(
+                    color: selected == position ? _blue : _ink,
+                    fontWeight: FontWeight.w900,
+                  ),
+                  side: BorderSide(
+                    color: selected == position ? _blue : _line,
+                    width: selected == position ? 1.6 : 1,
+                  ),
+                ),
+            ],
+          ),
         ],
       ),
     );

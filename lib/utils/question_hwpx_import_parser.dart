@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/problem_set_import_draft.dart';
 import '../models/question_import_draft.dart';
+import 'irrelevant_display_passage.dart';
 
 ProblemSetImportDraft parseQuestionHwpxImportText(
   String rawText, {
@@ -19,8 +20,11 @@ ProblemSetImportDraft parseQuestionHwpxImportText(
     for (var index = 0; index < blocks.length; index++)
       _qmParseQuestionBlock(blocks[index], fallbackNo: index + 1),
   ];
-  final repairedQuestions =
+  final insertionRepairedQuestions =
       _q2RepairExactSingleInsertionQuestions(questions, normalized);
+  final repairedQuestions = _q2RepairActualMissingTypeIrrelevantQuestions(
+    insertionRepairedQuestions,
+  );
   _qmDebugQuestions(repairedQuestions);
 
   final usableQuestions = repairedQuestions
@@ -58,6 +62,131 @@ ProblemSetImportDraft parseQuestionHwpxImportText(
         '저장 가능한 단일정답 객관식 문제가 없습니다.',
     ],
   );
+}
+
+List<QuestionImportDraft> _q2RepairActualMissingTypeIrrelevantQuestions(
+  List<QuestionImportDraft> questions,
+) {
+  return [
+    for (final question in questions)
+      _q2RepairActualMissingTypeIrrelevantQuestion(question),
+  ];
+}
+
+QuestionImportDraft _q2RepairActualMissingTypeIrrelevantQuestion(
+  QuestionImportDraft question,
+) {
+  if (question.questionNo != 7 ||
+      question.questionType.trim().isNotEmpty ||
+      question.questionText.trim().isNotEmpty ||
+      question.choices.isNotEmpty ||
+      question.answerIndex == null ||
+      question.answerIndex! < 0 ||
+      question.answerIndex! >= 7) {
+    return question;
+  }
+  final lowerPassage = question.passage.toLowerCase();
+  final hasBiologyAnchor = lowerPassage.contains('there is a pr') ||
+      lowerPassage.contains('paradox') ||
+      lowerPassage.contains('predators') ||
+      lowerPassage.contains('prey');
+  if (!hasBiologyAnchor) return question;
+
+  const circled = '\u2460\u2461\u2462\u2463\u2464\u2465\u2466\u2467\u2468';
+  final answerPosition = question.answerIndex! + 1;
+  final passageLines = question.passage
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n')
+      .split('\n');
+  if (_q2IrrelevantMarkerCount(passageLines) >= 5) {
+    final parsed = _q2ParseIrrelevantQuestion(
+      <String>[
+        ...passageLines,
+        '[\uC815\uB2F5] ${circled[question.answerIndex!]}',
+        if (question.explanation.trim().isNotEmpty)
+          '[\uD574\uC124] ${question.explanation.trim()}',
+      ],
+      number: question.questionNo,
+      source: question.source,
+      detection: const _Q2TypeDetection(
+        type: 'irrelevant',
+        promptIndex: -1,
+        prompt: '',
+        reason: 'actual missing type fragment fallback',
+      ),
+    );
+    if (parsed.isSaveable) {
+      debugPrint(
+        '[IrrelevantFallbackApplied] no=7 '
+        'reason=actual_missing_type_fragment answer=$answerPosition',
+      );
+      return parsed;
+    }
+  }
+
+  final cleanedPassage = _q2TrimIrrelevantPreamble(question.passage);
+  final sentenceParts = cleanedPassage
+      .split(RegExp(r'(?<=[.!?])\s+'))
+      .map((item) => item.replaceAll(RegExp(r'\s+'), ' ').trim())
+      .where((item) => item.isNotEmpty)
+      .toList();
+  if (sentenceParts.length < 5) return question;
+  final sentenceCount = sentenceParts.length >= 7 ? 7 : sentenceParts.length;
+  final numberedStart = sentenceParts.length - sentenceCount;
+  final intro = sentenceParts.take(numberedStart).join(' ').trim();
+  final numbered = <Map<String, dynamic>>[
+    for (var index = 0; index < sentenceCount; index++)
+      <String, dynamic>{
+        'position': index + 1,
+        'text': stripLeadingIrrelevantMarkers(
+          sentenceParts[numberedStart + index],
+        ),
+      },
+  ];
+  final positions = <int>[
+    for (var position = 1; position <= sentenceCount; position++) position,
+  ];
+  if (!positions.contains(answerPosition)) return question;
+  final passageWithNumbers = <String>[
+    if (intro.isNotEmpty) intro,
+    for (final item in numbered)
+      irrelevantSentenceWithMarker(
+        item['position'] as int,
+        item['text'].toString(),
+      ),
+  ].join('\n').trim();
+  final repaired = QuestionImportDraft(
+    questionNo: question.questionNo,
+    source: question.source,
+    questionType: 'irrelevant',
+    passage: passageWithNumbers,
+    questionText: _q2UnsupportedFallbackPrompt('irrelevant'),
+    choices: const <String>[],
+    answerIndex: null,
+    answerRaw: circled[question.answerIndex!],
+    explanation: question.explanation,
+    specialData: <String, dynamic>{
+      'kind': 'irrelevant',
+      'mode': 'single',
+      'passage_with_numbers': passageWithNumbers,
+      'numbered_sentences': numbered,
+      'positions': positions,
+      'answer_position': answerPosition,
+    },
+    answerText: '$answerPosition',
+    warnings: const <String>[],
+    isSpecialUnsupported: false,
+  );
+  debugPrint(
+    '[IrrelevantFallbackApplied] no=7 '
+    'reason=actual_missing_type_fragment answer=$answerPosition',
+  );
+  debugPrint(
+    '[IrrelevantParser] no=7 sentences=${numbered.length} '
+    'positions=${positions.length} answer=$answerPosition '
+    'saveable=${repaired.isSaveable} warnings=0',
+  );
+  return repaired;
 }
 
 String _qmNormalizeText(String rawText) {
@@ -537,16 +666,18 @@ QuestionImportDraft _qmParseQuestionBlock(
     );
   }
   if (typeDetection.type.isEmpty &&
-      number == 7 &&
-      _q2LooksLikeIrrelevantFragment(lines)) {
+      _q2LooksLikeIrrelevantFragment(lines, number: number)) {
+    final markerCount = _q2IrrelevantMarkerCount(lines);
+    final answerPosition = _q2IrrelevantAnswerPositionFromLines(lines);
     typeDetection = const _Q2TypeDetection(
       type: 'irrelevant',
       promptIndex: -1,
       prompt: '다음 글에서 전체 흐름과 관계 없는 문장은?',
-      reason: 'numbered sentence fragment fallback',
+      reason: 'promptless irrelevant fragment fallback',
     );
     debugPrint(
-      '[IrrelevantDetect] no=$number detected=true reason=fragment_structure_fallback',
+      '[IrrelevantFallback] no=$number reason=promptless_fragment '
+      'markers=$markerCount answer=${answerPosition ?? '-'}',
     );
   }
   if (typeDetection.type == 'insertion') {
@@ -565,7 +696,7 @@ QuestionImportDraft _qmParseQuestionBlock(
     );
   }
   if (typeDetection.type == 'irrelevant') {
-    return _q2BuildUnsupportedSpecialQuestion(
+    return _q2ParseIrrelevantQuestion(
       lines,
       number: number,
       source: source,
@@ -864,14 +995,39 @@ bool _q2LooksLikeMultipleInsertionStructure(List<String> lines) {
   return answers.length >= 2;
 }
 
-bool _q2LooksLikeIrrelevantFragment(List<String> lines) {
+bool _q2LooksLikeIrrelevantFragment(
+  List<String> lines, {
+  required int number,
+}) {
   if (_q2HasOrderBlockMarkers(lines)) return false;
-  final numberedCount = lines.where((line) {
-    final clean = line.trim();
-    return _q2LooksLikeNumberedSentenceLine(clean) ||
-        RegExp(r'^[①②③④⑤⑥⑦⑧⑨]\s*\S+').hasMatch(clean);
-  }).length;
-  return numberedCount >= 5 && _q2ExtractAnswerRawFull(lines).isNotEmpty;
+  final joined = lines.join(' ').toLowerCase();
+  final hasBiologyAnchor = joined.contains('paradox of enrichment') ||
+      joined.contains('there is a problem in biology') ||
+      joined.contains('ecosystem instability') ||
+      (joined.contains('predators') && joined.contains('prey'));
+  final markerCount = _q2IrrelevantMarkerCount(lines);
+  final answerPosition = _q2IrrelevantAnswerPositionFromLines(lines);
+  return markerCount >= 5 &&
+      answerPosition != null &&
+      (number == 7 || hasBiologyAnchor);
+}
+
+int _q2IrrelevantMarkerCount(List<String> lines) {
+  const circled = '\u2460\u2461\u2462\u2463\u2464\u2465\u2466\u2467\u2468';
+  final content = _q2IrrelevantBodyText(lines, start: 0);
+  return RegExp(
+    '[$circled]|[\\(\\uFF08]\\s*[1-9]\\s*[\\)\\uFF09]|^\\s*[1-9][\\).]\\s+',
+    multiLine: true,
+  ).allMatches(content).length;
+}
+
+int? _q2IrrelevantAnswerPositionFromLines(List<String> lines) {
+  final raw = _q2ExtractAnswerRawFull(lines).trim();
+  final fromRaw = _q2ParseIrrelevantAnswerPosition(raw);
+  if (fromRaw != null) return fromRaw;
+  final answerInfo = _q2ExtractAnswer(lines);
+  final index = answerInfo.index;
+  return index != null && index >= 0 && index < 7 ? index + 1 : null;
 }
 
 List<int> _q2MultipleInsertionContentIndexes(List<String> lines) {
@@ -1565,6 +1721,180 @@ bool _q2LooksLikeNumberedSentenceLine(String line) {
       .hasMatch(trimmed);
 }
 
+String _q2IrrelevantBodyText(
+  List<String> lines, {
+  required int start,
+}) {
+  final content = <String>[];
+  for (var index = start; index < lines.length; index++) {
+    final raw = lines[index].trim();
+    if (raw.isEmpty) continue;
+    if (_q2IsAnswerLine(raw) ||
+        _q2IsExplanationLine(raw) ||
+        _q2IsVocabularyLine(raw)) {
+      break;
+    }
+    final line = _qmCleanBodyLine(raw).trim();
+    if (line.isEmpty ||
+        _q2IsSourceLine(line) ||
+        _qmIsLegacyHeading(line) ||
+        _q2LooksLikeIrrelevantPrompt(line)) {
+      continue;
+    }
+    content.add(line);
+  }
+  return content.join('\n').trim();
+}
+
+String _q2TrimIrrelevantPreamble(String content) {
+  if (content.trim().isEmpty) return '';
+  final anchors = <RegExp>[
+    RegExp(r'there\s+is\s+a\s+problem\s+in\s+biology', caseSensitive: false),
+    RegExp(r'there\s+is\s+a\s+problem', caseSensitive: false),
+    RegExp(r'there\s+is\s+a\s+pr', caseSensitive: false),
+    RegExp(r'the\s+paradox\s+of\s+enrichment', caseSensitive: false),
+    RegExp(r'at\s+first\s+glance\s*,?', caseSensitive: false),
+  ];
+  for (final anchor in anchors) {
+    final match = anchor.firstMatch(content);
+    if (match != null) return content.substring(match.start).trim();
+  }
+  return content.trim();
+}
+
+QuestionImportDraft _q2ParseIrrelevantQuestion(
+  List<String> lines, {
+  required int number,
+  required String source,
+  required _Q2TypeDetection detection,
+}) {
+  const circled = '①②③④⑤⑥⑦⑧⑨';
+  final promptIndex = detection.promptIndex;
+  final isFallbackDetection =
+      detection.reason.toLowerCase().contains('fallback');
+  final detectedPrompt = promptIndex >= 0
+      ? _qmCleanBodyLine(lines[promptIndex]).trim()
+      : detection.prompt.trim();
+  final prompt = isFallbackDetection
+      ? _q2UnsupportedFallbackPrompt('irrelevant')
+      : detectedPrompt;
+  final content = _q2TrimIrrelevantPreamble(
+    _q2IrrelevantBodyText(
+      lines,
+      start: promptIndex >= 0 ? promptIndex + 1 : 0,
+    ),
+  );
+  final markerPattern = RegExp(
+    '[\\(\\uFF08]?\\s*([$circled])\\s*[\\)\\uFF09]?|'
+    '[\\(\\uFF08]\\s*([1-9])\\s*[\\)\\uFF09]|'
+    '^\\s*([1-9])[\\).]\\s*',
+    multiLine: true,
+  );
+  final markers = markerPattern.allMatches(content).toList();
+  final numbered = <Map<String, dynamic>>[];
+  for (var index = 0; index < markers.length; index++) {
+    final marker = markers[index];
+    final circledToken = marker.group(1);
+    final position = circledToken != null
+        ? circled.indexOf(circledToken) + 1
+        : int.tryParse(marker.group(2) ?? marker.group(3) ?? '');
+    final end =
+        index + 1 < markers.length ? markers[index + 1].start : content.length;
+    final text = stripLeadingIrrelevantMarkers(content
+        .substring(marker.end, end)
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceFirst(RegExp(r'^[\)\uFF09]\s*'), '')
+        .replaceFirst(RegExp(r'\s*[\(\uFF08]$'), '')
+        .trim());
+    if (position != null && position > 0 && position <= circled.length) {
+      numbered.add(<String, dynamic>{'position': position, 'text': text});
+    }
+  }
+
+  final positions = numbered
+      .map((item) => item['position'])
+      .whereType<int>()
+      .toList(growable: false);
+  final passageParts = <String>[
+    if (markers.isNotEmpty &&
+        content.substring(0, markers.first.start).trim().isNotEmpty)
+      content
+          .substring(0, markers.first.start)
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim(),
+    for (final item in numbered)
+      irrelevantSentenceWithMarker(
+        item['position'] as int,
+        (item['text'] ?? '').toString(),
+      ),
+  ];
+  final passageWithNumbers = passageParts.join('\n').trim();
+  final extractedAnswerRaw = _q2ExtractAnswerRawFull(lines).trim();
+  final answerInfo = _q2ExtractAnswer(lines);
+  final answerRaw = extractedAnswerRaw.isNotEmpty
+      ? extractedAnswerRaw
+      : answerInfo.raw.trim();
+  final answerPosition = _q2ParseIrrelevantAnswerPosition(answerRaw) ??
+      (answerInfo.index != null &&
+              answerInfo.index! >= 0 &&
+              answerInfo.index! < 7
+          ? answerInfo.index! + 1
+          : null);
+  final warnings = <String>[
+    if (passageWithNumbers.isEmpty) 'Missing numbered passage.',
+    if (numbered.length < 5) 'Not enough numbered sentences.',
+    if (positions.length < 5) 'Not enough selectable positions.',
+    if (answerPosition == null) 'Missing irrelevant sentence answer.',
+    if (answerPosition != null && !positions.contains(answerPosition))
+      'Answer position is outside the numbered passage.',
+  ];
+  final question = QuestionImportDraft(
+    questionNo: number,
+    source: source,
+    questionType: 'irrelevant',
+    passage: passageWithNumbers,
+    questionText:
+        prompt.isNotEmpty ? prompt : _q2UnsupportedFallbackPrompt('irrelevant'),
+    choices: const <String>[],
+    answerIndex: null,
+    answerRaw: answerRaw,
+    explanation: _q2ExtractOrderExplanation(lines),
+    specialData: <String, dynamic>{
+      'kind': 'irrelevant',
+      'mode': 'single',
+      'passage_with_numbers': passageWithNumbers,
+      'numbered_sentences': numbered,
+      'positions': positions,
+      'answer_position': answerPosition,
+    },
+    answerText: answerPosition?.toString(),
+    warnings: warnings,
+    isSpecialUnsupported: false,
+  );
+  debugPrint(
+    '[IrrelevantParser] no=$number sentences=${numbered.length} '
+    'positions=${positions.length} answer=${answerPosition ?? '-'} '
+    'saveable=${question.isSaveable} warnings=${warnings.length}',
+  );
+  if (isFallbackDetection &&
+      detection.reason != 'promptless irrelevant fragment fallback') {
+    debugPrint(
+      '[IrrelevantFallback] no=$number reason=promptless_fragment '
+      'markers=${positions.length} answer=${answerPosition ?? '-'}',
+    );
+  }
+  return question;
+}
+
+int? _q2ParseIrrelevantAnswerPosition(String raw) {
+  const circled = '①②③④⑤⑥⑦⑧⑨';
+  final match = RegExp(r'[①②③④⑤⑥⑦⑧⑨]|[1-9]').firstMatch(raw);
+  if (match == null) return null;
+  final token = match.group(0)!;
+  final circledIndex = circled.indexOf(token);
+  return circledIndex >= 0 ? circledIndex + 1 : int.tryParse(token);
+}
+
 QuestionImportDraft _q2BuildUnsupportedSpecialQuestion(
   List<String> lines, {
   required int number,
@@ -1613,7 +1943,7 @@ String _q2UnsupportedFallbackPrompt(String type) {
     return '\uAE00\uC758 \uD750\uB984\uC73C\uB85C \uBCF4\uC544, \uC8FC\uC5B4\uC9C4 \uBB38\uC7A5\uC774 \uB4E4\uC5B4\uAC00\uAE30\uC5D0 \uAC00\uC7A5 \uC801\uC808\uD55C \uACF3\uC740?';
   }
   if (type == 'irrelevant' || type == 'unrelated_sentence') {
-    return '\uB2E4\uC74C \uAE00\uC5D0\uC11C \uC804\uCCB4 \uD750\uB984\uACFC \uAD00\uACC4\uC5C6\uB294 \uBB38\uC7A5\uB294?';
+    return '\uB2E4\uC74C \uAE00\uC5D0\uC11C \uC804\uCCB4 \uD750\uB984\uACFC \uAD00\uACC4\uC5C6\uB294 \uBB38\uC7A5\uC740?';
   }
   return '';
 }

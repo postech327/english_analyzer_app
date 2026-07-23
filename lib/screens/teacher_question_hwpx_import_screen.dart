@@ -455,14 +455,21 @@ class _QuestionPreviewCard extends StatelessWidget {
         question.specialData?['kind']?.toString() == 'order';
     final isInsertion = normalizedType == 'insertion' ||
         question.specialData?['kind']?.toString() == 'insertion';
+    final isIrrelevant = normalizedType == 'irrelevant' ||
+        normalizedType == 'unrelated_sentence' ||
+        question.specialData?['kind']?.toString() == 'irrelevant' ||
+        question.specialData?['kind']?.toString() == 'unrelated_sentence';
     final insertionMode =
         (question.specialData?['mode'] ?? '').toString().trim().toLowerCase();
     final insertionPositions = _questionImportPositions(question.specialData);
     final insertionSentences =
         _questionImportInsertionSentences(question.specialData);
-    final isUnsupportedSpecial = (isInsertion && !question.isSaveable) ||
-        normalizedType == 'irrelevant' ||
-        normalizedType == 'unrelated_sentence';
+    final irrelevantPositions = _questionImportPositions(question.specialData);
+    final numberedSentences = question.specialData?['numbered_sentences'];
+    final numberedSentenceCount =
+        numberedSentences is List ? numberedSentences.length : 0;
+    final isUnsupportedSpecial =
+        (isInsertion || isIrrelevant) && !question.isSaveable;
     final blocks = _questionImportBlocks(question.specialData);
     final answer = isOrder
         ? (question.answerText?.trim().isNotEmpty == true
@@ -474,9 +481,13 @@ class _QuestionPreviewCard extends StatelessWidget {
                 : question.answerIndex == null
                     ? '-'
                     : _circledAnswerLabel(question.answerIndex!))
-            : question.answerIndex == null
-                ? '-'
-                : _circledAnswerLabel(question.answerIndex!);
+            : isIrrelevant
+                ? (question.answerText?.trim().isNotEmpty == true
+                    ? question.answerText!.trim()
+                    : '-')
+                : question.answerIndex == null
+                    ? '-'
+                    : _circledAnswerLabel(question.answerIndex!);
     final hasFixedStart = (question.specialData?['fixed_start'] ?? '')
         .toString()
         .trim()
@@ -504,20 +515,29 @@ class _QuestionPreviewCard extends StatelessWidget {
                   'sentence: ${(question.specialData?['insert_sentence'] ?? '').toString().trim().isNotEmpty ? 'yes' : 'no'}',
                 'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
               ]
-            : isUnsupportedSpecial
+            : isIrrelevant && question.isSaveable
                 ? <String>[
-                    'type: $typeLabel',
-                    'status: unsupported',
-                    if (isInsertion && insertionMode.isNotEmpty)
-                      'mode: $insertionMode',
+                    'type: irrelevant',
+                    'mode: single',
                     'answer: $answer',
+                    'positions: ${irrelevantPositions.length}',
+                    'sentences: $numberedSentenceCount',
                     'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
                   ]
-                : <String>[
-                    'choices: ${question.choices.length}',
-                    'answer: $answer',
-                    'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
-                  ];
+                : isUnsupportedSpecial
+                    ? <String>[
+                        'type: $typeLabel',
+                        'status: unsupported',
+                        if (isInsertion && insertionMode.isNotEmpty)
+                          'mode: $insertionMode',
+                        'answer: $answer',
+                        'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
+                      ]
+                    : <String>[
+                        'choices: ${question.choices.length}',
+                        'answer: $answer',
+                        'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
+                      ];
     debugPrint(
       '[PreviewBadge] no=${question.questionNo} labels=$previewBadgeLabels',
     );
@@ -565,6 +585,18 @@ class _QuestionPreviewCard extends StatelessWidget {
                         ? 'yes'
                         : 'no',
                   ),
+              ] else if (isIrrelevant && question.isSaveable) ...[
+                const _InfoPill(label: 'type:', value: 'irrelevant'),
+                const _InfoPill(label: 'mode:', value: 'single'),
+                _InfoPill(label: 'answer:', value: answer),
+                _InfoPill(
+                  label: 'positions:',
+                  value: '${irrelevantPositions.length}',
+                ),
+                _InfoPill(
+                  label: 'sentences:',
+                  value: '$numberedSentenceCount',
+                ),
               ] else if (isUnsupportedSpecial) ...[
                 _InfoPill(label: 'type:', value: typeLabel),
                 const _InfoPill(label: 'status:', value: 'unsupported'),
