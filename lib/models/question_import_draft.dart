@@ -113,6 +113,48 @@ class QuestionImportDraft {
       return 'ok';
     }
 
+    const grammarVocabularyTypes = <String>{
+      'grammar',
+      'vocabulary',
+      'grammar_vocabulary',
+      'vocabulary_count',
+      'grammar_correction',
+      'vocabulary_correction',
+    };
+    if (grammarVocabularyTypes.contains(normalizedType)) {
+      if (passage.trim().isEmpty) return 'missing_passage';
+      if (special == null || special.isEmpty) return 'missing_special_data';
+      final interaction =
+          (special['interaction_type'] ?? '').toString().trim().toLowerCase();
+      final positions = special['positions'];
+      if (positions is! List || positions.isEmpty) return 'positions_empty';
+      if (interaction == 'single_choice') {
+        if (choices.length < 2) return 'not_enough_choices';
+        if (answerIndex == null) return 'missing_answer_index';
+        if (answerIndex! < 0 || answerIndex! >= choices.length) {
+          return 'answer_index_out_of_range';
+        }
+        return 'ok';
+      }
+      if (interaction == 'multi_select') {
+        final answerIndices = special['answer_indices'];
+        if (answerIndices is! List || answerIndices.isEmpty) {
+          return 'missing_answer_indices';
+        }
+        if ((answerText ?? '').trim().isEmpty) return 'missing_answer_text';
+        return 'ok';
+      }
+      if (interaction == 'correction_multi') {
+        final corrections = special['corrections'];
+        if (corrections is! Map || corrections.isEmpty) {
+          return 'missing_corrections';
+        }
+        if ((answerText ?? '').trim().isEmpty) return 'missing_answer_text';
+        return 'ok';
+      }
+      return 'unsupported_interaction_type';
+    }
+
     if (normalizedType == 'order' && (special == null || special.isEmpty)) {
       return 'missing_special_data';
     }
@@ -145,6 +187,7 @@ class QuestionImportDraft {
   }
 
   QuestionImportDraft copyWith({
+    int? questionNo,
     String? source,
     String? questionType,
     String? passage,
@@ -162,7 +205,7 @@ class QuestionImportDraft {
     bool? isSpecialUnsupported,
   }) {
     return QuestionImportDraft(
-      questionNo: questionNo,
+      questionNo: questionNo ?? this.questionNo,
       source: source ?? this.source,
       questionType: questionType ?? this.questionType,
       passage: passage ?? this.passage,

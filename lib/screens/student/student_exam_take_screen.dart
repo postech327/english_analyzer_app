@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../services/student_exam_service.dart';
 import '../../utils/insertion_display_prompt.dart';
+import '../../utils/grammar_vocabulary_inline_spans.dart';
 import '../../utils/irrelevant_display_passage.dart';
 import 'student_exam_result_screen.dart';
 
@@ -43,6 +44,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   Map<int, int> insertionAnswers = {};
   Map<int, Map<String, int>> multipleInsertionAnswers = {};
   Map<int, int> irrelevantAnswers = {};
+  Map<int, Set<int>> multiSelectAnswers = {};
 
   int _asInt(dynamic value) {
     if (value is int) return value;
@@ -102,6 +104,14 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
         kind == 'unrelated_sentence';
   }
 
+  String _languageInteractionType(Map<String, dynamic> specialData) {
+    final interaction =
+        (specialData['interaction_type'] ?? '').toString().trim().toLowerCase();
+    return interaction == 'multi_select' || interaction == 'correction_multi'
+        ? interaction
+        : '';
+  }
+
   Map<String, String> _orderBlocks(Map<String, dynamic> specialData) {
     final rawBlocks = specialData['blocks'];
     if (rawBlocks is! Map) return const <String, String>{};
@@ -149,6 +159,11 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     }
     if (_isIrrelevantQuestion(question, specialData)) {
       return irrelevantAnswers.containsKey(qId);
+    }
+    final languageInteraction = _languageInteractionType(specialData);
+    if (languageInteraction == 'multi_select' ||
+        languageInteraction == 'correction_multi') {
+      return multiSelectAnswers[qId]?.isNotEmpty == true;
     }
     return selectedAnswers.containsKey(qId);
   }
@@ -368,6 +383,20 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
         } else if (_isIrrelevantQuestion(q, specialData)) {
           final answerText = '${irrelevantAnswers[qId]}';
           debugPrint('[StudentIrrelevantAnswer] q=$qId selected=$answerText');
+          answers.add({
+            'question_id': qId,
+            'answer_text': answerText,
+          });
+        } else if (_languageInteractionType(specialData) == 'multi_select' ||
+            _languageInteractionType(specialData) == 'correction_multi') {
+          final selected = (multiSelectAnswers[qId] ?? const <int>{}).toList()
+            ..sort();
+          final answerText = selected.join(',');
+          debugPrint(
+            '[StudentLanguageNumberAnswer] q=$qId '
+            'interaction=${_languageInteractionType(specialData)} '
+            'selected=$answerText',
+          );
           answers.add({
             'question_id': qId,
             'answer_text': answerText,
@@ -1041,6 +1070,9 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
 
     final extracted = _extractStudentQuestionPrompt(rawPrompt);
     final fallback = _fallbackPromptForType(questionType);
+    final languagePrompt = isGrammarVocabularyQuestionType(questionType)
+        ? rawPrompt.replaceAll(RegExp(r'\s+'), ' ').trim()
+        : '';
     final isInsertion = questionType == 'insertion' ||
         specialData['kind']?.toString().trim().toLowerCase() == 'insertion';
     final isIrrelevant = _isIrrelevantQuestion(question, specialData);
@@ -1048,9 +1080,11 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
         ? insertionDisplayPromptForMode(insertionMode)
         : isIrrelevant
             ? '다음 글에서 전체 흐름과 관계없는 문장은?'
-            : extracted.isNotEmpty
-                ? extracted
-                : fallback;
+            : languagePrompt.isNotEmpty
+                ? languagePrompt
+                : extracted.isNotEmpty
+                    ? extracted
+                    : fallback;
 
     debugPrint(
       '[StudentDisplayCleanup] q=${question['question_id'] ?? question['id']} '
@@ -1302,6 +1336,14 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     final bool isInsertion = _isInsertionQuestion(currentQuestion, specialData);
     final bool isIrrelevant =
         _isIrrelevantQuestion(currentQuestion, specialData);
+    final languageInteraction = _languageInteractionType(specialData);
+    debugPrint(
+      '[StudentQuestionDebug] question_id=$qId '
+      'type=${currentQuestion['question_type'] ?? ''} '
+      'choices=${options.length} '
+      'positions=${_insertionPositions(specialData)} '
+      'interaction=${specialData['interaction_type'] ?? ''}',
+    );
     final selectedIndex = selectedAnswers[qId];
     final answeredTotal = _answeredCount(questions);
 
@@ -1377,6 +1419,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                       questionType:
                           (currentQuestion['question_type'] ?? '').toString(),
                       underlineTarget: underlineTarget,
+                      specialData: specialData,
                     ),
                     const SizedBox(height: 14),
                     _buildInsertionAnswerCard(
@@ -1389,9 +1432,24 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                       questionType:
                           (currentQuestion['question_type'] ?? '').toString(),
                       underlineTarget: underlineTarget,
+                      specialData: specialData,
                     ),
                     const SizedBox(height: 14),
                     _buildIrrelevantAnswerCard(
+                      qId: qId,
+                      specialData: specialData,
+                    ),
+                  ] else if (languageInteraction == 'multi_select' ||
+                      languageInteraction == 'correction_multi') ...[
+                    _buildPassageCard(
+                      passage: displayPassage,
+                      questionType:
+                          (currentQuestion['question_type'] ?? '').toString(),
+                      underlineTarget: underlineTarget,
+                      specialData: specialData,
+                    ),
+                    const SizedBox(height: 14),
+                    _buildLanguageMultiSelectCard(
                       qId: qId,
                       specialData: specialData,
                     ),
@@ -1401,12 +1459,14 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                       questionType:
                           (currentQuestion['question_type'] ?? '').toString(),
                       underlineTarget: underlineTarget,
+                      specialData: specialData,
                     ),
                     const SizedBox(height: 14),
                     _buildOptionsCard(
                       questionType:
                           (currentQuestion['question_type'] ?? '').toString(),
                       options: options,
+                      specialData: specialData,
                       selectedIndex: selectedIndex,
                       qId: qId,
                     ),
@@ -1479,7 +1539,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      '선택 ${selectedAnswers.length} / $total',
+                      '선택 $answered / $total',
                       style: const TextStyle(
                         color: _muted,
                         fontSize: 13,
@@ -1578,6 +1638,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     required String passage,
     required String questionType,
     required String underlineTarget,
+    required Map<String, dynamic> specialData,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -1658,6 +1719,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                 passage: passage,
                 questionType: questionType.toLowerCase(),
                 underlineTarget: underlineTarget,
+                specialData: specialData,
               ),
             ),
         ],
@@ -1669,6 +1731,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     required String passage,
     required String questionType,
     required String underlineTarget,
+    required Map<String, dynamic> specialData,
   }) {
     final text = passage.trim();
     if (text.isEmpty) {
@@ -1738,6 +1801,25 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
           ],
         );
       }
+    }
+
+    if (isGrammarVocabularyQuestionType(questionType)) {
+      return SelectableText.rich(
+        buildGrammarVocabularyInlineSpans(
+          passage: text,
+          specialData: specialData,
+          baseStyle: _passageTextStyle(),
+          markerStyle: _passageTextStyle().copyWith(
+            color: _purple,
+            fontWeight: FontWeight.w900,
+          ),
+          candidateStyle: _passageTextStyle().copyWith(
+            decoration: TextDecoration.underline,
+            decorationThickness: 1.6,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      );
     }
 
     return SelectableText.rich(
@@ -2331,6 +2413,67 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     );
   }
 
+  Widget _buildLanguageMultiSelectCard({
+    required int qId,
+    required Map<String, dynamic> specialData,
+  }) {
+    final positions = _insertionPositions(specialData);
+    final selected = multiSelectAnswers[qId] ?? const <int>{};
+    final maxAnswers = _asInt(specialData['max_answers']);
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _line),
+      ),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '정답을 모두 선택하세요.',
+            style: TextStyle(
+              color: _ink,
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final position in positions)
+                FilterChip(
+                  label: Text(_circledPosition(position)),
+                  selected: selected.contains(position),
+                  onSelected: (checked) {
+                    setState(() {
+                      final next = Set<int>.from(
+                          multiSelectAnswers[qId] ?? const <int>{});
+                      if (checked) {
+                        if (maxAnswers <= 0 || next.length < maxAnswers) {
+                          next.add(position);
+                        }
+                      } else {
+                        next.remove(position);
+                      }
+                      multiSelectAnswers[qId] = next;
+                    });
+                  },
+                  selectedColor: const Color(0xFFEFF6FF),
+                  backgroundColor: Colors.white,
+                  side: BorderSide(
+                    color: selected.contains(position) ? _blue : _line,
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   String _multipleInsertionAnswerText(
     int qId,
     Map<String, dynamic> specialData,
@@ -2366,6 +2509,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   Widget _buildOptionsCard({
     required String questionType,
     required List options,
+    required Map<String, dynamic> specialData,
     required int? selectedIndex,
     required int qId,
   }) {
@@ -2373,6 +2517,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     final displayOptions = _displayOptions(
       questionType: normalizedType,
       options: options,
+      specialData: specialData,
     );
 
     return Container(
@@ -2553,6 +2698,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   List<String> _displayOptions({
     required String questionType,
     required List options,
+    required Map<String, dynamic> specialData,
   }) {
     if (questionType == 'insertion') {
       return const ['?', '?', '?', '?', '?'];
@@ -2563,14 +2709,25 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
       final idx = entry.key;
       final opt = entry.value;
       final circled = _circled(idx);
-      final rawText =
-          opt is Map ? (opt['text'] ?? '').toString() : opt.toString();
+      final rawText = opt is Map
+          ? (opt['text'] ?? opt['label'] ?? '').toString()
+          : opt.toString();
+      if (RegExp(r'^[①②③④⑤⑥⑦⑧⑨]$').hasMatch(rawText.trim())) {
+        cleaned.add(circled);
+        continue;
+      }
       final optionText = _cleanStudentOptionText(rawText);
-      if (optionText.isEmpty) continue;
-      cleaned.add('$circled $optionText');
+      if (optionText.isNotEmpty) {
+        cleaned.add('$circled $optionText');
+      }
     }
 
-    return cleaned;
+    if (cleaned.isNotEmpty) return cleaned;
+
+    return grammarVocabularyFallbackStudentOptions(
+      questionType: questionType,
+      positions: _insertionPositions(specialData),
+    );
   }
 
   String _cleanStudentOptionText(String raw) {

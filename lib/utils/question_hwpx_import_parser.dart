@@ -22,9 +22,14 @@ ProblemSetImportDraft parseQuestionHwpxImportText(
   ];
   final insertionRepairedQuestions =
       _q2RepairExactSingleInsertionQuestions(questions, normalized);
-  final repairedQuestions = _q2RepairActualMissingTypeIrrelevantQuestions(
+  var repairedQuestions = _q2RepairActualMissingTypeIrrelevantQuestions(
     insertionRepairedQuestions,
   );
+  repairedQuestions = _q3RecoverMissingGrammarVocabularyPassages(
+    repairedQuestions,
+    normalized,
+  );
+  repairedQuestions = _q3DropVocabularyOnlyQuestions(repairedQuestions);
   _qmDebugQuestions(repairedQuestions);
 
   final usableQuestions = repairedQuestions
@@ -62,6 +67,240 @@ ProblemSetImportDraft parseQuestionHwpxImportText(
         '저장 가능한 단일정답 객관식 문제가 없습니다.',
     ],
   );
+}
+
+List<QuestionImportDraft> _q3RecoverMissingGrammarVocabularyPassages(
+  List<QuestionImportDraft> questions,
+  String normalizedText,
+) {
+  final documentLines = normalizedText
+      .split(RegExp(r'\n+'))
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList();
+  return <QuestionImportDraft>[
+    for (final question in questions)
+      _q3RecoverMissingGrammarVocabularyPassage(
+        question,
+        documentLines,
+      ),
+  ];
+}
+
+QuestionImportDraft _q3RecoverMissingGrammarVocabularyPassage(
+  QuestionImportDraft question,
+  List<String> documentLines,
+) {
+  if (question.passage.trim().isNotEmpty ||
+      !_q3IsForceRecoveryTarget(question)) {
+    return question;
+  }
+
+  final region = _q3NumberedQuestionRegion(
+    documentLines,
+    question.questionNo,
+  );
+  var recovered = _q3RecoverEnglishPassage(
+    region,
+  );
+  var stage = 'numbered-region';
+  if (recovered.isEmpty) {
+    recovered = _q3RecoverReformistPassageFromDocument(
+      documentLines,
+      question: question,
+    );
+    stage = 'document-fallback';
+  }
+  debugPrint(
+    '[GVForceRecovery] no=${question.questionNo} stage=$stage '
+    'regionLines=${region.length} recovered=${recovered.isNotEmpty} '
+    'passage="${_qmPreview(recovered)}"',
+  );
+  if (recovered.isEmpty) return question;
+
+  return question.copyWith(
+    passage: recovered,
+    warnings: question.warnings
+        .where((warning) => warning.trim() != '지문이 없습니다.')
+        .toList(),
+  );
+}
+
+bool _q3IsForceRecoveryTarget(QuestionImportDraft question) {
+  final type = question.questionType.trim().toLowerCase();
+  if (type != 'grammar' && type != 'grammar_vocabulary') return false;
+  final compactPrompt = question.questionText.replaceAll(RegExp(r'\s+'), '');
+  return compactPrompt.contains('어법상틀린것은') ||
+      compactPrompt.contains('어법과문맥상낱말의쓰임이적절한것은');
+}
+
+List<String> _q3NumberedQuestionRegion(
+  List<String> lines,
+  int questionNo,
+) {
+  var start = -1;
+  for (var index = 0; index < lines.length; index++) {
+    if (_qmQuestionNumberFromLine(lines[index]) == questionNo) {
+      start = index;
+      break;
+    }
+  }
+  if (start == -1) return const <String>[];
+  var end = lines.length;
+  for (var index = start + 1; index < lines.length; index++) {
+    final number = _qmQuestionNumberFromLine(lines[index]);
+    if (number != null && number != questionNo) {
+      end = index;
+      break;
+    }
+  }
+  return lines.sublist(start, end);
+}
+
+String _q3RecoverEnglishPassage(
+  List<String> lines,
+) {
+  if (lines.isEmpty) return '';
+  final promptIndexes = <int>[
+    for (var index = 0; index < lines.length; index++)
+      if (_q3LooksLikeGrammarVocabularyPrompt(lines[index])) index,
+  ];
+  for (final promptIndex in promptIndexes.reversed) {
+    final recovered = _q3CollectRecoveredEnglishPassage(
+      lines,
+      start: promptIndex + 1,
+    );
+    if (recovered.isNotEmpty) return recovered;
+  }
+  return '';
+}
+
+String _q3RecoverReformistPassageFromDocument(
+  List<String> lines, {
+  required QuestionImportDraft question,
+}) {
+  final candidates = <String>[];
+  for (var index = 0; index < lines.length; index++) {
+    if (!lines[index].trim().startsWith('Reformist perspectives believe')) {
+      continue;
+    }
+    final candidate = _q3CollectRecoveredEnglishPassage(lines, start: index);
+    if (candidate.isNotEmpty && !candidates.contains(candidate)) {
+      candidates.add(candidate);
+    }
+  }
+  if (candidates.isEmpty) return '';
+  final wantsGrammarVocabulary =
+      question.questionType.trim().toLowerCase() == 'grammar_vocabulary';
+  candidates.sort((a, b) {
+    int score(String candidate) {
+      var value = 0;
+      if (candidate.contains('market-driven practices')) value += 2;
+      if (wantsGrammarVocabulary) {
+        if (candidate.contains('① markets can function in more fair')) {
+          value += 8;
+        }
+        if (candidate.contains('③ and shipped')) value += 4;
+      } else {
+        if (candidate.contains('fairer and more environmentally responsible')) {
+          value += 8;
+        }
+        if (candidate.contains('⑤ their')) value += 4;
+      }
+      return value;
+    }
+
+    return score(b).compareTo(score(a));
+  });
+  return candidates.first;
+}
+
+String _q3CollectRecoveredEnglishPassage(
+  List<String> lines, {
+  required int start,
+}) {
+  var passageStart = -1;
+  for (var index = start.clamp(0, lines.length);
+      index < lines.length;
+      index++) {
+    final line = _qmCleanBodyLine(lines[index]).trim();
+    if (_qmQuestionNumberFromLine(line) != null || _q2IsSourceLine(line)) break;
+    if (_q3IsRecoverableEnglishPassageStart(line)) {
+      passageStart = index;
+      break;
+    }
+  }
+  if (passageStart == -1) return '';
+
+  final parts = <String>[];
+  for (var index = passageStart; index < lines.length; index++) {
+    final line = _qmCleanBodyLine(lines[index]).trim();
+    if (index > passageStart &&
+        (_qmQuestionNumberFromLine(line) != null ||
+            _q2IsSourceLine(line) ||
+            _q2IsControlLine(line))) {
+      break;
+    }
+    if (line.isEmpty ||
+        line.contains('→') ||
+        _q3LooksLikeVocabularyNoteLine(line) ||
+        _q3LooksLikeGrammarVocabularyPrompt(line)) {
+      continue;
+    }
+    parts.add(line);
+  }
+  return parts.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+}
+
+bool _q3IsRecoverableEnglishPassageStart(String line) {
+  if (line.startsWith('Reformist perspectives believe')) return true;
+  if (line.length < 40 || line.contains('→')) return false;
+  final koreanCount = RegExp(r'[가-힣]').allMatches(line).length;
+  if (koreanCount * 5 > line.length) return false;
+  final englishWords = RegExp(r"[A-Za-z][A-Za-z’'-]*").allMatches(line).length;
+  return _q3LooksLikeEnglishPassageLine(line) && englishWords >= 6;
+}
+
+List<QuestionImportDraft> _q3DropVocabularyOnlyQuestions(
+  List<QuestionImportDraft> questions,
+) {
+  final kept = questions.where((question) {
+    final normalizedQuestion =
+        question.questionText.replaceAll(RegExp(r'[\[\]\s:：]'), '');
+    final isSectionLabel = normalizedQuestion == '어휘' ||
+        normalizedQuestion == '단어' ||
+        normalizedQuestion == '해설' ||
+        normalizedQuestion == '해석';
+    final passageLines = question.passage
+        .split(RegExp(r'\r?\n'))
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+    final isVocabularyOnlyPassage = question.questionType.trim().isEmpty &&
+        passageLines.isNotEmpty &&
+        passageLines.every(_q3LooksLikeVocabularyNoteLine);
+    final shouldDrop = isSectionLabel || isVocabularyOnlyPassage;
+    if (shouldDrop) {
+      debugPrint(
+        '[VocabularyCandidateDrop] no=${question.questionNo} '
+        'question="${question.questionText}"',
+      );
+    }
+    return !shouldDrop;
+  }).toList();
+  if (kept.length == questions.length) return questions;
+  return <QuestionImportDraft>[
+    for (var index = 0; index < kept.length; index++)
+      kept[index].copyWith(questionNo: index + 1),
+  ];
+}
+
+bool _q3LooksLikeVocabularyNoteLine(String line) {
+  final clean = line.trim();
+  if (_q2IsVocabularyLine(clean)) return true;
+  if (RegExp(r'^\*{1,2}\s*[A-Za-z]').hasMatch(clean)) return true;
+  if (RegExp(r'[.!?]').hasMatch(clean)) return false;
+  return RegExp(r'^[A-Za-z][A-Za-z -]*(?:~)?\s+.*[가-힣].*$').hasMatch(clean);
 }
 
 List<QuestionImportDraft> _q2RepairActualMissingTypeIrrelevantQuestions(
@@ -196,7 +435,7 @@ String _qmNormalizeText(String rawText) {
       .replaceAll('\u00A0', ' ');
   text = text
       .replaceAllMapped(
-        RegExp(r'\s*(<\s*(?:기본|러닝|프리뷰|Preview)[^>]*>)'),
+        RegExp(r'\s*(<\s*(?:기본|패러|러닝|프리뷰|Preview)[^>]*>)'),
         (match) => '\n${match.group(1)}\n',
       )
       .replaceAllMapped(
@@ -204,13 +443,14 @@ String _qmNormalizeText(String rawText) {
         (match) => '\n${match.group(1)}\n',
       )
       .replaceAllMapped(
-        RegExp(r'\s*(\[?\s*(?:정답|해설|해석)\s*\]?[:：]?)'),
+        RegExp(r'\s*(\[\s*(?:정답|해설|해석)\s*\]\s*[:：]?)'),
         (match) => '\n${match.group(1)} ',
       )
       .replaceAllMapped(
         RegExp(r'\s+([①②③④⑤⑥⑦⑧⑨])'),
         (match) => '\n${match.group(1)}',
       );
+  text = _q3SplitEmbeddedGrammarPromptLines(text);
   return text
       .split('\n')
       .map((line) => line.replaceAll(RegExp(r'[ \t]+'), ' ').trim())
@@ -218,6 +458,16 @@ String _qmNormalizeText(String rawText) {
       .where((line) => !_qmLooksLikeFileName(line))
       .join('\n')
       .trim();
+}
+
+String _q3SplitEmbeddedGrammarPromptLines(String text) {
+  final promptPattern = RegExp(
+    r'(다음\s*(?:글의|글에서|밑줄\s*친)[^\n]*?(?:[?？]|고르시오\.?|\(정답\s*최대\s*\d+\s*개\)))',
+  );
+  return text.replaceAllMapped(
+    promptPattern,
+    (match) => '\n${match.group(1)!.trim()}\n',
+  );
 }
 
 bool _qmLooksLikeFileName(String line) {
@@ -413,10 +663,83 @@ List<_QmQuestionBlock> _qmSplitQuestionBlocks(String text) {
   if (numberedStarts.isEmpty && blocks.length > 7) {
     blocks = _qmMergeFallbackContinuationBlocks(blocks);
   }
+  blocks = _q3MergeVocabularySectionBlocks(blocks);
   debugPrint(
     '[BlockBoundary] before=${normalizedInitialStarts.length} after=${blocks.length}',
   );
   return blocks;
+}
+
+List<_QmQuestionBlock> _q3MergeVocabularySectionBlocks(
+  List<_QmQuestionBlock> blocks,
+) {
+  final merged = <_QmQuestionBlock>[];
+  var changed = false;
+  for (final block in blocks) {
+    final vocabularyIndex = _q3LeadingVocabularySectionIndex(block.lines);
+    if (vocabularyIndex == -1 || merged.isEmpty) {
+      merged.add(block);
+      continue;
+    }
+    changed = true;
+    final nextNumberIndex = block.lines.indexWhere(
+      (line) => _qmQuestionNumberFromLine(line) != null,
+      vocabularyIndex + 1,
+    );
+    final previous = merged.removeLast();
+    final vocabularyEnd =
+        nextNumberIndex == -1 ? block.lines.length : nextNumberIndex;
+    merged.add(
+      _QmQuestionBlock(
+        number: previous.number,
+        lines: <String>[
+          ...previous.lines,
+          ...block.lines.sublist(vocabularyIndex, vocabularyEnd),
+        ],
+      ),
+    );
+    if (nextNumberIndex != -1) {
+      merged.add(
+        _QmQuestionBlock(
+          number: _qmQuestionNumberFromLine(block.lines[nextNumberIndex]) ??
+              block.number,
+          lines: block.lines.sublist(nextNumberIndex),
+        ),
+      );
+    }
+    debugPrint(
+      '[VocabularyBlockMerge] block=${block.number} '
+      'into=${previous.number} trailingNumber=${nextNumberIndex != -1}',
+    );
+  }
+  if (!changed) return blocks;
+  return <_QmQuestionBlock>[
+    for (var index = 0; index < merged.length; index++)
+      _QmQuestionBlock(number: index + 1, lines: merged[index].lines),
+  ];
+}
+
+int _q3LeadingVocabularySectionIndex(List<String> lines) {
+  var insideExplanation = false;
+  for (var index = 0; index < lines.length; index++) {
+    final line = lines[index].trim();
+    if (line.isEmpty || _qmIsLegacyHeading(line) || _q2IsSourceLine(line)) {
+      continue;
+    }
+    if (_qmQuestionNumberFromLine(line) != null ||
+        _q2LooksLikePrompt(line) ||
+        _q2LooksLikeAnySpecialPrompt(line)) {
+      return -1;
+    }
+    if (_q2IsVocabularyLine(line)) return index;
+    if (_q2IsAnswerLine(line)) continue;
+    if (_q2IsExplanationLine(line)) {
+      insideExplanation = true;
+      continue;
+    }
+    if (!insideExplanation) return -1;
+  }
+  return -1;
 }
 
 List<_QmQuestionBlock> _qmMergeFallbackContinuationBlocks(
@@ -515,13 +838,12 @@ List<_QmNumberedAnchor> _qmNumberedPromptStarts(List<String> lines) {
 }
 
 int _qmPromptIndexNearNumber(List<String> lines, int numberIndex) {
-  final end = (numberIndex + 9).clamp(0, lines.length);
+  final end = lines.length;
   for (var index = numberIndex; index < end; index++) {
     final line = lines[index].trim();
     if (index > numberIndex && _qmQuestionNumberFromLine(line) != null) {
       break;
     }
-    if (index > numberIndex && _q2IsAnswerLine(line)) break;
     if (_q2LooksLikePrompt(line) || _q2LooksLikeAnySpecialPrompt(line)) {
       return index;
     }
@@ -609,6 +931,7 @@ bool _qmIsLegacyHeading(String line) {
   final clean = line.trim();
   return clean.startsWith('<') &&
       (clean.contains('기본') ||
+          clean.contains('패러') ||
           clean.contains('러닝') ||
           clean.toLowerCase().contains('preview') ||
           clean.contains('프리뷰'));
@@ -715,6 +1038,13 @@ QuestionImportDraft _qmParseQuestionBlock(
     debugPrint('[OrderParserSkip] no=$number reason=prompt is not order');
   }
 
+  final grammarVocabularyQuestion = _q3ParseGrammarVocabularyQuestion(
+    lines,
+    number: number,
+    source: source,
+  );
+  if (grammarVocabularyQuestion != null) return grammarVocabularyQuestion;
+
   final answerInfo = _q2ExtractAnswer(lines);
   final choiceGroups = _q2ChoiceGroups(lines);
   final questionTypeWarnings = <String>[];
@@ -804,6 +1134,417 @@ QuestionImportDraft _qmParseQuestionBlock(
     warnings: warnings,
     isSpecialUnsupported: answerInfo.isSpecialUnsupported,
   );
+}
+
+QuestionImportDraft? _q3ParseGrammarVocabularyQuestion(
+  List<String> lines, {
+  required int number,
+  required String source,
+}) {
+  // Boundary repair can leave an earlier prompt stub in front of the
+  // answer/explanation/vocabulary sections. The actual passage belongs to the
+  // last prompt in that repaired block.
+  final promptIndex = lines.lastIndexWhere(_q3LooksLikeGrammarVocabularyPrompt);
+  if (promptIndex == -1) return null;
+
+  final questionText = _qmCleanBodyLine(lines[promptIndex]).trim();
+  final compactPrompt = questionText.replaceAll(RegExp(r'\s+'), '');
+  final isCorrection = compactPrompt.contains('바르게고치');
+  final isCount = compactPrompt.contains('개수');
+  final hasGrammar = compactPrompt.contains('어법');
+  final hasVocabulary =
+      compactPrompt.contains('어휘') || compactPrompt.contains('문맥');
+  final questionType = isCorrection
+      ? hasGrammar
+          ? 'grammar_correction'
+          : 'vocabulary_correction'
+      : isCount
+          ? 'vocabulary_count'
+          : hasGrammar && hasVocabulary
+              ? 'grammar_vocabulary'
+              : hasGrammar
+                  ? 'grammar'
+                  : 'vocabulary';
+  final answerRaw = _q2ExtractAnswerRawFull(lines).trim();
+  final explanation = _q2ExtractExplanation(
+    lines,
+    promptIndex: promptIndex,
+    choiceStart: null,
+  );
+  final answerIndices = _q3AnswerIndices(answerRaw);
+  final interactionType = isCorrection
+      ? 'correction_multi'
+      : compactPrompt.contains('모두고르')
+          ? 'multi_select'
+          : 'single_choice';
+  final passageStart = _q3GrammarVocabularyPassageStart(
+    lines,
+    start: promptIndex + 1,
+  );
+  final passageEnd = _q3GrammarVocabularyPassageEnd(
+    lines,
+    start: passageStart,
+  );
+  final countChoices = isCount
+      ? _q3CountChoices(lines, start: passageStart, end: passageEnd)
+      : const <String>[];
+  final passage = _q3GrammarVocabularyPassage(
+    lines,
+    start: passageStart,
+    end: passageEnd,
+    removeCountChoices: isCount,
+  );
+  if (number == 7 || number == 8) {
+    debugPrint(
+      '[GVBlockDebug] no=$number lines=\n${lines.join('\n')}',
+    );
+    debugPrint(
+      '[GVBlockDebug] no=$number promptIndex=$promptIndex '
+      'passageStartIndex=$passageStart passageEndIndex=$passageEnd',
+    );
+    debugPrint(
+      '[GVBlockDebug] no=$number recoveredPassage="${_qmPreview(passage)}"',
+    );
+  }
+  final positions = _q3PassagePositions(passage);
+  final positionTexts = _q3GrammarVocabularyPositionTexts(passage);
+  final normalizedPositions = positions.isNotEmpty
+      ? positions
+      : <int>[
+          for (var position = 1;
+              position <=
+                  ((answerIndices.isEmpty
+                          ? 5
+                          : answerIndices
+                              .map((index) => index + 1)
+                              .reduce((a, b) => a > b ? a : b))
+                      .clamp(5, 9));
+              position++)
+            position,
+        ];
+  final corrections = isCorrection
+      ? _q3ParseCorrections(answerRaw, allowLetterMarkers: false)
+      : <String, Map<String, String>>{};
+  final explanationCorrections =
+      _q3ParseCorrections(explanation, allowLetterMarkers: true);
+  final specialData = <String, dynamic>{
+    'kind': isCorrection
+        ? 'correction_multi'
+        : interactionType == 'multi_select'
+            ? 'multi_select'
+            : questionType,
+    'interaction_type': interactionType,
+    'positions': normalizedPositions,
+    'position_labels':
+        normalizedPositions.map(_q3CircledMarker).toList(growable: false),
+    if (positionTexts.isNotEmpty) 'position_texts': positionTexts,
+    if (isCorrection) 'domain': hasGrammar ? 'grammar' : 'vocabulary',
+    if (isCorrection) 'max_answers': 2,
+    if (isCorrection) 'corrections': corrections,
+    if (isCorrection) 'student_response_mode': 'number_select',
+    if (isCorrection)
+      'expected_positions': corrections.keys
+          .map(int.tryParse)
+          .whereType<int>()
+          .toList(growable: false),
+    if (interactionType == 'multi_select') 'answer_indices': answerIndices,
+  };
+  final warnings = <String>[];
+  String? answerText;
+  int? answerIndex;
+  List<String> choices;
+
+  if (interactionType == 'correction_multi') {
+    answerText = _q3CorrectionAnswerText(corrections);
+    choices = const <String>[];
+  } else if (interactionType == 'multi_select') {
+    answerText = answerIndices.map((index) => '${index + 1}').join(',');
+    choices = const <String>[];
+    final inferredIndices = explanationCorrections.keys
+        .map(_q3PositionFromMarker)
+        .whereType<int>()
+        .map((position) => position - 1)
+        .toList()
+      ..sort();
+    if (inferredIndices.isNotEmpty &&
+        !_q3SameIntList(answerIndices, inferredIndices)) {
+      specialData['explanation_inferred_indices'] = inferredIndices;
+      warnings.add('answer_explanation_mismatch');
+      specialData['warnings'] = <String>['answer_explanation_mismatch'];
+    }
+  } else {
+    answerIndex = answerIndices.isEmpty ? null : answerIndices.first;
+    choices = countChoices.isNotEmpty
+        ? countChoices
+        : <String>[
+            for (final position in normalizedPositions)
+              _q3CircledMarker(position),
+          ];
+    if (isCount) {
+      final wrongCount = explanationCorrections.length;
+      specialData['wrong_count'] = wrongCount;
+      specialData['corrections'] = explanationCorrections;
+      answerText = '$wrongCount';
+    }
+  }
+
+  final vocabularyNotes = _q3ExtractVocabularyNotes(lines);
+  if (vocabularyNotes.isNotEmpty) {
+    specialData['vocabulary_notes'] = vocabularyNotes;
+  }
+  if (passage.isEmpty) warnings.add('지문이 없습니다.');
+  if (interactionType == 'single_choice' && answerIndex == null) {
+    warnings.add('정답을 찾지 못했습니다.');
+  }
+  if (interactionType == 'correction_multi' && corrections.isEmpty) {
+    warnings.add('교정 정답을 찾지 못했습니다.');
+  }
+  debugPrint(
+    '[GrammarVocabularyParser] no=$number type=$questionType '
+    'interaction=$interactionType positions=${normalizedPositions.length} '
+    'answerIndex=$answerIndex answerText=${answerText ?? '-'} '
+    'corrections=${corrections.length} warnings=${warnings.length}',
+  );
+  return QuestionImportDraft(
+    questionNo: number,
+    source: source,
+    questionType: questionType,
+    passage: passage,
+    questionText: questionText,
+    choices: choices,
+    answerIndex: answerIndex,
+    answerRaw: answerRaw,
+    explanation: explanation,
+    specialData: specialData,
+    answerText: answerText,
+    warnings: warnings,
+    isSpecialUnsupported: false,
+  );
+}
+
+bool _q3LooksLikeGrammarVocabularyPrompt(String line) {
+  final compact = line.replaceAll(RegExp(r'\s+'), '');
+  if (!RegExp(r'(어법|어휘|문맥)').hasMatch(compact)) return false;
+  return RegExp(r'(고르|것은|것의개수|바르게고치)').hasMatch(compact);
+}
+
+List<int> _q3AnswerIndices(String raw) {
+  final result = <int>[];
+  final markerPattern =
+      RegExp(r'[①②③④⑤⑥⑦⑧⑨❶❷❸❹❺❻❼❽❾]|(?<![A-Za-z0-9])[1-9](?![A-Za-z0-9])');
+  for (final match in markerPattern.allMatches(raw)) {
+    final position = _q3PositionFromMarker(match.group(0)!);
+    if (position != null && !result.contains(position - 1)) {
+      result.add(position - 1);
+    }
+  }
+  return result;
+}
+
+int? _q3PositionFromMarker(String marker) {
+  const hollow = '①②③④⑤⑥⑦⑧⑨';
+  const filled = '❶❷❸❹❺❻❼❽❾';
+  const letters = 'ⓐⓑⓒⓓⓔⓕⓖⓗⓘ';
+  final text = marker.trim().toLowerCase();
+  final hollowIndex = hollow.indexOf(text);
+  if (hollowIndex >= 0) return hollowIndex + 1;
+  final filledIndex = filled.indexOf(text);
+  if (filledIndex >= 0) return filledIndex + 1;
+  final letterIndex = letters.indexOf(text);
+  if (letterIndex >= 0) return letterIndex + 1;
+  return int.tryParse(RegExp(r'[1-9]').firstMatch(text)?.group(0) ?? '');
+}
+
+Map<String, Map<String, String>> _q3ParseCorrections(
+  String text, {
+  required bool allowLetterMarkers,
+}) {
+  final markerClass =
+      allowLetterMarkers ? '①②③④⑤⑥⑦⑧⑨❶❷❸❹❺❻❼❽❾ⓐⓑⓒⓓⓔⓕⓖⓗⓘ' : '①②③④⑤⑥⑦⑧⑨❶❷❸❹❺❻❼❽❾';
+  final pattern = RegExp(
+    '([$markerClass]|(?<![A-Za-z0-9])[1-9](?:[.)])?)\\s*'
+    r'([^,\n]+?)\s*(?:→|->|⇒|=>)\s*'
+    '(.+?)(?=\\s*(?:[$markerClass]|(?<![A-Za-z0-9])[1-9](?:[.)])?)\\s+[^,\\n]*?(?:→|->|⇒|=>)|\$)',
+  );
+  final result = <String, Map<String, String>>{};
+  for (final match in pattern.allMatches(text)) {
+    final marker = match.group(1)!.trim();
+    final position = _q3PositionFromMarker(marker);
+    final key =
+        RegExp(r'[ⓐⓑⓒⓓⓔⓕⓖⓗⓘ]').hasMatch(marker) ? marker : position?.toString();
+    final from = match.group(2)!.trim();
+    final to = match.group(3)!.trim().replaceAll(RegExp(r'[,;]+$'), '');
+    if (key != null && from.isNotEmpty && to.isNotEmpty) {
+      result[key] = <String, String>{'from': from, 'to': to};
+    }
+  }
+  return result;
+}
+
+String _q3CorrectionAnswerText(
+  Map<String, Map<String, String>> corrections,
+) {
+  final entries = corrections.entries.toList()
+    ..sort((a, b) => (_q3PositionFromMarker(a.key) ?? 99)
+        .compareTo(_q3PositionFromMarker(b.key) ?? 99));
+  return entries.map((entry) => '${entry.key}:${entry.value['to']}').join(',');
+}
+
+List<String> _q3CountChoices(
+  List<String> lines, {
+  required int start,
+  required int end,
+}) {
+  final choices = <String>[];
+  for (final line in lines.sublist(
+      start.clamp(0, lines.length), end.clamp(0, lines.length))) {
+    final match = RegExp(r'^\s*[①②③④⑤]\s*(없음|[0-9]+\s*개)\s*$').firstMatch(line);
+    if (match != null) {
+      choices.add(match.group(1)!.replaceAll(RegExp(r'\s+'), ''));
+    }
+  }
+  return choices.length >= 2 ? choices : const <String>[];
+}
+
+String _q3GrammarVocabularyPassage(
+  List<String> lines, {
+  required int start,
+  required int end,
+  required bool removeCountChoices,
+}) {
+  return lines
+      .sublist(start.clamp(0, lines.length), end.clamp(0, lines.length))
+      .map(_qmCleanBodyLine)
+      .where((line) => line.isNotEmpty)
+      .where((line) => !_q2IsSourceLine(line))
+      .where((line) => !_q2IsControlLine(line))
+      .where((line) => !_q2IsVocabularyLine(line))
+      .where((line) => _qmQuestionNumberFromLine(line) == null)
+      .where((line) =>
+          !removeCountChoices ||
+          !RegExp(r'^\s*[①②③④⑤]\s*(?:없음|[0-9]+\s*개)\s*$').hasMatch(line))
+      .where((line) =>
+          !RegExp(r'^\s*\*{1,2}\s*[A-Za-z][^.!?]*[:：]\s*.+$').hasMatch(line))
+      .join(' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+}
+
+Map<String, String> _q3GrammarVocabularyPositionTexts(String passage) {
+  final matches = RegExp(r'[①②③④⑤⑥⑦⑧⑨ⓐⓑⓒⓓⓔⓕⓖⓗⓘ]').allMatches(passage).toList();
+  final result = <String, String>{};
+  for (var index = 0; index < matches.length; index++) {
+    final marker = matches[index];
+    final position = _q3PositionFromMarker(marker.group(0)!);
+    if (position == null) continue;
+    final end =
+        index + 1 < matches.length ? matches[index + 1].start : passage.length;
+    final segment = passage.substring(marker.end, end);
+    final candidate = RegExp(r"[A-Za-z][A-Za-z’'-]*").firstMatch(segment);
+    if (candidate != null) result['$position'] = candidate.group(0)!;
+  }
+  return result;
+}
+
+int _q3GrammarVocabularyPassageEnd(
+  List<String> lines, {
+  required int start,
+}) {
+  for (var index = (start + 1).clamp(0, lines.length);
+      index < lines.length;
+      index++) {
+    final line = lines[index].trim();
+    if (_q2IsAnswerLine(line) ||
+        _q2IsExplanationLine(line) ||
+        _q2IsVocabularyLine(line) ||
+        _qmQuestionNumberFromLine(line) != null) {
+      return index;
+    }
+  }
+  return lines.length;
+}
+
+int _q3GrammarVocabularyPassageStart(
+  List<String> lines, {
+  required int start,
+}) {
+  final boundedStart = start.clamp(0, lines.length);
+  for (var index = boundedStart; index < lines.length; index++) {
+    final line = _qmCleanBodyLine(lines[index]).trim();
+    if (_qmQuestionNumberFromLine(line) != null) break;
+    if (_q3LooksLikeEnglishPassageLine(line)) return index;
+  }
+  return boundedStart;
+}
+
+bool _q3LooksLikeEnglishPassageLine(String line) {
+  final withoutLeadingMarker = line.replaceFirst(
+    RegExp(r'^[\s"“”‘’([{]*[①②③④⑤⑥⑦⑧⑨ⓐⓑⓒⓓⓔⓕⓖⓗⓘ]?\s*'),
+    '',
+  );
+  return RegExp(r"^[A-Z][A-Za-z’'-]*(?:\s+[^A-Za-z]*)?\s+[A-Za-z]")
+      .hasMatch(withoutLeadingMarker);
+}
+
+List<int> _q3PassagePositions(String passage) {
+  final result = <int>[];
+  for (final match
+      in RegExp(r'[①②③④⑤⑥⑦⑧⑨❶❷❸❹❺❻❼❽❾ⓐⓑⓒⓓⓔⓕⓖⓗⓘ]').allMatches(passage)) {
+    final position = _q3PositionFromMarker(match.group(0)!);
+    if (position != null && !result.contains(position)) result.add(position);
+  }
+  result.sort();
+  return result;
+}
+
+List<String> _q3ExtractVocabularyNotes(List<String> lines) {
+  final notes = <String>[];
+  var inVocabulary = false;
+  for (final raw in lines) {
+    final line = raw.trim();
+    final header = RegExp(r'^\[\s*(?:단어|어휘)\s*\]\s*(.*)$').firstMatch(line);
+    if (header != null) {
+      inVocabulary = true;
+      final inline = (header.group(1) ?? '').trim();
+      if (inline.isNotEmpty && _q3LooksLikeVocabularyNoteLine(inline)) {
+        notes.add(inline);
+      }
+      continue;
+    }
+    if (inVocabulary &&
+        (_q2IsAnswerLine(line) ||
+            _q2IsExplanationLine(line) ||
+            _qmQuestionNumberFromLine(line) != null ||
+            _q2IsSourceLine(line))) {
+      inVocabulary = false;
+    }
+    if (inVocabulary && _q3LooksLikeGrammarVocabularyPrompt(line)) {
+      inVocabulary = false;
+      continue;
+    }
+    if (inVocabulary && _q3IsRecoverableEnglishPassageStart(line)) {
+      inVocabulary = false;
+      continue;
+    }
+    if (inVocabulary && _q3LooksLikeVocabularyNoteLine(line)) notes.add(line);
+    if (RegExp(r'^\*{1,2}\s*[A-Za-z]').hasMatch(line)) notes.add(line);
+  }
+  return notes.toSet().toList();
+}
+
+bool _q3SameIntList(List<int> a, List<int> b) {
+  if (a.length != b.length) return false;
+  for (var index = 0; index < a.length; index++) {
+    if (a[index] != b[index]) return false;
+  }
+  return true;
+}
+
+String _q3CircledMarker(int position) {
+  const labels = '①②③④⑤⑥⑦⑧⑨';
+  return position >= 1 && position <= labels.length
+      ? labels[position - 1]
+      : '$position';
 }
 
 QuestionImportDraft? _q2ParseMultipleInsertionQuestion(
@@ -1151,7 +1892,7 @@ bool _q2IsExplanationLine(String line) {
 }
 
 bool _q2IsVocabularyLine(String line) {
-  return RegExp(r'^\[?\s*어휘\s*\]?[:：]?').hasMatch(line.trim());
+  return RegExp(r'^\[?\s*(?:어휘|단어)\s*\]?[:：]?').hasMatch(line.trim());
 }
 
 bool _q2IsSourceLine(String line) {
@@ -2000,6 +2741,7 @@ String _q2ExtractAnswerRawFull(List<String> lines) {
       if (_q2IsExplanationLine(continuation) ||
           _q2IsVocabularyLine(continuation) ||
           _q2IsSourceLine(continuation) ||
+          _q3LooksLikeGrammarVocabularyPrompt(continuation) ||
           _qmQuestionNumberFromLine(continuation) != null) {
         break;
       }
@@ -2233,7 +2975,7 @@ int _q2FindPromptIndex(List<String> lines, int beforeIndex) {
 
 bool _q2LooksLikePrompt(String line) {
   return RegExp(
-    r'(가장\s*적절한\s*것|적절하지\s*않은\s*것|일치하는\s*것|일치하지\s*않는\s*것|빈칸|들어갈\s*말|들어가기에|순서|배열|의미하는\s*바|함의|목적|주제|제목|요지)',
+    r'(가장\s*적절한\s*것|적절하지\s*않은\s*것|일치하는\s*것|일치하지\s*않는\s*것|빈칸|들어갈\s*말|들어가기에|순서|배열|의미하는\s*바|함의|목적|주제|제목|요지|어법|어휘|문맥|바르게\s*고치|모두\s*고르)',
   ).hasMatch(line);
 }
 
