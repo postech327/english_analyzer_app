@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../../utils/insertion_display_prompt.dart';
+import '../../utils/grammar_vocabulary_inline_spans.dart';
 import '../../utils/irrelevant_display_passage.dart';
 import 'package:english_analyzer_app/services/teacher_problem_set_service.dart';
 import 'package:english_analyzer_app/widgets/problem_set_assignment_dialog.dart';
@@ -377,6 +378,16 @@ class _QuestionCard extends StatelessWidget {
         type.trim().toLowerCase() == 'unrelated_sentence' ||
         specialData['kind']?.toString() == 'irrelevant' ||
         specialData['kind']?.toString() == 'unrelated_sentence';
+    const languageTypes = <String>{
+      'grammar',
+      'vocabulary',
+      'grammar_vocabulary',
+      'vocabulary_count',
+      'grammar_correction',
+      'vocabulary_correction',
+    };
+    final isLanguageInteraction =
+        languageTypes.contains(type.trim().toLowerCase());
     final text = isOrder || isInsertion || isIrrelevant
         ? _teacherPreviewQuestionText(rawText, type, specialData)
         : rawText;
@@ -388,15 +399,19 @@ class _QuestionCard extends StatelessWidget {
     final orderAnswerLabel = _orderAnswerSummary(q, specialData);
     final insertionAnswerLabel = _insertionAnswerSummary(q, specialData);
     final irrelevantAnswerLabel = _irrelevantAnswerSummary(q, specialData);
+    final languageAnswerLabel = _languageAnswerSummary(q, specialData);
     final answerLabel = isOrder
         ? orderAnswerLabel
         : isInsertion
             ? insertionAnswerLabel
             : isIrrelevant
                 ? irrelevantAnswerLabel
-                : _answerSummary(answerOption, answerIndex);
+                : isLanguageInteraction
+                    ? languageAnswerLabel
+                    : _answerSummary(answerOption, answerIndex);
     final answerChipLabel =
-        (isOrder || isInsertion || isIrrelevant) && answerLabel.isNotEmpty
+        (isOrder || isInsertion || isIrrelevant || isLanguageInteraction) &&
+                answerLabel.isNotEmpty
             ? 'answer $answerLabel'
             : answerLabel;
     final orderBlocks = _orderBlocks(specialData);
@@ -543,7 +558,18 @@ class _QuestionCard extends StatelessWidget {
                 ),
             ] else ...[
               if (passage.isNotEmpty)
-                _SectionBlock(label: '지문', child: SelectableText(passage)),
+                _SectionBlock(
+                  label: '지문',
+                  child: isLanguageInteraction
+                      ? SelectableText.rich(
+                          buildGrammarVocabularyInlineSpans(
+                            passage: passage,
+                            specialData: specialData,
+                            baseStyle: DefaultTextStyle.of(context).style,
+                          ),
+                        )
+                      : SelectableText(passage),
+                ),
               if (options.isNotEmpty)
                 _SectionBlock(
                   label: '보기',
@@ -574,6 +600,25 @@ class _QuestionCard extends StatelessWidget {
               _SectionBlock(
                 label: '해설',
                 child: SelectableText(explanation),
+              ),
+            if (isLanguageInteraction &&
+                specialData['vocabulary_notes'] is List &&
+                (specialData['vocabulary_notes'] as List).isNotEmpty)
+              _SectionBlock(
+                label: '어휘 노트',
+                child: SelectableText(
+                  (specialData['vocabulary_notes'] as List).join('\n'),
+                ),
+              ),
+            if (isLanguageInteraction &&
+                specialData['warnings'] is List &&
+                (specialData['warnings'] as List).isNotEmpty)
+              _SectionBlock(
+                label: '경고',
+                child: SelectableText(
+                  (specialData['warnings'] as List).join('\n'),
+                  style: const TextStyle(color: Color(0xFFB45309)),
+                ),
               ),
           ],
         ),
@@ -919,6 +964,24 @@ String _irrelevantAnswerSummary(
   return position == null ? '' : _cleanInsertionAnswerText(position.toString());
 }
 
+String _languageAnswerSummary(
+  Map<String, dynamic> q,
+  Map<String, dynamic> specialData,
+) {
+  final direct = _firstText([q['answer_text'], specialData['answer_text']]);
+  if (direct.isNotEmpty) return direct;
+  final answerIndices = specialData['answer_indices'];
+  if (answerIndices is List && answerIndices.isNotEmpty) {
+    return answerIndices
+        .map((item) => _asInt(item))
+        .whereType<int>()
+        .map((index) => '${index + 1}')
+        .join(',');
+  }
+  final answerIndex = _asInt(q['answer_index']);
+  return answerIndex == null ? '' : '${answerIndex + 1}';
+}
+
 String _cleanMultipleInsertionAnswerText(String raw) {
   try {
     final decoded = jsonDecode(raw);
@@ -1060,6 +1123,10 @@ String _questionTypeLabel(String type) {
     'insert' || 'insertion' => '문장 삽입',
     'grammar' => '어법',
     'vocabulary' || 'vocab' => '어휘',
+    'grammar_vocabulary' => '어법·어휘',
+    'vocabulary_count' => '어휘 개수',
+    'grammar_correction' => '어법 고치기',
+    'vocabulary_correction' => '어휘 고치기',
     _ => type.trim().isEmpty ? '유형 미지정' : type.trim(),
   };
 }

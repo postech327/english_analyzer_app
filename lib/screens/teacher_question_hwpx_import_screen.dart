@@ -459,6 +459,21 @@ class _QuestionPreviewCard extends StatelessWidget {
         normalizedType == 'unrelated_sentence' ||
         question.specialData?['kind']?.toString() == 'irrelevant' ||
         question.specialData?['kind']?.toString() == 'unrelated_sentence';
+    const languageTypes = <String>{
+      'grammar',
+      'vocabulary',
+      'grammar_vocabulary',
+      'vocabulary_count',
+      'grammar_correction',
+      'vocabulary_correction',
+    };
+    final isLanguageInteraction = languageTypes.contains(normalizedType);
+    final interactionType =
+        (question.specialData?['interaction_type'] ?? 'single_choice')
+            .toString();
+    final correctionCount = question.specialData?['corrections'] is Map
+        ? (question.specialData!['corrections'] as Map).length
+        : 0;
     final insertionMode =
         (question.specialData?['mode'] ?? '').toString().trim().toLowerCase();
     final insertionPositions = _questionImportPositions(question.specialData);
@@ -485,9 +500,12 @@ class _QuestionPreviewCard extends StatelessWidget {
                 ? (question.answerText?.trim().isNotEmpty == true
                     ? question.answerText!.trim()
                     : '-')
-                : question.answerIndex == null
-                    ? '-'
-                    : _circledAnswerLabel(question.answerIndex!);
+                : isLanguageInteraction &&
+                        question.answerText?.trim().isNotEmpty == true
+                    ? question.answerText!.trim()
+                    : question.answerIndex == null
+                        ? '-'
+                        : _circledAnswerLabel(question.answerIndex!);
     final hasFixedStart = (question.specialData?['fixed_start'] ?? '')
         .toString()
         .trim()
@@ -495,6 +513,9 @@ class _QuestionPreviewCard extends StatelessWidget {
     final hasFixedEnd =
         (question.specialData?['fixed_end'] ?? '').toString().trim().isNotEmpty;
     final typeLabel = _questionImportTypeLabel(question.questionType);
+    final badgeAnswer = interactionType == 'correction_multi'
+        ? '$correctionCount corrections'
+        : answer;
     final previewBadgeLabels = isOrder
         ? <String>[
             'blocks: ${blocks.length}',
@@ -524,20 +545,31 @@ class _QuestionPreviewCard extends StatelessWidget {
                     'sentences: $numberedSentenceCount',
                     'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
                   ]
-                : isUnsupportedSpecial
+                : isLanguageInteraction
                     ? <String>[
-                        'type: $typeLabel',
-                        'status: unsupported',
-                        if (isInsertion && insertionMode.isNotEmpty)
-                          'mode: $insertionMode',
-                        'answer: $answer',
+                        'type: ${question.questionType}',
+                        'interaction: $interactionType',
+                        'answer: $badgeAnswer',
+                        if (question.choices.isNotEmpty)
+                          'choices: ${question.choices.length}'
+                        else
+                          'positions: ${_questionImportPositions(question.specialData).length}',
                         'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
                       ]
-                    : <String>[
-                        'choices: ${question.choices.length}',
-                        'answer: $answer',
-                        'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
-                      ];
+                    : isUnsupportedSpecial
+                        ? <String>[
+                            'type: $typeLabel',
+                            'status: unsupported',
+                            if (isInsertion && insertionMode.isNotEmpty)
+                              'mode: $insertionMode',
+                            'answer: $answer',
+                            'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
+                          ]
+                        : <String>[
+                            'choices: ${question.choices.length}',
+                            'answer: $answer',
+                            'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
+                          ];
     debugPrint(
       '[PreviewBadge] no=${question.questionNo} labels=$previewBadgeLabels',
     );
@@ -555,11 +587,13 @@ class _QuestionPreviewCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
             children: [
               if (isOrder) ...[
                 _InfoPill(label: 'blocks:', value: '${blocks.length}'),
-                _InfoPill(label: 'answer:', value: answer),
+                _InfoPill(label: 'answer:', value: badgeAnswer),
                 _InfoPill(label: 'start:', value: hasFixedStart ? 'yes' : 'no'),
                 _InfoPill(label: 'end:', value: hasFixedEnd ? 'yes' : 'no'),
               ] else if (isInsertion && question.isSaveable) ...[
@@ -597,6 +631,21 @@ class _QuestionPreviewCard extends StatelessWidget {
                   label: 'sentences:',
                   value: '$numberedSentenceCount',
                 ),
+              ] else if (isLanguageInteraction) ...[
+                _InfoPill(label: 'type:', value: question.questionType),
+                _InfoPill(label: 'interaction:', value: interactionType),
+                _InfoPill(label: 'answer:', value: badgeAnswer),
+                if (question.choices.isNotEmpty)
+                  _InfoPill(
+                    label: 'choices:',
+                    value: '${question.choices.length}',
+                  )
+                else
+                  _InfoPill(
+                    label: 'positions:',
+                    value:
+                        '${_questionImportPositions(question.specialData).length}',
+                  ),
               ] else if (isUnsupportedSpecial) ...[
                 _InfoPill(label: 'type:', value: typeLabel),
                 const _InfoPill(label: 'status:', value: 'unsupported'),
@@ -619,6 +668,17 @@ class _QuestionPreviewCard extends StatelessWidget {
           const SizedBox(height: 8),
           Text(question.questionText,
               style: const TextStyle(fontWeight: FontWeight.w700)),
+          if (interactionType == 'correction_multi' && answer.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              '정답: $answer',
+              style: const TextStyle(
+                color: _TeacherQuestionHwpxImportScreenState._ink,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
           if (question.warnings.isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(
