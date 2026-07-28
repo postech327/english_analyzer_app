@@ -315,8 +315,7 @@ List<QuestionImportDraft> _q2RepairActualMissingTypeIrrelevantQuestions(
 QuestionImportDraft _q2RepairActualMissingTypeIrrelevantQuestion(
   QuestionImportDraft question,
 ) {
-  if (question.questionNo != 7 ||
-      question.questionType.trim().isNotEmpty ||
+  if (question.questionType.trim().isNotEmpty ||
       question.questionText.trim().isNotEmpty ||
       question.choices.isNotEmpty ||
       question.answerIndex == null ||
@@ -324,12 +323,6 @@ QuestionImportDraft _q2RepairActualMissingTypeIrrelevantQuestion(
       question.answerIndex! >= 7) {
     return question;
   }
-  final lowerPassage = question.passage.toLowerCase();
-  final hasBiologyAnchor = lowerPassage.contains('there is a pr') ||
-      lowerPassage.contains('paradox') ||
-      lowerPassage.contains('predators') ||
-      lowerPassage.contains('prey');
-  if (!hasBiologyAnchor) return question;
 
   const circled = '\u2460\u2461\u2462\u2463\u2464\u2465\u2466\u2467\u2468';
   final answerPosition = question.answerIndex! + 1;
@@ -356,7 +349,7 @@ QuestionImportDraft _q2RepairActualMissingTypeIrrelevantQuestion(
     );
     if (parsed.isSaveable) {
       debugPrint(
-        '[IrrelevantFallbackApplied] no=7 '
+        '[IrrelevantFallbackApplied] no=${question.questionNo} '
         'reason=actual_missing_type_fragment answer=$answerPosition',
       );
       return parsed;
@@ -411,17 +404,18 @@ QuestionImportDraft _q2RepairActualMissingTypeIrrelevantQuestion(
       'numbered_sentences': numbered,
       'positions': positions,
       'answer_position': answerPosition,
+      'interaction_type': 'single_choice',
     },
     answerText: '$answerPosition',
     warnings: const <String>[],
     isSpecialUnsupported: false,
   );
   debugPrint(
-    '[IrrelevantFallbackApplied] no=7 '
+    '[IrrelevantFallbackApplied] no=${question.questionNo} '
     'reason=actual_missing_type_fragment answer=$answerPosition',
   );
   debugPrint(
-    '[IrrelevantParser] no=7 sentences=${numbered.length} '
+    '[IrrelevantParser] no=${question.questionNo} sentences=${numbered.length} '
     'positions=${positions.length} answer=$answerPosition '
     'saveable=${repaired.isSaveable} warnings=0',
   );
@@ -491,11 +485,17 @@ QuestionImportDraft _q2RepairExactSingleInsertionQuestion(
   QuestionImportDraft question,
   String normalizedText,
 ) {
-  if (question.questionNo != 5 ||
-      question.questionType.trim().toLowerCase() != 'insertion' ||
+  if (question.questionType.trim().toLowerCase() != 'insertion' ||
       question.isSaveable) {
     return question;
   }
+
+  final genericRepair = _q2RepairSingleInsertionQuestion(
+    question,
+    normalizedText,
+  );
+  if (genericRepair.isSaveable) return genericRepair;
+  if (question.questionNo != 5) return question;
 
   const insertSentence =
       'The owners had to secure the locations where flint was discovered, and the first property rights developed.';
@@ -569,6 +569,7 @@ QuestionImportDraft _q2RepairExactSingleInsertionQuestion(
       'passage_with_positions': passageWithPositions,
       'positions': positions,
       if (answerPosition != null) 'answer_position': answerPosition,
+      'interaction_type': 'single_choice',
     },
     answerText: answerText,
     clearAnswerIndex: true,
@@ -583,6 +584,321 @@ QuestionImportDraft _q2RepairExactSingleInsertionQuestion(
     'repair=global reason=${repaired.saveabilityReason}',
   );
   return repaired;
+}
+
+QuestionImportDraft _q2RepairSingleInsertionQuestion(
+  QuestionImportDraft question,
+  String normalizedText,
+) {
+  final compactPrompt =
+      question.questionText.replaceAll(RegExp(r'\s+'), '').trim();
+  final isMultiplePrompt =
+      compactPrompt.contains('\uC8FC\uC5B4\uC9C4\uBB38\uC7A5\uB4E4') ||
+          compactPrompt.contains('\uBB38\uC7A5\uB4E4\uC774');
+  if (!_q2LooksLikeInsertionPrompt(question.questionText) || isMultiplePrompt) {
+    return question;
+  }
+
+  final recoveredContent = _q2RecoverSingleInsertionContent(
+    question,
+    normalizedText,
+  );
+  var split = _q2SplitInsertionCandidateText(
+    recoveredContent.isNotEmpty ? recoveredContent : question.passage,
+  );
+  if (split.passage.trim().isEmpty) {
+    split = _q2SplitFirstSentence(question.passage);
+  }
+  final insertSentence = split.sentence.trim();
+  var passageWithPositions = split.passage.trim();
+  var positions = _q2InsertionPositions(passageWithPositions);
+  if (positions.length < 5 && question.choices.length >= 5) {
+    passageWithPositions = _q2MergeSingleInsertionChoiceFragments(
+      passageWithPositions,
+      question.choices.take(5).toList(),
+    );
+    positions = _q2InsertionPositions(passageWithPositions);
+  }
+  if (positions.length < 2 && question.choices.length == 5) {
+    positions = const <int>[1, 2, 3, 4, 5];
+  }
+  final answerPosition = _q2SingleInsertionAnswerPosition(
+    question,
+    normalizedText,
+    positions,
+  );
+  if (insertSentence.isEmpty ||
+      passageWithPositions.isEmpty ||
+      positions.length < 2 ||
+      answerPosition == null) {
+    return question;
+  }
+
+  final warnings = <String>[
+    if (!positions.contains(answerPosition))
+      'Insertion answer is outside position range',
+  ];
+  final repaired = question.copyWith(
+    passage: passageWithPositions,
+    specialData: <String, dynamic>{
+      'kind': 'insertion',
+      'mode': 'single',
+      'insert_sentence': insertSentence,
+      'passage_with_positions': passageWithPositions,
+      'positions': positions,
+      'answer_position': answerPosition,
+      'interaction_type': 'single_choice',
+    },
+    answerText: '$answerPosition',
+    clearAnswerIndex: true,
+    warnings: warnings,
+    isSpecialUnsupported: false,
+  );
+  debugPrint(
+    '[SingleInsertionForceDebug] no=${question.questionNo} '
+    'answerRaw="${question.answerRaw}" answerText="${question.answerText ?? ''}" '
+    'answerIndex=${question.answerIndex} choices=${question.choices.length} '
+    'positions=$positions',
+  );
+  debugPrint(
+    '[SingleInsertionForceDebug] no=${question.questionNo} '
+    'insertSentence="${_qmPreview(insertSentence)}"',
+  );
+  debugPrint(
+    '[SingleInsertionForceDebug] no=${question.questionNo} '
+    'passageWithPositions="${_qmPreview(passageWithPositions)}"',
+  );
+  debugPrint(
+    '[SingleInsertionForceDebug] no=${question.questionNo} '
+    'specialDataKeys=${repaired.specialData?.keys.toList()}',
+  );
+  debugPrint(
+    '[SingleInsertionForceDebug] no=${question.questionNo} '
+    'finalAnswerPosition=$answerPosition isSaveable=${repaired.isSaveable}',
+  );
+  debugPrint(
+    '[InsertionParser] no=${question.questionNo} mode=single '
+    'answer=$answerPosition positions=${positions.length} sentence=true '
+    'passage=true specialData=true warnings=${warnings.length} '
+    'repair=generic reason=${repaired.saveabilityReason}',
+  );
+  return repaired;
+}
+
+String _q2RecoverSingleInsertionContent(
+  QuestionImportDraft question,
+  String normalizedText,
+) {
+  final documentLines = normalizedText
+      .split(RegExp(r'\n+'))
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList();
+  final region = _q2SingleInsertionDocumentRegion(
+    documentLines,
+    question: question,
+  );
+  final promptIndex = region.indexWhere(
+    (line) =>
+        _q2LooksLikeInsertionPrompt(line) &&
+        !line.replaceAll(RegExp(r'\s+'), '').contains('문장들이'),
+  );
+  if (promptIndex == -1) return '';
+
+  final content = <String>[];
+  for (var index = promptIndex + 1; index < region.length; index++) {
+    final line = region[index].trim();
+    if (_q2IsAnswerLine(line) ||
+        _q2IsExplanationLine(line) ||
+        _q2IsVocabularyLine(line)) {
+      break;
+    }
+    if (_q2IsSourceLine(line) || _qmIsLegacyHeading(line)) {
+      continue;
+    }
+    if (line.startsWith('*')) break;
+    content.add(line);
+  }
+  return _q2NormalizeSingleInsertionMarkers(content.join('\n')).trim();
+}
+
+String _q2NormalizeSingleInsertionMarkers(String text) {
+  const markers = '①②③④⑤⑥⑦⑧⑨❶❷❸❹❺❻❼❽❾';
+  return text
+      .replaceAllMapped(
+        RegExp('[(（]\\s*([$markers])\\s*[)）]?'),
+        (match) => match.group(1) ?? '',
+      )
+      .replaceAllMapped(
+        RegExp('([$markers])\\s*[)）]'),
+        (match) => match.group(1) ?? '',
+      )
+      .replaceAllMapped(
+    RegExp(r'[(（]\s*([1-9])\s*[)）]?'),
+    (match) {
+      final position = int.tryParse(match.group(1) ?? '');
+      return position == null ? match.group(0)! : _q3CircledMarker(position);
+    },
+  ).replaceAllMapped(
+    RegExp(r'(?<![A-Za-z0-9])([1-9])\s*[)）]'),
+    (match) {
+      final position = int.tryParse(match.group(1) ?? '');
+      return position == null ? match.group(0)! : _q3CircledMarker(position);
+    },
+  );
+}
+
+String _q2MergeSingleInsertionChoiceFragments(
+  String passage,
+  List<String> choices,
+) {
+  final base = passage.replaceFirst(RegExp(r'[\s(（]+$'), '').trimRight();
+  final parts = <String>[if (base.isNotEmpty) base];
+  for (var index = 0; index < choices.length; index++) {
+    final text = stripLeadingIrrelevantMarkers(choices[index])
+        .replaceFirst(RegExp(r'^[)）]\s*'), '')
+        .trim();
+    if (text.isEmpty) continue;
+    parts.add('${_q3CircledMarker(index + 1)} $text');
+  }
+  return parts.join('\n').trim();
+}
+
+_Q2InsertionCandidateSplit _q2SplitFirstSentence(String text) {
+  final clean = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (clean.isEmpty) {
+    return const _Q2InsertionCandidateSplit(sentence: '', passage: '');
+  }
+  final boundary = RegExp(r'''[.!?]["']?(?:\s+|$)''').firstMatch(clean);
+  if (boundary == null || boundary.end >= clean.length) {
+    return _Q2InsertionCandidateSplit(sentence: clean, passage: clean);
+  }
+  return _Q2InsertionCandidateSplit(
+    sentence: clean.substring(0, boundary.end).trim(),
+    passage: clean.substring(boundary.end).trim(),
+  );
+}
+
+int? _q2SingleInsertionAnswerPosition(
+  QuestionImportDraft question,
+  String normalizedText,
+  List<int> positions,
+) {
+  final documentLines = normalizedText
+      .split(RegExp(r'\n+'))
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList();
+  final region = _q2SingleInsertionDocumentRegion(
+    documentLines,
+    question: question,
+  );
+
+  final explicitAnswer = _q2ExplicitAnswerPosition(region, positions);
+  if (explicitAnswer != null) {
+    return explicitAnswer;
+  }
+
+  final explanationAnswer = _q2AnswerPositionFromExplanation(region);
+  if (explanationAnswer != null && positions.contains(explanationAnswer)) {
+    return explanationAnswer;
+  }
+
+  final answerText =
+      _q2ParseIrrelevantAnswerPosition((question.answerText ?? '').trim());
+  if (answerText != null && positions.contains(answerText)) {
+    return answerText;
+  }
+
+  final fallback = _q2ParseIrrelevantAnswerPosition(question.answerRaw.trim());
+  if (fallback != null && positions.contains(fallback)) return fallback;
+
+  final answerIndex = question.answerIndex;
+  if (answerIndex != null) {
+    if (answerIndex >= 0 &&
+        answerIndex < positions.length &&
+        positions.contains(answerIndex + 1)) {
+      return answerIndex + 1;
+    }
+    if (answerIndex == positions.length && positions.contains(answerIndex)) {
+      return answerIndex;
+    }
+  }
+  return null;
+}
+
+List<String> _q2SingleInsertionDocumentRegion(
+  List<String> lines, {
+  required QuestionImportDraft question,
+}) {
+  final promptIndexes = <int>[];
+  for (var index = 0; index < lines.length; index++) {
+    final compact = lines[index].replaceAll(RegExp(r'\s+'), '');
+    if (_q2LooksLikeInsertionPrompt(lines[index]) &&
+        !compact.contains('문장들이') &&
+        !compact.contains('주어진문장들')) {
+      promptIndexes.add(index);
+    }
+  }
+  if (promptIndexes.isEmpty) return const <String>[];
+
+  final compactQuestion =
+      question.questionText.replaceAll(RegExp(r'\s+'), '').trim();
+  final promptIndex = promptIndexes.firstWhere(
+    (index) =>
+        lines[index].replaceAll(RegExp(r'\s+'), '').trim() == compactQuestion,
+    orElse: () => promptIndexes.firstWhere(
+      (index) => _qmQuestionNumberFromLine(lines[index]) == question.questionNo,
+      orElse: () => promptIndexes.first,
+    ),
+  );
+
+  var end = lines.length;
+  for (var index = promptIndex + 1; index < lines.length; index++) {
+    if (_q2LooksLikePrompt(lines[index]) ||
+        _q2LooksLikeAnySpecialPrompt(lines[index])) {
+      end = index;
+      break;
+    }
+  }
+  return lines.sublist(promptIndex, end);
+}
+
+int? _q2ExplicitAnswerPosition(
+  List<String> lines,
+  List<int> positions,
+) {
+  for (var index = 0; index < lines.length; index++) {
+    final line = lines[index].trim();
+    final match = RegExp(r'^\[?\s*정답\s*\]?[:：]?\s*(.*)$').firstMatch(line);
+    if (match == null) continue;
+    var raw = (match.group(1) ?? '').trim();
+    if (raw.isEmpty && index + 1 < lines.length) {
+      final continuation = lines[index + 1].trim();
+      if (!_q2LooksLikePrompt(continuation) &&
+          !_q2LooksLikeAnySpecialPrompt(continuation) &&
+          _qmQuestionNumberFromLine(continuation) == null) {
+        raw = continuation;
+      }
+    }
+    final answer = _q2ParseIrrelevantAnswerPosition(_q2AnswerSegment(raw));
+    if (answer != null && positions.contains(answer)) return answer;
+  }
+  return null;
+}
+
+int? _q2AnswerPositionFromExplanation(List<String> lines) {
+  const markers = '①②③④⑤⑥⑦⑧⑨❶❷❸❹❺❻❼❽❾';
+  for (final line in lines) {
+    if (!_q2IsExplanationLine(line)) continue;
+    final match = RegExp(
+      '(?:정답|답)\\s*(?:은|는|:|：)?\\s*([$markers]|[1-9])',
+    ).firstMatch(line);
+    if (match == null) continue;
+    final answer = _q3PositionFromMarker(match.group(1) ?? '');
+    if (answer != null) return answer;
+  }
+  return null;
 }
 
 List<int> _q2RepairInsertionPositions(
@@ -1741,20 +2057,21 @@ bool _q2LooksLikeIrrelevantFragment(
   required int number,
 }) {
   if (_q2HasOrderBlockMarkers(lines)) return false;
-  final joined = lines.join(' ').toLowerCase();
-  final hasBiologyAnchor = joined.contains('paradox of enrichment') ||
-      joined.contains('there is a problem in biology') ||
-      joined.contains('ecosystem instability') ||
-      (joined.contains('predators') && joined.contains('prey'));
+  if (lines.any(_q2LooksLikeInsertionPrompt)) return false;
+  if (lines.any(_q3LooksLikeGrammarVocabularyPrompt)) return false;
+  if (lines.any(
+    (line) => _q2LooksLikePrompt(line) && !_q2LooksLikeIrrelevantPrompt(line),
+  )) {
+    return false;
+  }
   final markerCount = _q2IrrelevantMarkerCount(lines);
   final answerPosition = _q2IrrelevantAnswerPositionFromLines(lines);
-  return markerCount >= 5 &&
-      answerPosition != null &&
-      (number == 7 || hasBiologyAnchor);
+  return markerCount >= 5 && answerPosition != null;
 }
 
 int _q2IrrelevantMarkerCount(List<String> lines) {
-  const circled = '\u2460\u2461\u2462\u2463\u2464\u2465\u2466\u2467\u2468';
+  const circled = '\u2460\u2461\u2462\u2463\u2464\u2465\u2466\u2467\u2468'
+      '\u2776\u2777\u2778\u2779\u277A\u277B\u277C\u277D\u277E';
   final content = _q2IrrelevantBodyText(lines, start: 0);
   return RegExp(
     '[$circled]|[\\(\\uFF08]\\s*[1-9]\\s*[\\)\\uFF09]|^\\s*[1-9][\\).]\\s+',
@@ -1829,14 +2146,15 @@ bool _q2ContainsInsertionPositionMarker(String text) {
 }
 
 List<int> _q2InsertionPositions(String passage) {
-  const circled = '①②③④⑤⑥⑦⑧⑨';
   final positions = <int>[];
-  for (final match
-      in RegExp(r'[①②③④⑤⑥⑦⑧⑨]|[\(（]\s*([1-9])\s*[\)）]').allMatches(passage)) {
-    final token = match.group(0) ?? '';
-    final plain = match.group(1);
-    final value =
-        plain == null ? circled.indexOf(token) + 1 : int.tryParse(plain);
+  final markerPattern = RegExp(
+    r'[①②③④⑤⑥⑦⑧⑨❶❷❸❹❺❻❼❽❾]|[\(（]\s*([1-9])\s*[\)）]|(?:^|\s)([1-9])[\).](?=\s)',
+  );
+  for (final match in markerPattern.allMatches(passage)) {
+    final plain = match.group(1) ?? match.group(2);
+    final value = plain == null
+        ? _q3PositionFromMarker(match.group(0)?.trim() ?? '')
+        : int.tryParse(plain);
     if (value != null && value > 0 && !positions.contains(value)) {
       positions.add(value);
     }
@@ -2458,7 +2776,7 @@ bool _q2LooksLikeIrrelevantFallback(List<String> lines) {
 
 bool _q2LooksLikeNumberedSentenceLine(String line) {
   final trimmed = line.trim();
-  return RegExp(r'^(?:[①②③④⑤⑥⑦⑧⑨⑩⑪⑫]|[1-9][\).]|[（(][1-9][）)])\s*')
+  return RegExp(r'^(?:[①②③④⑤⑥⑦⑧⑨⑩⑪⑫❶❷❸❹❺❻❼❽❾]|[1-9][\).]|[（(][1-9][）)])\s*')
       .hasMatch(trimmed);
 }
 
@@ -2510,6 +2828,8 @@ QuestionImportDraft _q2ParseIrrelevantQuestion(
   required _Q2TypeDetection detection,
 }) {
   const circled = '①②③④⑤⑥⑦⑧⑨';
+  const filled = '❶❷❸❹❺❻❼❽❾';
+  const markerLabels = '$circled$filled';
   final promptIndex = detection.promptIndex;
   final isFallbackDetection =
       detection.reason.toLowerCase().contains('fallback');
@@ -2524,20 +2844,24 @@ QuestionImportDraft _q2ParseIrrelevantQuestion(
       lines,
       start: promptIndex >= 0 ? promptIndex + 1 : 0,
     ),
+  ).replaceFirst(
+    RegExp(r'\s+\*{1,3}[A-Za-z][\s\S]*$'),
+    '',
   );
   final markerPattern = RegExp(
-    '[\\(\\uFF08]?\\s*([$circled])\\s*[\\)\\uFF09]?|'
+    '[\\(\\uFF08]?\\s*([$markerLabels])\\s*[\\)\\uFF09]?|'
     '[\\(\\uFF08]\\s*([1-9])\\s*[\\)\\uFF09]|'
     '^\\s*([1-9])[\\).]\\s*',
     multiLine: true,
   );
   final markers = markerPattern.allMatches(content).toList();
+  final preserveFilledMarkers = RegExp(r'[❶❷❸❹❺❻❼❽❾]').hasMatch(content);
   final numbered = <Map<String, dynamic>>[];
   for (var index = 0; index < markers.length; index++) {
     final marker = markers[index];
     final circledToken = marker.group(1);
     final position = circledToken != null
-        ? circled.indexOf(circledToken) + 1
+        ? _q3PositionFromMarker(circledToken)
         : int.tryParse(marker.group(2) ?? marker.group(3) ?? '');
     final end =
         index + 1 < markers.length ? markers[index + 1].start : content.length;
@@ -2564,9 +2888,10 @@ QuestionImportDraft _q2ParseIrrelevantQuestion(
           .replaceAll(RegExp(r'\s+'), ' ')
           .trim(),
     for (final item in numbered)
-      irrelevantSentenceWithMarker(
+      _q2IrrelevantSentenceWithOriginalMarkerStyle(
         item['position'] as int,
         (item['text'] ?? '').toString(),
+        useFilledMarker: preserveFilledMarkers,
       ),
   ];
   final passageWithNumbers = passageParts.join('\n').trim();
@@ -2607,6 +2932,7 @@ QuestionImportDraft _q2ParseIrrelevantQuestion(
       'numbered_sentences': numbered,
       'positions': positions,
       'answer_position': answerPosition,
+      'interaction_type': 'single_choice',
     },
     answerText: answerPosition?.toString(),
     warnings: warnings,
@@ -2625,6 +2951,21 @@ QuestionImportDraft _q2ParseIrrelevantQuestion(
     );
   }
   return question;
+}
+
+String _q2IrrelevantSentenceWithOriginalMarkerStyle(
+  int position,
+  String text, {
+  required bool useFilledMarker,
+}) {
+  const hollow = '①②③④⑤⑥⑦⑧⑨';
+  const filled = '❶❷❸❹❺❻❼❽❾';
+  final labels = useFilledMarker ? filled : hollow;
+  final marker = position >= 1 && position <= labels.length
+      ? labels[position - 1]
+      : '$position)';
+  final cleaned = stripLeadingIrrelevantMarkers(text);
+  return cleaned.isEmpty ? marker : '$marker $cleaned';
 }
 
 int? _q2ParseIrrelevantAnswerPosition(String raw) {
@@ -2651,12 +2992,18 @@ QuestionImportDraft _q2BuildUnsupportedSpecialQuestion(
   final questionText = extractedQuestionText.trim().isNotEmpty
       ? extractedQuestionText.trim()
       : _q2UnsupportedFallbackPrompt(detection.type);
+  final choiceGroup =
+      detection.type == 'insertion' ? _q2LastChoiceGroup(lines) : null;
+  final answerLineIndex = lines.indexWhere(_q2IsAnswerLine);
+  final passageEnd = <int>[
+    if (choiceGroup != null) choiceGroup.start,
+    if (answerLineIndex != -1) answerLineIndex,
+    lines.length,
+  ]..sort();
   final passage = _q2ExtractActualPassage(
     lines,
     start: promptIndex >= 0 ? promptIndex + 1 : 0,
-    end: lines.indexWhere(_q2IsAnswerLine) == -1
-        ? lines.length
-        : lines.indexWhere(_q2IsAnswerLine),
+    end: passageEnd.first,
   );
   final explanation = _q2ExtractOrderExplanation(lines);
   debugPrint(
@@ -2668,7 +3015,7 @@ QuestionImportDraft _q2BuildUnsupportedSpecialQuestion(
     questionType: detection.type,
     passage: passage,
     questionText: questionText,
-    choices: const <String>[],
+    choices: choiceGroup?.choices ?? const <String>[],
     answerIndex: answerInfo.index,
     answerRaw: answerInfo.raw,
     explanation: explanation,

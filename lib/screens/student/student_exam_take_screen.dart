@@ -588,17 +588,18 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
         (specialData['insert_sentence'] ?? '').toString().trim();
     final passageWithPositions =
         (specialData['passage_with_positions'] ?? '').toString().trim();
+    final displayPassage = insertionPassageForDisplay(passageWithPositions);
     final insertSentences = _multipleInsertionSentences(specialData);
     if (_isMultipleInsertion(specialData) &&
         insertSentences.isNotEmpty &&
-        passageWithPositions.isNotEmpty) {
+        displayPassage.isNotEmpty) {
       final given = insertSentences.entries
           .map((entry) => '(${entry.key}) ${entry.value}')
           .join('\n');
-      return '$given\n\n$passageWithPositions';
+      return '$given\n\n$displayPassage';
     }
-    if (insertSentence.isNotEmpty && passageWithPositions.isNotEmpty) {
-      return '$insertSentence\n\n$passageWithPositions';
+    if (insertSentence.isNotEmpty && displayPassage.isNotEmpty) {
+      return '$insertSentence\n\n$displayPassage';
     }
 
     final insertionText = (question['question_text'] ?? '').toString().trim();
@@ -2216,7 +2217,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
               children: [
                 for (final position in positions)
                   ChoiceChip(
-                    label: Text('$position'),
+                    label: Text(insertionPositionLabel(position)),
                     selected: selected == position,
                     onSelected: (_) {
                       setState(() {
@@ -2303,7 +2304,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
               children: [
                 for (final position in positions)
                   ChoiceChip(
-                    label: Text(_circledPosition(position)),
+                    label: Text(insertionPositionLabel(position)),
                     selected: selected[entry.key] == position,
                     onSelected: (_) {
                       setState(() {
@@ -2385,7 +2386,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
             children: [
               for (final position in positions)
                 ChoiceChip(
-                  label: Text(_circledPosition(position)),
+                  label: Text(insertionPositionLabel(position)),
                   selected: selected == position,
                   onSelected: (_) {
                     setState(() {
@@ -2445,7 +2446,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
             children: [
               for (final position in positions)
                 FilterChip(
-                  label: Text(_circledPosition(position)),
+                  label: Text(insertionPositionLabel(position)),
                   selected: selected.contains(position),
                   onSelected: (checked) {
                     setState(() {
@@ -2485,13 +2486,6 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
         .where(selected.containsKey)
         .map((label) => '$label:${selected[label]}')
         .join(',');
-  }
-
-  String _circledPosition(int position) {
-    const labels = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨'];
-    return position >= 1 && position <= labels.length
-        ? labels[position - 1]
-        : '$position';
   }
 
   List<int> _insertionPositions(Map<String, dynamic> specialData) {
