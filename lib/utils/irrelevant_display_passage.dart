@@ -90,8 +90,17 @@ String stripDuplicateIrrelevantMarkers(String passage) {
   for (var pass = 0; pass < 8; pass++) {
     var changed = false;
     cleaned = cleaned.replaceAllMapped(_adjacentIrrelevantMarkers, (match) {
+      final left = match.group(1)!;
       final right = match.group(2)!;
       changed = true;
+      final leftPosition = leadingIrrelevantPosition(left);
+      final rightPosition = leadingIrrelevantPosition(right);
+      if (leftPosition != null &&
+          leftPosition == rightPosition &&
+          (RegExp('[$_irrelevantFilledMarkers]').hasMatch(left) ||
+              RegExp('[$_irrelevantFilledMarkers]').hasMatch(right))) {
+        return _irrelevantFilledMarkers[leftPosition - 1];
+      }
       return right;
     });
     if (!changed) break;

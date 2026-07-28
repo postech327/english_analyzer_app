@@ -486,16 +486,20 @@ class _QuestionPreviewCard extends StatelessWidget {
     final isUnsupportedSpecial =
         (isInsertion || isIrrelevant) && !question.isSaveable;
     final blocks = _questionImportBlocks(question.specialData);
+    final insertionAnswerPosition =
+        question.specialData?['answer_position']?.toString().trim() ?? '';
     final answer = isOrder
         ? (question.answerText?.trim().isNotEmpty == true
             ? question.answerText!.trim()
             : '-')
         : isInsertion
-            ? (question.answerText?.trim().isNotEmpty == true
-                ? question.answerText!.trim()
-                : question.answerIndex == null
-                    ? '-'
-                    : _circledAnswerLabel(question.answerIndex!))
+            ? (insertionMode == 'single' && insertionAnswerPosition.isNotEmpty
+                ? insertionAnswerPosition
+                : question.answerText?.trim().isNotEmpty == true
+                    ? question.answerText!.trim()
+                    : question.answerIndex == null
+                        ? '-'
+                        : _circledAnswerLabel(question.answerIndex!))
             : isIrrelevant
                 ? (question.answerText?.trim().isNotEmpty == true
                     ? question.answerText!.trim()
@@ -533,7 +537,7 @@ class _QuestionPreviewCard extends StatelessWidget {
                 if (insertionMode == 'multiple')
                   'sentences: ${insertionSentences.length}'
                 else
-                  'sentence: ${(question.specialData?['insert_sentence'] ?? '').toString().trim().isNotEmpty ? 'yes' : 'no'}',
+                  'sentences: ${(question.specialData?['insert_sentence'] ?? '').toString().trim().isNotEmpty ? 1 : 0}',
                 'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
               ]
             : isIrrelevant && question.isSaveable

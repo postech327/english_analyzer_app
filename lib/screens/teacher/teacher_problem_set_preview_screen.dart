@@ -544,10 +544,12 @@ class _QuestionCard extends StatelessWidget {
                 _SectionBlock(
                   label: '\uBCF8\uBB38',
                   child: SelectableText(
-                    _firstText([
-                      specialData['passage_with_positions'],
-                      passage,
-                    ]),
+                    insertionPassageForDisplay(
+                      _firstText([
+                        specialData['passage_with_positions'],
+                        passage,
+                      ]),
+                    ),
                   ),
                 ),
             ] else if (isIrrelevant) ...[
