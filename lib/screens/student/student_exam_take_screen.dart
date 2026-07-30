@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import '../../services/student_exam_service.dart';
+import '../../utils/blank_display_passage.dart';
 import '../../utils/insertion_display_prompt.dart';
 import '../../utils/grammar_vocabulary_inline_spans.dart';
 import '../../utils/irrelevant_display_passage.dart';
@@ -50,6 +51,14 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     if (value is int) return value;
     if (value is double) return value.toInt();
     return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  String _firstNonEmptyText(Iterable<dynamic> values) {
+    for (final value in values) {
+      final text = value?.toString().trim() ?? '';
+      if (text.isNotEmpty && text != 'null') return text;
+    }
+    return '';
   }
 
   Map<String, dynamic> _specialData(Map<String, dynamic> question) {
@@ -112,13 +121,30 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
         : '';
   }
 
+  bool _isChoiceMultiSelect(
+    Map<String, dynamic> question,
+    Map<String, dynamic> specialData,
+  ) {
+    final type =
+        (question['question_type'] ?? '').toString().trim().toLowerCase();
+    final interaction =
+        (specialData['interaction_type'] ?? '').toString().trim().toLowerCase();
+    return type == 'content_match' && interaction == 'multi_select';
+  }
+
   Map<String, String> _orderBlocks(Map<String, dynamic> specialData) {
     final rawBlocks = specialData['blocks'];
     if (rawBlocks is! Map) return const <String, String>{};
+    final selectable = specialData['selectable_blocks'];
+    final selectableLabels = selectable is List
+        ? selectable.map((value) => value.toString()).toSet()
+        : const <String>{};
     final entries = rawBlocks.entries
         .map((entry) => MapEntry(entry.key.toString(), entry.value.toString()))
         .where((entry) =>
             entry.key.trim().isNotEmpty && entry.value.trim().isNotEmpty)
+        .where((entry) =>
+            selectableLabels.isEmpty || selectableLabels.contains(entry.key))
         .toList()
       ..sort((a, b) => a.key.compareTo(b.key));
     return Map<String, String>.fromEntries(entries);
@@ -449,9 +475,11 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
         (question['question_type'] ?? '').toString().toLowerCase();
 
     if (questionType == 'cloze' || questionType == 'blank') {
-      return _buildClozePassage(
-        passage: passage,
-        question: question,
+      return blankPassageForDisplay(
+        _buildClozePassage(
+          passage: passage,
+          question: question,
+        ),
       );
     }
 
@@ -1178,6 +1206,10 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
       case 'content':
       case 'match':
         return '\uB2E4\uC74C \uAE00\uC758 \uB0B4\uC6A9\uACFC \uC77C\uCE58\uD558\uB294 \uAC83\uC740?';
+      case 'reference':
+        return '밑줄 친 표현이 가리키는 대상으로 가장 적절한 것은?';
+      case 'content_match':
+        return '윗글의 내용과 일치하거나 일치하지 않는 것을 고르세요.';
       case 'order':
         return '\uC8FC\uC5B4\uC9C4 \uAE00 \uB2E4\uC74C\uC5D0 \uC774\uC5B4\uC9C8 \uAE00\uC758 \uC21C\uC11C\uB85C \uAC00\uC7A5 \uC801\uC808\uD55C \uAC83\uC740?';
       case 'insertion':
@@ -1338,6 +1370,8 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     final bool isIrrelevant =
         _isIrrelevantQuestion(currentQuestion, specialData);
     final languageInteraction = _languageInteractionType(specialData);
+    final isChoiceMultiSelect =
+        _isChoiceMultiSelect(currentQuestion, specialData);
     debugPrint(
       '[StudentQuestionDebug] question_id=$qId '
       'type=${currentQuestion['question_type'] ?? ''} '
@@ -1439,6 +1473,24 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                     _buildIrrelevantAnswerCard(
                       qId: qId,
                       specialData: specialData,
+                    ),
+                  ] else if (isChoiceMultiSelect) ...[
+                    _buildPassageCard(
+                      passage: displayPassage,
+                      questionType:
+                          (currentQuestion['question_type'] ?? '').toString(),
+                      underlineTarget: underlineTarget,
+                      specialData: specialData,
+                    ),
+                    const SizedBox(height: 14),
+                    _buildOptionsCard(
+                      questionType:
+                          (currentQuestion['question_type'] ?? '').toString(),
+                      options: options,
+                      specialData: specialData,
+                      selectedIndex: null,
+                      qId: qId,
+                      multiSelect: true,
                     ),
                   ] else if (languageInteraction == 'multi_select' ||
                       languageInteraction == 'correction_multi') ...[
@@ -1804,6 +1856,32 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
       }
     }
 
+    if (questionType == 'blank') {
+      final baseStyle = _passageTextStyle();
+      return SelectableText.rich(
+        buildBlankPassageInlineSpans(
+          passage: text,
+          baseStyle: baseStyle,
+          textSpanBuilder: containsNumberedInlineMarkers(text)
+              ? (segment) => buildGrammarVocabularyInlineSpans(
+                    passage: segment,
+                    specialData: specialData,
+                    baseStyle: baseStyle,
+                    markerStyle: baseStyle.copyWith(
+                      color: _purple,
+                      fontWeight: FontWeight.w900,
+                    ),
+                    candidateStyle: baseStyle.copyWith(
+                      decoration: TextDecoration.underline,
+                      decorationThickness: 1.6,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  )
+              : null,
+        ),
+      );
+    }
+
     if (isGrammarVocabularyQuestionType(questionType)) {
       return SelectableText.rich(
         buildGrammarVocabularyInlineSpans(
@@ -1818,6 +1896,20 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
             decoration: TextDecoration.underline,
             decorationThickness: 1.6,
             fontWeight: FontWeight.w800,
+          ),
+        ),
+      );
+    }
+
+    if (questionType == 'reference' || containsReferenceMarkers(text)) {
+      return SelectableText.rich(
+        buildReferenceMarkerInlineSpans(
+          passage: text,
+          baseStyle: _passageTextStyle(),
+          markerStyle: _passageTextStyle().copyWith(
+            color: _purple,
+            fontWeight: FontWeight.w900,
+            backgroundColor: const Color(0xFFF3E8FF),
           ),
         ),
       );
@@ -1850,7 +1942,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
           token.contains('_') || RegExp(r'^\[\s{3,}\]$').hasMatch(token);
       spans.add(
         TextSpan(
-          text: isBlank ? ' [          ] ' : token,
+          text: isBlank ? ' $visibleBlankPlaceholder ' : token,
           style: _highlightPassageTextStyle(isBlank: isBlank),
         ),
       );
@@ -1964,8 +2056,16 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   }) {
     final blocks = _orderBlocks(specialData);
     final selected = orderAnswers[qId] ?? const <String>[];
-    final fixedStart = (specialData['fixed_start'] ?? '').toString().trim();
-    final fixedEnd = (specialData['fixed_end'] ?? '').toString().trim();
+    final fixedStart = _firstNonEmptyText([
+      specialData['lead_passage'],
+      specialData['base_passage'],
+      specialData['fixed_start_text'],
+      specialData['fixed_start'],
+    ]);
+    final fixedEnd = _firstNonEmptyText([
+      specialData['trailing_passage'],
+      specialData['fixed_end'],
+    ]);
 
     return Container(
       decoration: BoxDecoration(
@@ -2054,13 +2154,16 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                         ),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: SelectableText(
-                            entry.value,
-                            style: const TextStyle(
-                              color: _ink,
-                              fontSize: 15.5,
-                              height: 1.58,
-                              fontWeight: FontWeight.w600,
+                          child: SelectableText.rich(
+                            _buildOrderPassageSpans(
+                              text: entry.value,
+                              specialData: specialData,
+                              baseStyle: const TextStyle(
+                                color: _ink,
+                                fontSize: 15.5,
+                                height: 1.58,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ),
@@ -2129,9 +2232,10 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                 fontWeight: FontWeight.w900,
               ),
             ),
-            TextSpan(
+            _buildOrderPassageSpans(
               text: text,
-              style: const TextStyle(
+              specialData: const <String, dynamic>{},
+              baseStyle: const TextStyle(
                 color: _ink,
                 fontSize: 15.5,
                 height: 1.62,
@@ -2141,6 +2245,24 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  TextSpan _buildOrderPassageSpans({
+    required String text,
+    required Map<String, dynamic> specialData,
+    required TextStyle baseStyle,
+  }) {
+    if (containsNumberedInlineMarkers(text)) {
+      return buildGrammarVocabularyInlineSpans(
+        passage: text,
+        specialData: specialData,
+        baseStyle: baseStyle,
+      );
+    }
+    return buildReferenceMarkerInlineSpans(
+      passage: text,
+      baseStyle: baseStyle,
     );
   }
 
@@ -2446,7 +2568,10 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
             children: [
               for (final position in positions)
                 FilterChip(
-                  label: Text(insertionPositionLabel(position)),
+                  label: _buildLanguagePositionLabel(
+                    specialData: specialData,
+                    position: position,
+                  ),
                   selected: selected.contains(position),
                   onSelected: (checked) {
                     setState(() {
@@ -2470,6 +2595,34 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                 ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLanguagePositionLabel({
+    required Map<String, dynamic> specialData,
+    required int position,
+  }) {
+    final positionText =
+        grammarVocabularyPositionText(specialData, position).trim();
+    final showPositionText = shouldShowPositionTextInSelection(specialData);
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(
+            text: insertionPositionLabel(position),
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+          if (showPositionText && positionText.isNotEmpty)
+            TextSpan(
+              text: ' $positionText',
+              style: const TextStyle(
+                decoration: TextDecoration.underline,
+                decorationThickness: 1.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
         ],
       ),
     );
@@ -2506,6 +2659,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     required Map<String, dynamic> specialData,
     required int? selectedIndex,
     required int qId,
+    bool multiSelect = false,
   }) {
     final normalizedType = questionType.toLowerCase();
     final displayOptions = _displayOptions(
@@ -2544,13 +2698,35 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
             ...displayOptions.asMap().entries.map((entry) {
               final idx = entry.key;
               final optionText = entry.value;
-              final bool isSelected = selectedIndex == idx;
+              final position = idx + 1;
+              final bool isSelected = multiSelect
+                  ? multiSelectAnswers[qId]?.contains(position) == true
+                  : selectedIndex == idx;
 
               return Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(18),
-                  onTap: () => _selectAnswer(qId, idx),
+                  onTap: () {
+                    if (!multiSelect) {
+                      _selectAnswer(qId, idx);
+                      return;
+                    }
+                    setState(() {
+                      final next = Set<int>.from(
+                        multiSelectAnswers[qId] ?? const <int>{},
+                      );
+                      if (next.contains(position)) {
+                        next.remove(position);
+                      } else {
+                        final maxAnswers = _asInt(specialData['max_answers']);
+                        if (maxAnswers <= 0 || next.length < maxAnswers) {
+                          next.add(position);
+                        }
+                      }
+                      multiSelectAnswers[qId] = next;
+                    });
+                  },
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 160),
                     padding: const EdgeInsets.all(14),
@@ -2586,26 +2762,33 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                               color: isSelected ? _blue : _line,
                             ),
                           ),
-                          child: isSelected
-                              ? const Icon(
-                                  Icons.check_rounded,
-                                  color: Colors.white,
-                                  size: 18,
-                                )
-                              : const SizedBox.shrink(),
+                          child: Text(
+                            _circled(idx),
+                            style: TextStyle(
+                              color: isSelected ? Colors.white : _blue,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: Text(
-                            optionText,
-                            style: TextStyle(
-                              color:
-                                  isSelected ? _ink : const Color(0xFF111827),
-                              fontSize: 16,
-                              height: 1.46,
-                              fontWeight: isSelected
-                                  ? FontWeight.w700
-                                  : FontWeight.w600,
+                          child: Text.rich(
+                            buildChoiceInlineSpans(
+                              text: optionText,
+                              underlineWhole:
+                                  shouldUnderlineChoiceForQuestionType(
+                                normalizedType,
+                              ),
+                              baseStyle: TextStyle(
+                                color:
+                                    isSelected ? _ink : const Color(0xFF111827),
+                                fontSize: 16,
+                                height: 1.46,
+                                fontWeight: isSelected
+                                    ? FontWeight.w700
+                                    : FontWeight.w600,
+                              ),
                             ),
                           ),
                         ),
@@ -2700,19 +2883,17 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
 
     final cleaned = <String>[];
     for (final entry in options.asMap().entries) {
-      final idx = entry.key;
       final opt = entry.value;
-      final circled = _circled(idx);
       final rawText = opt is Map
           ? (opt['text'] ?? opt['label'] ?? '').toString()
           : opt.toString();
       if (RegExp(r'^[①②③④⑤⑥⑦⑧⑨]$').hasMatch(rawText.trim())) {
-        cleaned.add(circled);
+        cleaned.add('');
         continue;
       }
       final optionText = _cleanStudentOptionText(rawText);
       if (optionText.isNotEmpty) {
-        cleaned.add('$circled $optionText');
+        cleaned.add(optionText);
       }
     }
 
@@ -2735,7 +2916,12 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
         .split('\n')
         .map((line) => line.trim())
         .where((line) => line.isNotEmpty)
-        .where((line) => !_shouldDropKoreanExplanationLine(line))
+        .where(
+          (line) => !RegExp(
+            r'^\s*\[?\s*(?:정답|해설|해석|answer|explanation)\s*\]?\s*[:：]?',
+            caseSensitive: false,
+          ).hasMatch(line),
+        )
         .toList();
 
     if (lines.isEmpty) return '';
@@ -2783,6 +2969,10 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
         return '어휘';
       case 'content':
         return '내용';
+      case 'reference':
+        return '지칭';
+      case 'content_match':
+        return '내용일치';
       default:
         return type.isEmpty ? '문제' : type;
     }

@@ -12,14 +12,28 @@ ProblemSetImportDraft parseQuestionHwpxImportText(
   String unitFolderName = '',
 }) {
   final normalized = _qmNormalizeText(rawText);
-  final blocks = _qmSplitQuestionBlocks(normalized);
+  final directlyParsedLongSetQuestions =
+      _q4ParseLongPassageSetQuestions(normalized);
+  final longPassageSets = directlyParsedLongSetQuestions.isEmpty
+      ? _q4DetectLongPassageSets(normalized)
+      : const <_Q4LongPassageSet>[];
+  final blocks = directlyParsedLongSetQuestions.isEmpty
+      ? _qmSplitQuestionBlocks(normalized)
+      : const <_QmQuestionBlock>[];
   debugPrint(
-    '[QuestionImportParser] normalizedLength=${normalized.length} blocks=${blocks.length}',
+    '[QuestionImportParser] normalizedLength=${normalized.length} '
+    'blocks=${directlyParsedLongSetQuestions.isEmpty ? blocks.length : directlyParsedLongSetQuestions.length}',
   );
-  final questions = <QuestionImportDraft>[
-    for (var index = 0; index < blocks.length; index++)
-      _qmParseQuestionBlock(blocks[index], fallbackNo: index + 1),
-  ];
+  final parsedQuestions = directlyParsedLongSetQuestions.isNotEmpty
+      ? directlyParsedLongSetQuestions
+      : <QuestionImportDraft>[
+          for (var index = 0; index < blocks.length; index++)
+            _qmParseQuestionBlock(blocks[index], fallbackNo: index + 1),
+        ];
+  final questions = _q4ApplyLongPassageSets(
+    parsedQuestions,
+    longPassageSets,
+  );
   final insertionRepairedQuestions =
       _q2RepairExactSingleInsertionQuestions(questions, normalized);
   var repairedQuestions = _q2RepairActualMissingTypeIrrelevantQuestions(
@@ -67,6 +81,962 @@ ProblemSetImportDraft parseQuestionHwpxImportText(
         '저장 가능한 단일정답 객관식 문제가 없습니다.',
     ],
   );
+}
+
+List<QuestionImportDraft> _q4ParseLongPassageSetQuestions(
+  String normalizedText,
+) {
+  final lines = normalizedText
+      .split('\n')
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList(growable: false);
+  final headerIndexes = <int>[
+    for (var index = 0; index < lines.length; index++)
+      if (_q4IsLongPassageHeader(lines[index])) index,
+  ];
+  if (headerIndexes.isEmpty) return const <QuestionImportDraft>[];
+
+  final questions = <QuestionImportDraft>[];
+  var lastQuestionNo = 0;
+  var group = 0;
+  for (var headerPosition = 0;
+      headerPosition < headerIndexes.length;
+      headerPosition++) {
+    final headerIndex = headerIndexes[headerPosition];
+    final sectionEnd = headerPosition + 1 < headerIndexes.length
+        ? headerIndexes[headerPosition + 1]
+        : lines.length;
+    final promptIndexes = <int>[
+      for (var index = headerIndex + 1; index < sectionEnd; index++)
+        if (_q4LooksLikeChildQuestionPrompt(lines[index])) index,
+    ];
+    debugPrint(
+      '[LongPassageGroupScan] header="${lines[headerIndex]}" '
+      'childCount=${promptIndexes.length} '
+      'prompts=${promptIndexes.map((index) => _qmPreview(lines[index])).toList()}',
+    );
+    if (promptIndexes.length < 2) continue;
+
+    var firstBlockStart = promptIndexes.first;
+    if (firstBlockStart > headerIndex + 1 &&
+        _qmQuestionNumberFromLine(lines[firstBlockStart - 1]) != null) {
+      firstBlockStart--;
+    }
+    final passageLines = _q4SharedPassageLines(
+      lines,
+      start: headerIndex + 1,
+      end: firstBlockStart,
+    );
+    final passage = passageLines.join('\n').trim();
+    if (passage.isEmpty || !RegExp(r'[A-Za-z]').hasMatch(passage)) continue;
+    final sharedBlocks = _q4SharedOrderBlocks(passageLines);
+    final isExplicitReadHeader =
+        _q4IsExplicitLongPassageHeader(lines[headerIndex]);
+    if (!isExplicitReadHeader &&
+        passage.length < 180 &&
+        sharedBlocks.length < 3) {
+      continue;
+    }
+
+    group++;
+    debugPrint(
+      '[LongPassageGroup] group=$group '
+      'sharedStart="${_qmPreview(passage)}" '
+      'childCount=${promptIndexes.length}',
+    );
+    final rawQuestionNos = <int>[];
+    for (final promptIndex in promptIndexes) {
+      final ownNumber = _qmQuestionNumberFromLine(lines[promptIndex]);
+      final previousNumber = promptIndex > headerIndex + 1
+          ? _qmQuestionNumberFromLine(lines[promptIndex - 1])
+          : null;
+      rawQuestionNos.add(ownNumber ?? previousNumber ?? 0);
+    }
+    final set = _Q4LongPassageSet(
+      group: group,
+      passage: passage,
+      questionNos: rawQuestionNos,
+      blocks: sharedBlocks,
+    );
+    debugPrint(
+      '[LongPassageSetDebug] group=$group '
+      'sharedPassageLength=${passage.length}',
+    );
+
+    final normalizedQuestionNos = <int>[];
+    for (var promptPosition = 0;
+        promptPosition < promptIndexes.length;
+        promptPosition++) {
+      final promptIndex = promptIndexes[promptPosition];
+      var blockStart = promptIndex;
+      final rawNumber = rawQuestionNos[promptPosition];
+      if (blockStart > headerIndex + 1 &&
+          _qmQuestionNumberFromLine(lines[blockStart - 1]) != null) {
+        blockStart--;
+      }
+      final nextPromptIndex = promptPosition + 1 < promptIndexes.length
+          ? promptIndexes[promptPosition + 1]
+          : sectionEnd;
+      var blockEnd = nextPromptIndex;
+      if (blockEnd > blockStart &&
+          _qmQuestionNumberFromLine(lines[blockEnd - 1]) != null) {
+        blockEnd--;
+      }
+      final normalizedNumber =
+          rawNumber > lastQuestionNo ? rawNumber : lastQuestionNo + 1;
+      lastQuestionNo = normalizedNumber;
+      normalizedQuestionNos.add(normalizedNumber);
+      final blockLines = lines.sublist(blockStart, blockEnd);
+      final sourceQuestionNo = rawNumber > 0
+          ? rawNumber
+          : _q4SourceQuestionNumberFromLines(blockLines);
+      var parsed = _qmParseQuestionBlock(
+        _QmQuestionBlock(number: normalizedNumber, lines: blockLines),
+        fallbackNo: normalizedNumber,
+      );
+      if (parsed.questionType.trim().toLowerCase() == 'order') {
+        final fullAnswerRaw = _q2ExtractAnswerRawFull(blockLines).trim();
+        if (fullAnswerRaw.isNotEmpty) {
+          parsed = parsed.copyWith(answerRaw: fullAnswerRaw);
+        }
+      }
+      final repaired = _q4ApplyLongPassageSet(
+        parsed,
+        set,
+        rawQuestionLines: blockLines,
+        documentLines: lines,
+        originalQuestionNo: sourceQuestionNo,
+        questionOrdinal: promptPosition,
+        questionCount: promptIndexes.length,
+      );
+      questions.add(repaired);
+      debugPrint(
+        '[LongPassageGroupDraft] group=$group '
+        'child=${promptPosition + 1} no=${repaired.questionNo} '
+        'type=${repaired.questionType}',
+      );
+    }
+    debugPrint(
+      '[LongPassageSetDebug] group=$group '
+      'questionNos=$normalizedQuestionNos',
+    );
+  }
+  return questions;
+}
+
+bool _q4LooksLikeChildQuestionPrompt(String line) {
+  if (_q2IsControlLine(line) || _q4IsLongPassageHeader(line)) return false;
+  final clean = _qmCleanBodyLine(line).trim();
+  if (clean.isEmpty) return false;
+  final compact = clean.replaceAll(RegExp(r'\s+'), '');
+  final hasPromptLead = compact.startsWith('다음') ||
+      compact.startsWith('윗글') ||
+      compact.startsWith('밑줄친') ||
+      compact.startsWith('주어진') ||
+      compact.startsWith('어법') ||
+      compact.startsWith('어휘');
+  return hasPromptLead &&
+      (_q2LooksLikePrompt(clean) ||
+          _q2LooksLikeAnySpecialPrompt(clean) ||
+          _q4LooksLikeGeneralChildPrompt(compact));
+}
+
+bool _q4LooksLikeGeneralChildPrompt(String compactPrompt) {
+  final hasQuestionSubject = RegExp(
+    r'(제목|빈칸|주제|요지|어법|어휘|문맥|순서|가리키는대상|내용과일치)',
+  ).hasMatch(compactPrompt);
+  final hasQuestionAction = RegExp(
+    r'(고르|적절|배열|고치|것은|것을)',
+  ).hasMatch(compactPrompt);
+  return hasQuestionSubject && hasQuestionAction;
+}
+
+List<String> _q4SharedPassageLines(
+  List<String> lines, {
+  required int start,
+  required int end,
+}) {
+  final passageLines = <String>[];
+  for (var index = start; index < end; index++) {
+    final line = lines[index].trim();
+    if (line.isEmpty ||
+        _q4IsLongPassageHeader(line) ||
+        _q2IsSourceLine(line) ||
+        _qmIsLegacyHeading(line)) {
+      continue;
+    }
+    if (_q2IsVocabularyLine(line) || _q2LooksLikeVocabularyNoteLine(line)) {
+      break;
+    }
+    final cleaned = _q2StripInlineVocabularyNotes(line);
+    if (cleaned.isNotEmpty) passageLines.add(cleaned);
+  }
+  return passageLines;
+}
+
+List<_Q4LongPassageSet> _q4DetectLongPassageSets(String normalizedText) {
+  final lines = normalizedText
+      .split('\n')
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList(growable: false);
+  final headerIndexes = <int>[
+    for (var index = 0; index < lines.length; index++)
+      if (_q4IsLongPassageHeader(lines[index])) index,
+  ];
+  final sets = <_Q4LongPassageSet>[];
+  for (var headerPosition = 0;
+      headerPosition < headerIndexes.length;
+      headerPosition++) {
+    final headerIndex = headerIndexes[headerPosition];
+    final sectionEnd = headerPosition + 1 < headerIndexes.length
+        ? headerIndexes[headerPosition + 1]
+        : lines.length;
+    final anchors = <_QmNumberedAnchor>[];
+    for (var index = headerIndex + 1; index < sectionEnd; index++) {
+      final number = _qmQuestionNumberFromLine(lines[index]);
+      if (number == null) continue;
+      final promptIndex = _qmPromptIndexNearNumber(lines, index);
+      if (promptIndex == -1 || promptIndex >= sectionEnd) continue;
+      anchors.add(
+        _QmNumberedAnchor(
+          index: index,
+          number: number,
+          numberLineIndex: index,
+          promptIndex: promptIndex,
+        ),
+      );
+    }
+    if (anchors.length < 2) continue;
+
+    final passageLines = <String>[];
+    for (var index = headerIndex + 1;
+        index < anchors.first.numberLineIndex;
+        index++) {
+      final line = lines[index].trim();
+      if (line.isEmpty ||
+          _q4IsLongPassageHeader(line) ||
+          _q2IsSourceLine(line) ||
+          _qmIsLegacyHeading(line)) {
+        continue;
+      }
+      if (_q2IsVocabularyLine(line) || _q2LooksLikeVocabularyNoteLine(line)) {
+        break;
+      }
+      passageLines.add(_q2StripInlineVocabularyNotes(line));
+    }
+    final passage =
+        passageLines.where((line) => line.trim().isNotEmpty).join('\n').trim();
+    if (passage.isEmpty || !RegExp(r'[A-Za-z]').hasMatch(passage)) continue;
+
+    final questionNos = <int>[];
+    for (final anchor in anchors) {
+      if (!questionNos.contains(anchor.number)) questionNos.add(anchor.number);
+    }
+    final group = sets.length + 1;
+    final set = _Q4LongPassageSet(
+      group: group,
+      passage: passage,
+      questionNos: questionNos,
+      blocks: _q4SharedOrderBlocks(passageLines),
+    );
+    sets.add(set);
+    debugPrint(
+      '[LongPassageSetDebug] group=$group '
+      'sharedPassageLength=${passage.length}',
+    );
+    debugPrint(
+      '[LongPassageSetDebug] group=$group questionNos=$questionNos',
+    );
+  }
+  return sets;
+}
+
+bool _q4IsLongPassageHeader(String line) {
+  final compact =
+      line.replaceFirst(RegExp(r'^[※*]\s*'), '').replaceAll(RegExp(r'\s+'), '');
+  return (compact.contains('다음글을읽고') &&
+          (compact.contains('물음에답하시오') || compact.contains('물음에답하세요'))) ||
+      compact == '<기본형>' ||
+      compact == '<변형>' ||
+      compact == '<패러형>';
+}
+
+bool _q4IsExplicitLongPassageHeader(String line) {
+  final compact =
+      line.replaceFirst(RegExp(r'^[※*]\s*'), '').replaceAll(RegExp(r'\s+'), '');
+  return compact.contains('다음글을읽고') &&
+      (compact.contains('물음에답하시오') || compact.contains('물음에답하세요'));
+}
+
+Map<String, String> _q4SharedOrderBlocks(List<String> passageLines) {
+  final blocks = <String, String>{};
+  String? activeLabel;
+  final buffer = <String>[];
+
+  void flush() {
+    final label = activeLabel;
+    if (label == null) return;
+    final text = buffer.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (text.isNotEmpty) blocks[label] = text;
+    buffer.clear();
+  }
+
+  for (final line in passageLines) {
+    final match = _q2OrderBlockMatch(line);
+    if (match != null) {
+      flush();
+      activeLabel = (match.group(1) ?? '').toUpperCase();
+      final rest = (match.group(2) ?? '').trim();
+      if (rest.isNotEmpty) buffer.add(rest);
+      continue;
+    }
+    if (activeLabel != null &&
+        (_q2IsControlLine(line) || _q2IsSourceLine(line))) {
+      break;
+    }
+    if (activeLabel != null) buffer.add(line);
+  }
+  flush();
+  final trailing = _q4SharedOrderTrailingLines(passageLines)
+      .join(' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  if (trailing.isNotEmpty && blocks.isNotEmpty) {
+    final lastLabel = blocks.keys.last;
+    final lastBlock = blocks[lastLabel] ?? '';
+    if (lastBlock.endsWith(trailing)) {
+      final withoutTrailing =
+          lastBlock.substring(0, lastBlock.length - trailing.length).trim();
+      if (withoutTrailing.isNotEmpty) blocks[lastLabel] = withoutTrailing;
+    }
+  }
+  return blocks;
+}
+
+List<String> _q4SharedOrderTrailingLines(List<String> passageLines) {
+  var lastBlockIndex = -1;
+  var lastBlockHasInlineText = false;
+  for (var index = 0; index < passageLines.length; index++) {
+    final match = _q2OrderBlockMatch(passageLines[index]);
+    if (match == null) continue;
+    lastBlockIndex = index;
+    lastBlockHasInlineText = (match.group(2) ?? '').trim().isNotEmpty;
+  }
+  if (lastBlockIndex < 0) return const <String>[];
+
+  var blockBodyConsumed = lastBlockHasInlineText;
+  final trailing = <String>[];
+  for (var index = lastBlockIndex + 1; index < passageLines.length; index++) {
+    final line = passageLines[index].trim();
+    if (line.isEmpty) continue;
+    if (_q2IsControlLine(line) ||
+        _q2IsSourceLine(line) ||
+        _qmQuestionNumberFromLine(line) != null) {
+      break;
+    }
+    if (!blockBodyConsumed) {
+      blockBodyConsumed = true;
+      continue;
+    }
+    trailing.add(line);
+  }
+  return trailing;
+}
+
+String _q4SharedOrderLeadPassage(String passage) {
+  final leadLines = <String>[];
+  for (final line in passage.split('\n')) {
+    if (_q2OrderBlockMatch(line.trim()) != null) break;
+    if (line.trim().isNotEmpty) leadLines.add(line.trim());
+  }
+  return leadLines.join('\n').trim();
+}
+
+String _q4SharedOrderTrailingPassage(String passage) {
+  return _q4SharedOrderTrailingLines(passage.split('\n')).join('\n').trim();
+}
+
+List<QuestionImportDraft> _q4ApplyLongPassageSets(
+  List<QuestionImportDraft> questions,
+  List<_Q4LongPassageSet> sets,
+) {
+  if (sets.isEmpty) return questions;
+  return <QuestionImportDraft>[
+    for (final question in questions)
+      _q4ApplyLongPassageSet(
+        question,
+        sets.cast<_Q4LongPassageSet?>().firstWhere(
+              (set) => set!.questionNos.contains(question.questionNo),
+              orElse: () => null,
+            ),
+      ),
+  ];
+}
+
+QuestionImportDraft _q4ApplyLongPassageSet(
+  QuestionImportDraft question,
+  _Q4LongPassageSet? set, {
+  List<String>? rawQuestionLines,
+  List<String>? documentLines,
+  int? originalQuestionNo,
+  int? questionOrdinal,
+  int? questionCount,
+}) {
+  if (set == null) return question;
+  String? detectedPrompt;
+  for (final line in rawQuestionLines ?? const <String>[]) {
+    final clean = _qmCleanBodyLine(line);
+    if (_q4LooksLikeChildQuestionPrompt(clean)) {
+      detectedPrompt = clean;
+      break;
+    }
+  }
+  final questionText = detectedPrompt ?? question.questionText;
+  final compactPrompt = questionText.replaceAll(RegExp(r'\s+'), '');
+  var questionType = question.questionType.trim().toLowerCase();
+  if (questionType.isEmpty && detectedPrompt != null) {
+    questionType = _q2InferQuestionType(detectedPrompt);
+  }
+  if (_q4LooksLikeReferencePrompt(compactPrompt)) {
+    questionType = 'reference';
+  } else if (_q4LooksLikeContentMatchPrompt(compactPrompt)) {
+    questionType = 'content_match';
+  }
+
+  var specialData = <String, dynamic>{
+    ...?question.specialData,
+    if (question.specialData == null || question.specialData!.isEmpty)
+      'kind': 'long_passage_set',
+    'shared_passage': true,
+    'long_passage_group': set.group,
+    if (originalQuestionNo != null) 'source_no': originalQuestionNo,
+    if (questionType == 'reference' || questionType == 'content_match')
+      'interaction_type': questionType == 'content_match' &&
+              _q4IsMultiSelectPrompt(compactPrompt)
+          ? 'multi_select'
+          : 'single_choice',
+    if (questionType == 'content_match' &&
+        _q4IsMultiSelectPrompt(compactPrompt))
+      'kind': 'content_match',
+    if (questionType == 'content_match' &&
+        _q4IsMultiSelectPrompt(compactPrompt))
+      'max_answers': _q4MaxAnswers(compactPrompt) ?? 2,
+  };
+  var answerText = question.answerText;
+  var answerRaw = question.answerRaw;
+  var clearAnswerIndex = false;
+  var answerIndex = question.answerIndex;
+  var choices = question.choices;
+  var warnings = question.warnings
+      .where(
+        (warning) =>
+            warning != '지문이 없습니다.' &&
+            warning != 'Question type could not be detected',
+      )
+      .toList(growable: false);
+
+  const regularChoiceTypes = <String>{
+    'topic',
+    'title',
+    'gist',
+    'blank',
+    'purpose',
+    'implication',
+    'content',
+    'mismatch',
+  };
+  if (regularChoiceTypes.contains(questionType)) {
+    final fiveChoiceGroups = _q2ChoiceGroups(
+      rawQuestionLines ?? const <String>[],
+    ).where((group) => group.choices.length == 5);
+    if (fiveChoiceGroups.isNotEmpty) {
+      choices = fiveChoiceGroups.last.choices;
+    }
+    specialData['interaction_type'] = 'single_choice';
+  }
+
+  if ((questionType == 'grammar_correction' ||
+          questionType == 'vocabulary_correction') &&
+      (specialData['interaction_type'] ?? '').toString() ==
+          'correction_multi') {
+    final sharedPositions = _q3PassagePositions(set.passage);
+    if (sharedPositions.isNotEmpty) {
+      specialData['positions'] = sharedPositions;
+      specialData['position_labels'] =
+          sharedPositions.map(_q3CircledMarker).toList(growable: false);
+      final positionTexts = _q3GrammarVocabularyPositionTexts(set.passage);
+      if (positionTexts.isNotEmpty) {
+        specialData['position_texts'] = positionTexts;
+      }
+    }
+    final maxAnswers = _q4MaxAnswers(compactPrompt);
+    if (maxAnswers != null) specialData['max_answers'] = maxAnswers;
+  }
+
+  if (questionType == 'order' && set.blocks.length >= 3) {
+    final selectedChoice = question.answerIndex != null &&
+            question.answerIndex! >= 0 &&
+            question.answerIndex! < question.choices.length
+        ? question.choices[question.answerIndex!]
+        : '';
+    var answerOrder = _q2ParseOrderAnswer(selectedChoice);
+    final rawAnswerOrder = _q2ParseOrderAnswer(question.answerRaw);
+    if (rawAnswerOrder.length > answerOrder.length) {
+      answerOrder = rawAnswerOrder;
+    }
+    final fixedStartA = _q4IsFixedStartAOrderPrompt(compactPrompt) &&
+        set.blocks.containsKey('A');
+    final selectableLabels = set.blocks.keys
+        .where((label) => !fixedStartA || label != 'A')
+        .toList(growable: false);
+    final leadPassage = _q4SharedOrderLeadPassage(set.passage);
+    final trailingPassage = _q4SharedOrderTrailingPassage(set.passage);
+    specialData = <String, dynamic>{
+      'kind': 'order',
+      'order_mode': fixedStartA ? 'fixed_start' : 'full',
+      'fixed_start': fixedStartA ? 'A' : '',
+      if (fixedStartA) 'fixed_start_text': set.blocks['A'],
+      if (leadPassage.isNotEmpty) 'lead_passage': leadPassage,
+      if (trailingPassage.isNotEmpty) 'trailing_passage': trailingPassage,
+      'fixed_end': '',
+      'blocks': set.blocks,
+      if (fixedStartA) 'selectable_blocks': selectableLabels,
+      'answer_order': answerOrder,
+      'shared_passage': true,
+      'long_passage_group': set.group,
+    };
+    answerText = answerOrder.join('-');
+    clearAnswerIndex = true;
+    warnings = <String>[
+      if (answerOrder.length != selectableLabels.length)
+        '정답 순서 수와 선택 가능 블록 수가 다릅니다.',
+      if (answerOrder.any((label) => !set.blocks.containsKey(label)))
+        '정답에 공유 지문에 없는 블록이 포함되어 있습니다.',
+      if (fixedStartA && answerOrder.contains('A'))
+        '고정 시작 블록이 정답 순서에 포함되어 있습니다.',
+    ];
+    if (fixedStartA) {
+      debugPrint(
+        '[LongPassageOrderFix] no=${question.questionNo} fixedStart=A '
+        'answer=${answerOrder.join('-')} blocks=${set.blocks.length} '
+        'saveable=${warnings.isEmpty}',
+      );
+    }
+  }
+
+  if (questionType == 'reference' && choices.length < 2) {
+    final labels = _q4ReferenceFallbackLabels(compactPrompt);
+    if (labels.isNotEmpty) {
+      choices = labels.map((label) => '($label)').toList(growable: false);
+      final recoveredAnswer = _q4ExplicitAnswerIndices(
+        rawQuestionLines ?? const <String>[],
+      );
+      answerIndex ??= recoveredAnswer.isEmpty ? null : recoveredAnswer.first;
+      warnings = const <String>[];
+      debugPrint(
+        '[ReferenceChoiceFallback] no=${question.questionNo} '
+        'labels=${labels.first}-${labels.last} '
+        'answer=${answerIndex == null ? '-' : answerIndex + 1} '
+        'choices=${choices.length}',
+      );
+    }
+  }
+
+  if (questionType == 'content_match') {
+    final normalizedAnswerCandidates =
+        _q4CollectAnswerCandidateRaws(documentLines ?? const <String>[]);
+    final groupAnswerCandidates =
+        _q4CollectAnswerCandidateRaws(rawQuestionLines ?? const <String>[]);
+    debugPrint(
+      '[ContentMatchAnswerSearch] no=${question.questionNo} '
+      'question="${question.questionText}"',
+    );
+    debugPrint(
+      '[ContentMatchAnswerSearch] no=${question.questionNo} '
+      'sourceNo=${specialData['source_no'] ?? '-'} '
+      'originalNo=${originalQuestionNo ?? '-'}',
+    );
+    debugPrint(
+      '[ContentMatchAnswerSearch] no=${question.questionNo} '
+      'normalizedAnswerCandidates=$normalizedAnswerCandidates',
+    );
+    debugPrint(
+      '[ContentMatchAnswerSearch] no=${question.questionNo} '
+      'groupAnswerCandidates=$groupAnswerCandidates',
+    );
+    var answerRecovery =
+        _q4ExplicitAnswerRecovery(rawQuestionLines ?? const <String>[]);
+    if (answerRecovery == null &&
+        _q3AnswerIndices(question.answerRaw).isNotEmpty) {
+      answerRecovery = _Q4AnswerRecovery(
+        rawAnswerLine: question.answerRaw,
+        rawAnswer: question.answerRaw,
+        sourceNo: originalQuestionNo,
+      );
+    }
+    if (answerRecovery == null && documentLines != null) {
+      answerRecovery = _q4RecoverAnswerFromDocument(
+        documentLines,
+        questionNo: question.questionNo,
+        originalQuestionNo: originalQuestionNo,
+        questionOrdinal: questionOrdinal,
+        questionCount: questionCount,
+      );
+    }
+    final explicitAnswerRaw = answerRecovery?.rawAnswer ?? '';
+    final explicitAnswerIndices = _q3AnswerIndices(explicitAnswerRaw);
+    debugPrint(
+      '[ContentMatchAnswerSearch] no=${question.questionNo} '
+      'selectedRawAnswer="$explicitAnswerRaw"',
+    );
+    debugPrint(
+      '[ContentMatchAnswerSearch] no=${question.questionNo} '
+      'parsedOneBased=${explicitAnswerIndices.map((index) => index + 1).toList()}',
+    );
+    if (explicitAnswerIndices.isNotEmpty) {
+      answerRaw = explicitAnswerRaw;
+      if (answerRecovery?.sourceNo != null) {
+        specialData['source_no'] = answerRecovery!.sourceNo;
+      }
+      final isMultiSelect = _q4IsMultiSelectPrompt(compactPrompt);
+      specialData = <String, dynamic>{
+        ...specialData,
+        'kind': 'content_match',
+        'interaction_type': isMultiSelect ? 'multi_select' : 'single_choice',
+        if (isMultiSelect) 'answer_indices': explicitAnswerIndices,
+        if (isMultiSelect) 'max_answers': _q4MaxAnswers(compactPrompt) ?? 2,
+      };
+      answerText =
+          explicitAnswerIndices.map((index) => '${index + 1}').join(',');
+      debugPrint(
+        '[ContentMatchAnswerSearch] no=${question.questionNo} '
+        'answerText=$answerText answerIndices=$explicitAnswerIndices',
+      );
+      if (isMultiSelect) {
+        answerIndex = null;
+        clearAnswerIndex = true;
+      } else {
+        answerIndex = explicitAnswerIndices.first;
+      }
+      warnings = const <String>[];
+      debugPrint(
+        '[ContentMatchAnswerRecovery] no=${question.questionNo} '
+        'originalNo=${originalQuestionNo ?? '-'} '
+        'sourceNo=${specialData['source_no'] ?? '-'} '
+        'question="${question.questionText}"',
+      );
+      debugPrint(
+        '[ContentMatchAnswerRecovery] no=${question.questionNo} '
+        'rawAnswerLine="${answerRecovery?.rawAnswerLine ?? explicitAnswerRaw}"',
+      );
+      debugPrint(
+        '[ContentMatchAnswerRecovery] no=${question.questionNo} '
+        'parsedAnswers=${explicitAnswerIndices.map((index) => index + 1).toList()}',
+      );
+      debugPrint(
+        '[ContentMatchAnswerRecovery] no=${question.questionNo} '
+        'interaction=${specialData['interaction_type']} '
+        'answerText=$answerText saveable=true',
+      );
+    } else {
+      debugPrint(
+        '[ContentMatchAnswerRecovery] no=${question.questionNo} failed '
+        'searchedOriginalNo=${originalQuestionNo ?? '-'} group=${set.group}',
+      );
+    }
+  }
+
+  final repaired = question.copyWith(
+    questionText: questionText,
+    questionType: questionType,
+    passage: set.passage,
+    specialData: specialData,
+    answerText: answerText,
+    answerRaw: answerRaw,
+    choices: choices,
+    answerIndex: answerIndex,
+    clearAnswerIndex: clearAnswerIndex,
+    warnings: warnings,
+    isSpecialUnsupported: false,
+  );
+  if (questionType == 'content_match' &&
+      (specialData['interaction_type'] ?? '').toString() == 'multi_select') {
+    final answerIndices = specialData['answer_indices'];
+    final positions = specialData['positions'];
+    debugPrint(
+      '[ContentMatchChoiceMultiSelect] no=${question.questionNo} '
+      'choices=${choices.length} answerText=${answerText ?? '-'} '
+      'answerIndices=${answerIndices is List ? answerIndices : const []} '
+      'positions=${positions is List ? positions : const []} '
+      'saveable=${repaired.isSaveable}',
+    );
+    debugPrint(
+      '[ContentMatchChoiceMultiSelect] no=${question.questionNo} '
+      '${repaired.isSaveable ? 'reason=ok' : 'failed reason=${repaired.saveabilityReason}'}',
+    );
+  }
+  debugPrint(
+    '[LongPassageSetDebug] no=${question.questionNo} '
+    'type=${repaired.questionType} '
+    'answer=${repaired.answerIndex == null ? repaired.answerText ?? '-' : repaired.answerIndex! + 1} '
+    'choices=${repaired.choices.length} shared=true',
+  );
+  return repaired;
+}
+
+List<String> _q4CollectAnswerCandidateRaws(List<String> lines) {
+  final candidates = <String>[];
+  for (var index = 0; index < lines.length; index++) {
+    if (!_q4ContainsAnswerMarker(lines[index])) continue;
+    final end = (index + 5).clamp(0, lines.length);
+    final recovery = _q4ExplicitAnswerRecovery(
+      lines.sublist(index, end),
+      requireChoiceNumbers: false,
+    );
+    final raw = recovery?.rawAnswer.trim() ?? '';
+    if (raw.isNotEmpty && !candidates.contains(raw)) candidates.add(raw);
+  }
+  return candidates.take(20).toList(growable: false);
+}
+
+bool _q4IsFixedStartAOrderPrompt(String compactPrompt) {
+  return RegExp(r'[\(（]A[\)）]에이어질').hasMatch(compactPrompt) ||
+      compactPrompt.contains('글(A)에이어질') ||
+      compactPrompt.contains('글（A）에이어질');
+}
+
+int? _q4SourceQuestionNumberFromLines(List<String> lines) {
+  for (final line in lines.take(3)) {
+    final number = _q4AnswerRegionNumber(line);
+    if (number != null) return number;
+  }
+  return null;
+}
+
+List<String> _q4ReferenceFallbackLabels(String compactPrompt) {
+  final lower = compactPrompt.toLowerCase();
+  if (!RegExp(r'[\(（]a[\)）](?:~|～|∼)[\(（]e[\)）]').hasMatch(lower)) {
+    return const <String>[];
+  }
+  final useUppercase =
+      RegExp(r'[\(（]A[\)）](?:~|～|∼)[\(（]E[\)）]').hasMatch(compactPrompt);
+  return useUppercase
+      ? const <String>['A', 'B', 'C', 'D', 'E']
+      : const <String>['a', 'b', 'c', 'd', 'e'];
+}
+
+_Q4AnswerRecovery? _q4ExplicitAnswerRecovery(
+  List<String> lines, {
+  bool requireChoiceNumbers = true,
+}) {
+  final direct = _q2ExtractAnswerRawFull(lines).trim();
+  if (direct.isNotEmpty &&
+      (!requireChoiceNumbers || _q3AnswerIndices(direct).isNotEmpty)) {
+    final answerLine = lines.firstWhere(
+      (line) => RegExp(r'^\[?\s*정답\s*\]?').hasMatch(line.trim()),
+      orElse: () => direct,
+    );
+    return _Q4AnswerRecovery(
+      rawAnswerLine: _q3AnswerIndices(answerLine).isEmpty
+          ? '${answerLine.trim()} $direct'.trim()
+          : answerLine.trim(),
+      rawAnswer: direct,
+    );
+  }
+  for (final line in lines) {
+    final match = RegExp(
+      r'(?:\[\s*정답\s*\]|(?:^|\s)정답\s*[:：]?)\s*'
+      r'((?:[\(（]?\s*[①②③④⑤⑥⑦⑧⑨❶❷❸❹❺❻❼❽❾ⓐⓑⓒⓓⓔⓕⓖⓗⓘ1-9])'
+      r'.*?)(?=\s*\[?\s*(?:해설|해석)\s*\]?|$)',
+    ).firstMatch(line.trim());
+    final raw = (match?.group(1) ?? '').trim();
+    if (raw.isNotEmpty &&
+        (!requireChoiceNumbers || _q3AnswerIndices(raw).isNotEmpty)) {
+      return _Q4AnswerRecovery(
+        rawAnswerLine: line.trim(),
+        rawAnswer: raw,
+      );
+    }
+  }
+  return null;
+}
+
+String _q4ExplicitAnswerRaw(List<String> lines) {
+  return _q4ExplicitAnswerRecovery(lines)?.rawAnswer ?? '';
+}
+
+List<int> _q4ExplicitAnswerIndices(List<String> lines) {
+  return _q3AnswerIndices(_q4ExplicitAnswerRaw(lines));
+}
+
+_Q4AnswerRecovery? _q4RecoverAnswerFromDocument(
+  List<String> lines, {
+  required int questionNo,
+  int? originalQuestionNo,
+  int? questionOrdinal,
+  int? questionCount,
+}) {
+  final candidates =
+      <({int? number, int lineIndex, _Q4AnswerRecovery answer})>[];
+  for (var index = 0; index < lines.length; index++) {
+    final number = _q4AnswerRegionNumber(lines[index]);
+    if (number == null) continue;
+    var end = lines.length;
+    for (var next = index + 1; next < lines.length; next++) {
+      if (_q4AnswerRegionNumber(lines[next]) != null) {
+        end = next;
+        break;
+      }
+    }
+    final recovery = _q4ExplicitAnswerRecovery(
+      lines.sublist(index, end),
+      requireChoiceNumbers: false,
+    );
+    if (recovery == null) continue;
+    candidates.add((number: number, lineIndex: index, answer: recovery));
+  }
+  for (var index = 0; index < lines.length; index++) {
+    if (!_q4ContainsAnswerMarker(lines[index])) continue;
+    if (candidates.any((candidate) => candidate.lineIndex == index)) continue;
+    var end = (index + 6).clamp(0, lines.length);
+    for (var next = index + 1; next < end; next++) {
+      if (_q4AnswerRegionNumber(lines[next]) != null ||
+          _q4LooksLikeChildQuestionPrompt(lines[next]) ||
+          _q4IsLongPassageHeader(lines[next])) {
+        end = next;
+        break;
+      }
+    }
+    final recovery = _q4ExplicitAnswerRecovery(
+      lines.sublist(index, end),
+      requireChoiceNumbers: false,
+    );
+    if (recovery == null) continue;
+    int? nearbyNumber;
+    for (var previous = index;
+        previous >= 0 && previous >= index - 3;
+        previous--) {
+      nearbyNumber = _q4AnswerRegionNumber(lines[previous]);
+      if (nearbyNumber != null) break;
+    }
+    if (candidates.any(
+      (candidate) =>
+          candidate.number == nearbyNumber &&
+          candidate.answer.rawAnswer == recovery.rawAnswer,
+    )) {
+      continue;
+    }
+    candidates.add(
+      (number: nearbyNumber, lineIndex: index, answer: recovery),
+    );
+  }
+
+  candidates.sort((a, b) => a.lineIndex.compareTo(b.lineIndex));
+  final searchKeys = <int>[
+    if (originalQuestionNo != null) originalQuestionNo,
+  ];
+  final numberedCandidates =
+      candidates.where((candidate) => candidate.number != null).toList();
+  if (questionOrdinal != null &&
+      questionCount != null &&
+      numberedCandidates.length >= questionCount) {
+    final tail =
+        numberedCandidates.sublist(numberedCandidates.length - questionCount);
+    final inferred = tail[questionOrdinal].number;
+    if (inferred != null && !searchKeys.contains(inferred)) {
+      searchKeys.add(inferred);
+    }
+  }
+  debugPrint(
+    '[ContentMatchAnswerRecovery] no=$questionNo searchKeys=$searchKeys',
+  );
+  debugPrint(
+    '[ContentMatchAnswerRecovery] no=$questionNo candidateAnswerBlocks='
+    '${candidates.map((candidate) => '${candidate.number ?? '-'}:${candidate.answer.rawAnswer}').toList()}',
+  );
+
+  for (final searchKey in searchKeys) {
+    for (final entry in candidates.reversed) {
+      if (entry.number == searchKey) {
+        return _q4RecoveryWithSource(entry.answer, entry.number);
+      }
+    }
+  }
+  if (questionOrdinal != null &&
+      questionCount != null &&
+      candidates.length >= questionCount) {
+    final tail = candidates.sublist(candidates.length - questionCount);
+    if (questionOrdinal >= 0 && questionOrdinal < tail.length) {
+      final entry = tail[questionOrdinal];
+      return _q4RecoveryWithSource(entry.answer, entry.number);
+    }
+  }
+  final answerSnippets = <String>[
+    for (var index = 0; index < lines.length; index++)
+      if (_q4ContainsAnswerMarker(lines[index]))
+        lines
+            .sublist(index, (index + 3).clamp(0, lines.length))
+            .join(' ')
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim(),
+  ];
+  debugPrint(
+    '[ContentMatchAnswerRecovery] no=$questionNo failed '
+    'originalNo=${originalQuestionNo ?? '-'} searchedKeys=$searchKeys '
+    'normalizedSnippet="${answerSnippets.take(5).join(' | ')}"',
+  );
+  return null;
+}
+
+_Q4AnswerRecovery _q4RecoveryWithSource(
+  _Q4AnswerRecovery answer,
+  int? sourceNo,
+) {
+  return _Q4AnswerRecovery(
+    rawAnswerLine: answer.rawAnswerLine,
+    rawAnswer: answer.rawAnswer,
+    sourceNo: sourceNo,
+  );
+}
+
+int? _q4AnswerRegionNumber(String line) {
+  final standalone = RegExp(r'^\s*(\d{1,3})\s*$').firstMatch(line.trim());
+  if (standalone != null) return int.tryParse(standalone.group(1)!);
+  final match = RegExp(
+    r'^\s*(\d{1,3})\s*(?:[\).:\]】]|번)\s*',
+  ).firstMatch(line.trim());
+  return int.tryParse(match?.group(1) ?? '');
+}
+
+bool _q4ContainsAnswerMarker(String line) {
+  return RegExp(r'(?:\[\s*정답\s*\]|(?:^|\s)정답\s*[:：]?)').hasMatch(line.trim());
+}
+
+bool _q4IsMultiSelectPrompt(String compactPrompt) {
+  return compactPrompt.contains('모두고르') ||
+      compactPrompt.contains('복수정답') ||
+      compactPrompt.contains('모두선택') ||
+      RegExp(r'정답(?:최대)?\d+개').hasMatch(compactPrompt);
+}
+
+int? _q4MaxAnswers(String compactPrompt) {
+  final match = RegExp(r'정답(?:최대)?(\d+)개').firstMatch(compactPrompt);
+  return int.tryParse(match?.group(1) ?? '');
+}
+
+bool _q4LooksLikeReferencePrompt(String compactPrompt) {
+  return compactPrompt.contains('가리키는것') ||
+      compactPrompt.contains('가리키는대상') ||
+      compactPrompt.contains('지칭하는대상') ||
+      (compactPrompt.contains('나머지와다른것') &&
+          (compactPrompt.contains('밑줄친') || compactPrompt.contains('지칭')));
+}
+
+bool _q4LooksLikeContentMatchPrompt(String compactPrompt) {
+  return (compactPrompt.contains('내용') || compactPrompt.contains('윗글')) &&
+      (compactPrompt.contains('일치하는것') || compactPrompt.contains('일치하지않는것'));
 }
 
 List<QuestionImportDraft> _q3RecoverMissingGrammarVocabularyPassages(
@@ -445,6 +1415,7 @@ String _qmNormalizeText(String rawText) {
         (match) => '\n${match.group(1)}',
       );
   text = _q3SplitEmbeddedGrammarPromptLines(text);
+  text = _q4SplitEmbeddedLongPassagePromptLines(text);
   return text
       .split('\n')
       .map((line) => line.replaceAll(RegExp(r'[ \t]+'), ' ').trim())
@@ -452,6 +1423,39 @@ String _qmNormalizeText(String rawText) {
       .where((line) => !_qmLooksLikeFileName(line))
       .join('\n')
       .trim();
+}
+
+String _q4SplitEmbeddedLongPassagePromptLines(String text) {
+  final promptStart = RegExp(
+    r'(?:\d{1,3}\s*(?:[\).]|번)\s*)?'
+    r'(?:다음|윗글|밑줄\s*친|주어진)',
+  );
+  final output = <String>[];
+  for (final rawLine in text.split('\n')) {
+    final line = rawLine.trim();
+    if (_q4LooksLikeChildQuestionPrompt(line)) {
+      output.add(rawLine);
+      continue;
+    }
+    RegExpMatch? splitMatch;
+    for (final match in promptStart.allMatches(line)) {
+      if (match.start == 0) continue;
+      final candidate = line.substring(match.start).trim();
+      if (_q4LooksLikeChildQuestionPrompt(candidate)) {
+        splitMatch = match;
+        break;
+      }
+    }
+    if (splitMatch == null) {
+      output.add(rawLine);
+      continue;
+    }
+    final before = line.substring(0, splitMatch.start).trim();
+    final prompt = line.substring(splitMatch.start).trim();
+    if (before.isNotEmpty) output.add(before);
+    if (prompt.isNotEmpty) output.add(prompt);
+  }
+  return output.join('\n');
 }
 
 String _q3SplitEmbeddedGrammarPromptLines(String text) {
@@ -1641,13 +2645,15 @@ QuestionImportDraft? _q3ParseGrammarVocabularyQuestion(
 bool _q3LooksLikeGrammarVocabularyPrompt(String line) {
   final compact = line.replaceAll(RegExp(r'\s+'), '');
   if (!RegExp(r'(어법|어휘|문맥)').hasMatch(compact)) return false;
-  return RegExp(r'(고르|것은|것의개수|바르게고치)').hasMatch(compact);
+  return RegExp(r'(고르|것은|것의개수|바르게고치|어휘는|낱말은)').hasMatch(compact);
 }
 
 List<int> _q3AnswerIndices(String raw) {
   final result = <int>[];
-  final markerPattern =
-      RegExp(r'[①②③④⑤⑥⑦⑧⑨❶❷❸❹❺❻❼❽❾]|(?<![A-Za-z0-9])[1-9](?![A-Za-z0-9])');
+  final markerPattern = RegExp(
+    r'[①②③④⑤⑥⑦⑧⑨❶❷❸❹❺❻❼❽❾ⓐⓑⓒⓓⓔⓕⓖⓗⓘ]|'
+    r'(?<![A-Za-z0-9])[1-9](?![A-Za-z0-9])',
+  );
   for (final match in markerPattern.allMatches(raw)) {
     final position = _q3PositionFromMarker(match.group(0)!);
     if (position != null && !result.contains(position - 1)) {
@@ -3051,7 +4057,9 @@ int _q2OrderContentEnd(List<String> lines, int start) {
 }
 
 RegExpMatch? _q2OrderBlockMatch(String line) {
-  return RegExp(r'^\s*[\(（]?([A-Ea-e])[\)）]\s*(.*)$').firstMatch(line.trim());
+  return RegExp(
+    r'^\s*[\(（]?([A-Ea-e])(?:[\)）]|[\.)])\s*(.*)$',
+  ).firstMatch(line.trim());
 }
 
 bool _q2LooksLikeOrderPrompt(String line) {
@@ -3322,7 +4330,7 @@ int _q2FindPromptIndex(List<String> lines, int beforeIndex) {
 
 bool _q2LooksLikePrompt(String line) {
   return RegExp(
-    r'(가장\s*적절한\s*것|적절하지\s*않은\s*것|일치하는\s*것|일치하지\s*않는\s*것|빈칸|들어갈\s*말|들어가기에|순서|배열|의미하는\s*바|함의|목적|주제|제목|요지|어법|어휘|문맥|바르게\s*고치|모두\s*고르)',
+    r'(가장\s*적절한\s*것|적절하지\s*않은\s*것|일치하는\s*것|일치하지\s*않는\s*것|가리키는\s*(?:것|대상)|지칭하는\s*대상|나머지와\s*다른\s*것|빈칸|들어갈\s*말|들어가기에|순서|배열|의미하는\s*바|함의|목적|주제|제목|요지|어법|어휘|문맥|바르게\s*고치|모두\s*고르)',
   ).hasMatch(line);
 }
 
@@ -3336,6 +4344,7 @@ String _q2InferQuestionType(String prompt) {
     return 'implication';
   }
   if (text.contains('목적')) return 'purpose';
+  if (_q4LooksLikeReferencePrompt(text)) return 'reference';
   if (text.contains('일치하지않는') || text.contains('적절하지않은')) {
     return 'mismatch';
   }
@@ -3582,6 +4591,32 @@ class _Q2InsertionCandidateSplit {
 
   final String sentence;
   final String passage;
+}
+
+class _Q4LongPassageSet {
+  const _Q4LongPassageSet({
+    required this.group,
+    required this.passage,
+    required this.questionNos,
+    required this.blocks,
+  });
+
+  final int group;
+  final String passage;
+  final List<int> questionNos;
+  final Map<String, String> blocks;
+}
+
+class _Q4AnswerRecovery {
+  const _Q4AnswerRecovery({
+    required this.rawAnswerLine,
+    required this.rawAnswer,
+    this.sourceNo,
+  });
+
+  final String rawAnswerLine;
+  final String rawAnswer;
+  final int? sourceNo;
 }
 
 class _QmQuestionBlock {

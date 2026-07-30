@@ -471,6 +471,8 @@ class _QuestionPreviewCard extends StatelessWidget {
     final interactionType =
         (question.specialData?['interaction_type'] ?? 'single_choice')
             .toString();
+    final isContentMultiSelect =
+        normalizedType == 'content_match' && interactionType == 'multi_select';
     final correctionCount = question.specialData?['corrections'] is Map
         ? (question.specialData!['corrections'] as Map).length
         : 0;
@@ -504,7 +506,7 @@ class _QuestionPreviewCard extends StatelessWidget {
                 ? (question.answerText?.trim().isNotEmpty == true
                     ? question.answerText!.trim()
                     : '-')
-                : isLanguageInteraction &&
+                : (isLanguageInteraction || isContentMultiSelect) &&
                         question.answerText?.trim().isNotEmpty == true
                     ? question.answerText!.trim()
                     : question.answerIndex == null
@@ -520,7 +522,7 @@ class _QuestionPreviewCard extends StatelessWidget {
     final badgeAnswer = interactionType == 'correction_multi'
         ? '$correctionCount corrections'
         : answer;
-    final previewBadgeLabels = isOrder
+    final basePreviewBadgeLabels = isOrder
         ? <String>[
             'blocks: ${blocks.length}',
             'answer: $answer',
@@ -549,7 +551,7 @@ class _QuestionPreviewCard extends StatelessWidget {
                     'sentences: $numberedSentenceCount',
                     'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
                   ]
-                : isLanguageInteraction
+                : isLanguageInteraction || isContentMultiSelect
                     ? <String>[
                         'type: ${question.questionType}',
                         'interaction: $interactionType',
@@ -574,6 +576,11 @@ class _QuestionPreviewCard extends StatelessWidget {
                             'answer: $answer',
                             'warnings: ${question.warnings.isEmpty ? 'none' : question.warnings.length}',
                           ];
+    final previewBadgeLabels = <String>[
+      ...basePreviewBadgeLabels,
+      if (question.specialData?['shared_passage'] == true)
+        'shared passage: yes',
+    ];
     debugPrint(
       '[PreviewBadge] no=${question.questionNo} labels=$previewBadgeLabels',
     );
@@ -752,6 +759,10 @@ String _questionImportTypeLabel(String type) {
       return '내용 불일치';
     case 'content':
       return '내용 일치';
+    case 'reference':
+      return '지칭';
+    case 'content_match':
+      return '내용일치';
     case 'insertion':
       return 'insertion';
     case 'irrelevant':

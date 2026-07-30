@@ -163,19 +163,37 @@ class QuestionImportDraft {
       final kind = special['kind']?.toString().trim().toLowerCase();
       if (kind == 'order' || normalizedType == 'order') {
         final blocks = special['blocks'];
+        final selectableBlocks = special['selectable_blocks'];
         final answerOrder = special['answer_order'];
         final blockCount = blocks is Map ? blocks.length : 0;
+        final expectedAnswerCount =
+            selectableBlocks is List ? selectableBlocks.length : blockCount;
         final answerCount = answerOrder is List ? answerOrder.length : 0;
+        final isFullSharedOrder = special['shared_passage'] == true &&
+            (special['order_mode'] ?? '').toString() == 'full';
         if (normalizedType != 'order') return 'not_order_type';
-        if ((special['fixed_start'] ?? '').toString().trim().isEmpty) {
+        if (!isFullSharedOrder &&
+            (special['fixed_start'] ?? '').toString().trim().isEmpty) {
           return 'missing_fixed_start';
         }
         if (blockCount < 3) return 'not_enough_order_blocks';
-        if (answerCount != blockCount) return 'answer_block_count_mismatch';
+        if (answerCount != expectedAnswerCount) {
+          return 'answer_block_count_mismatch';
+        }
         if ((answerText ?? '').trim().isEmpty) return 'missing_answer_text';
         return 'ok';
       }
-      return 'ok';
+      if (normalizedType == 'content_match' &&
+          (special['interaction_type'] ?? '').toString() == 'multi_select') {
+        final answerIndices = special['answer_indices'];
+        if (choices.length < 2) return 'not_enough_choices';
+        if (answerIndices is! List || answerIndices.isEmpty) {
+          return 'missing_answer_indices';
+        }
+        if ((answerText ?? '').trim().isEmpty) return 'missing_answer_text';
+        return 'ok';
+      }
+      if (special['shared_passage'] != true) return 'ok';
     }
 
     if (choices.length < 2) return 'not_enough_choices';
