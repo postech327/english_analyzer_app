@@ -14,6 +14,42 @@ bool isGrammarVocabularyQuestionType(String? questionType) {
       .contains((questionType ?? '').trim().toLowerCase());
 }
 
+bool shouldUnderlineChoiceForQuestionType(String? questionType) {
+  return isGrammarVocabularyQuestionType(questionType);
+}
+
+bool containsReferenceMarkers(String passage) {
+  return RegExp(r'\([a-eA-D]\)').hasMatch(passage);
+}
+
+bool containsNumberedInlineMarkers(String passage) {
+  return RegExp(r'[\u2460-\u2469\u24D0-\u24D4]').hasMatch(passage);
+}
+
+bool shouldShowPositionTextInSelection(
+  Map<String, dynamic> specialData,
+) {
+  return (specialData['interaction_type'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase() !=
+      'correction_multi';
+}
+
+Map<String, String> grammarVocabularyPositionTexts(
+  Map<String, dynamic> specialData,
+) {
+  return _positionTexts(specialData);
+}
+
+String grammarVocabularyPositionText(
+  Map<String, dynamic> specialData,
+  int position,
+) {
+  final texts = _positionTexts(specialData);
+  return texts[position.toString()] ?? texts[_positionLabel(position)] ?? '';
+}
+
 List<String> grammarVocabularyFallbackStudentOptions({
   required String questionType,
   required Iterable<int> positions,
@@ -103,6 +139,107 @@ TextSpan buildGrammarVocabularyInlineSpans({
   return TextSpan(style: baseStyle, children: spans);
 }
 
+TextSpan buildReferenceMarkerInlineSpans({
+  required String passage,
+  required TextStyle baseStyle,
+  TextStyle? markerStyle,
+  TextStyle? referentStyle,
+}) {
+  final spans = <InlineSpan>[];
+  final pattern = RegExp(r'\(([a-e])|([A-D])\)');
+  final markers = pattern.allMatches(passage).toList();
+  var cursor = 0;
+  for (var markerIndex = 0; markerIndex < markers.length; markerIndex++) {
+    final match = markers[markerIndex];
+    if (match.start > cursor) {
+      spans.add(TextSpan(text: passage.substring(cursor, match.start)));
+    }
+    spans.add(
+      TextSpan(
+        text: match.group(0),
+        style: markerStyle ??
+            baseStyle.copyWith(
+              color: const Color(0xFF7C3AED),
+              fontWeight: FontWeight.w900,
+              backgroundColor: const Color(0xFFF3E8FF),
+            ),
+      ),
+    );
+
+    final segmentEnd = markerIndex + 1 < markers.length
+        ? markers[markerIndex + 1].start
+        : passage.length;
+    final segment = passage.substring(match.end, segmentEnd);
+    final isReferenceMarker = match.group(1) != null;
+    if (!isReferenceMarker) {
+      spans.add(TextSpan(text: segment));
+      cursor = segmentEnd;
+      continue;
+    }
+    final referentRange = _candidateRange(segment, null);
+    if (referentRange == null) {
+      spans.add(TextSpan(text: segment));
+    } else {
+      if (referentRange.start > 0) {
+        spans.add(TextSpan(text: segment.substring(0, referentRange.start)));
+      }
+      spans.add(
+        TextSpan(
+          text: segment.substring(referentRange.start, referentRange.end),
+          style: referentStyle ??
+              baseStyle.copyWith(
+                decoration: TextDecoration.underline,
+                decorationThickness: 1.5,
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+      );
+      if (referentRange.end < segment.length) {
+        spans.add(TextSpan(text: segment.substring(referentRange.end)));
+      }
+    }
+    cursor = segmentEnd;
+  }
+  if (cursor < passage.length) {
+    spans.add(TextSpan(text: passage.substring(cursor)));
+  }
+  return TextSpan(style: baseStyle, children: spans);
+}
+
+TextSpan buildChoiceInlineSpans({
+  required String text,
+  required TextStyle baseStyle,
+  bool underlineWhole = false,
+}) {
+  final arrowIndex = text.indexOf('→');
+  if (arrowIndex > 0) {
+    final beforeArrow = text.substring(0, arrowIndex).trimRight();
+    return TextSpan(
+      style: baseStyle,
+      children: [
+        TextSpan(
+          text: beforeArrow,
+          style: baseStyle.copyWith(
+            decoration: TextDecoration.underline,
+            decorationThickness: 1.4,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        TextSpan(text: text.substring(beforeArrow.length)),
+      ],
+    );
+  }
+  return TextSpan(
+    text: text,
+    style: underlineWhole
+        ? baseStyle.copyWith(
+            decoration: TextDecoration.underline,
+            decorationThickness: 1.4,
+          )
+        : baseStyle,
+  );
+}
+
 Map<String, String> _positionTexts(Map<String, dynamic> specialData) {
   final raw = specialData['position_texts'];
   if (raw is! Map) return const <String, String>{};
@@ -129,6 +266,13 @@ int _markerPosition(String marker) {
   if (circledIndex >= 0) return circledIndex + 1;
   final letterIndex = letters.indexOf(marker);
   return letterIndex >= 0 ? letterIndex + 1 : 0;
+}
+
+String _positionLabel(int position) {
+  const labels = '①②③④⑤⑥⑦⑧⑨⑩';
+  return position >= 1 && position <= labels.length
+      ? labels[position - 1]
+      : position.toString();
 }
 
 class _InlineRange {

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import '../../utils/blank_display_passage.dart';
 import '../../utils/insertion_display_prompt.dart';
 import '../../utils/grammar_vocabulary_inline_spans.dart';
 import '../../utils/irrelevant_display_passage.dart';
@@ -388,6 +389,14 @@ class _QuestionCard extends StatelessWidget {
     };
     final isLanguageInteraction =
         languageTypes.contains(type.trim().toLowerCase());
+    final languagePositions = specialData['positions'] is List
+        ? (specialData['positions'] as List)
+            .map(_asInt)
+            .whereType<int>()
+            .toList(growable: false)
+        : const <int>[];
+    final isChoiceMultiSelect = type.trim().toLowerCase() == 'content_match' &&
+        (specialData['interaction_type'] ?? '').toString() == 'multi_select';
     final text = isOrder || isInsertion || isIrrelevant
         ? _teacherPreviewQuestionText(rawText, type, specialData)
         : rawText;
@@ -406,15 +415,37 @@ class _QuestionCard extends StatelessWidget {
             ? insertionAnswerLabel
             : isIrrelevant
                 ? irrelevantAnswerLabel
-                : isLanguageInteraction
+                : isLanguageInteraction || isChoiceMultiSelect
                     ? languageAnswerLabel
                     : _answerSummary(answerOption, answerIndex);
-    final answerChipLabel =
-        (isOrder || isInsertion || isIrrelevant || isLanguageInteraction) &&
-                answerLabel.isNotEmpty
-            ? 'answer $answerLabel'
-            : answerLabel;
+    final answerChipLabel = (isOrder ||
+                isInsertion ||
+                isIrrelevant ||
+                isLanguageInteraction ||
+                isChoiceMultiSelect) &&
+            answerLabel.isNotEmpty
+        ? 'answer $answerLabel'
+        : answerLabel;
+    final multiAnswerIndices = specialData['answer_indices'] is List
+        ? (specialData['answer_indices'] as List)
+            .map(_asInt)
+            .whereType<int>()
+            .toSet()
+        : const <int>{};
     final orderBlocks = _orderBlocks(specialData);
+    final orderMode =
+        (specialData['order_mode'] ?? '').toString().trim().toLowerCase();
+    final orderLeadPassage = _firstText([
+      specialData['lead_passage'],
+      specialData['base_passage'],
+      if (orderMode != 'full') specialData['fixed_start_text'],
+      if (orderMode != 'full') specialData['fixed_start'],
+      if (orderMode != 'full') passage,
+    ]);
+    final orderTrailingPassage = _firstText([
+      specialData['trailing_passage'],
+      specialData['fixed_end'],
+    ]);
     final insertionSentences = _insertionSentences(specialData);
     final irrelevantRawPassage =
         (specialData['passage_with_numbers'] ?? passage).toString();
@@ -499,11 +530,15 @@ class _QuestionCard extends StatelessWidget {
             if (text.isNotEmpty)
               _SectionBlock(label: '문제', child: SelectableText(text)),
             if (isOrder) ...[
-              if (_firstText([specialData['fixed_start'], passage]).isNotEmpty)
+              if (orderLeadPassage.isNotEmpty)
                 _SectionBlock(
                   label: '주어진 글',
-                  child: SelectableText(
-                    _firstText([specialData['fixed_start'], passage]),
+                  child: SelectableText.rich(
+                    _buildTeacherPassageSpans(
+                      passage: orderLeadPassage,
+                      specialData: specialData,
+                      baseStyle: DefaultTextStyle.of(context).style,
+                    ),
                   ),
                 ),
               if (orderBlocks.isNotEmpty)
@@ -512,14 +547,24 @@ class _QuestionCard extends StatelessWidget {
                   child: Column(
                     children: [
                       for (final entry in orderBlocks.entries)
-                        _OrderBlockRow(label: entry.key, text: entry.value),
+                        _OrderBlockRow(
+                          label: entry.key,
+                          text: entry.value,
+                          specialData: specialData,
+                        ),
                     ],
                   ),
                 ),
-              if (_firstText([specialData['fixed_end']]).isNotEmpty)
+              if (orderTrailingPassage.isNotEmpty)
                 _SectionBlock(
                   label: '이어질 글',
-                  child: SelectableText(_firstText([specialData['fixed_end']])),
+                  child: SelectableText.rich(
+                    _buildTeacherPassageSpans(
+                      passage: orderTrailingPassage,
+                      specialData: specialData,
+                      baseStyle: DefaultTextStyle.of(context).style,
+                    ),
+                  ),
                 ),
             ] else if (isInsertion) ...[
               if (insertionSentences.isNotEmpty)
@@ -562,26 +607,78 @@ class _QuestionCard extends StatelessWidget {
               if (passage.isNotEmpty)
                 _SectionBlock(
                   label: '지문',
-                  child: isLanguageInteraction
+                  child: type.trim().toLowerCase() == 'blank'
                       ? SelectableText.rich(
-                          buildGrammarVocabularyInlineSpans(
+                          buildBlankPassageInlineSpans(
                             passage: passage,
-                            specialData: specialData,
                             baseStyle: DefaultTextStyle.of(context).style,
+                            textSpanBuilder:
+                                containsNumberedInlineMarkers(passage)
+                                    ? (segment) =>
+                                        buildGrammarVocabularyInlineSpans(
+                                          passage: segment,
+                                          specialData: specialData,
+                                          baseStyle:
+                                              DefaultTextStyle.of(context)
+                                                  .style,
+                                        )
+                                    : null,
                           ),
                         )
-                      : SelectableText(passage),
+                      : isLanguageInteraction
+                          ? SelectableText.rich(
+                              buildGrammarVocabularyInlineSpans(
+                                passage: passage,
+                                specialData: specialData,
+                                baseStyle: DefaultTextStyle.of(context).style,
+                              ),
+                            )
+                          : type.trim().toLowerCase() == 'reference' ||
+                                  containsReferenceMarkers(passage)
+                              ? SelectableText.rich(
+                                  buildReferenceMarkerInlineSpans(
+                                    passage: passage,
+                                    baseStyle:
+                                        DefaultTextStyle.of(context).style,
+                                  ),
+                                )
+                              : SelectableText(passage),
+                ),
+              if (isLanguageInteraction &&
+                  languagePositions.isNotEmpty &&
+                  grammarVocabularyPositionTexts(specialData).isNotEmpty)
+                _SectionBlock(
+                  label: '선택 위치',
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final position in languagePositions)
+                        _LanguagePositionPreview(
+                          position: position,
+                          text: grammarVocabularyPositionText(
+                            specialData,
+                            position,
+                          ),
+                          showText:
+                              shouldShowPositionTextInSelection(specialData),
+                        ),
+                    ],
+                  ),
                 ),
               if (options.isNotEmpty)
                 _SectionBlock(
                   label: '보기',
                   child: Column(
                     children: [
-                      for (final option in options)
+                      for (final entry in options.asMap().entries)
                         _OptionRow(
-                          option: option,
-                          isCorrect: option == answerOption ||
-                              option['is_correct'] == true,
+                          option: entry.value,
+                          underline: shouldUnderlineChoiceForQuestionType(type),
+                          isCorrect: (isChoiceMultiSelect &&
+                                  multiAnswerIndices.contains(entry.key)) ||
+                              entry.value == answerOption ||
+                              entry.value['is_correct'] == true,
                         ),
                     ],
                   ),
@@ -629,11 +726,34 @@ class _QuestionCard extends StatelessWidget {
   }
 }
 
+TextSpan _buildTeacherPassageSpans({
+  required String passage,
+  required Map<String, dynamic> specialData,
+  required TextStyle baseStyle,
+}) {
+  if (containsNumberedInlineMarkers(passage)) {
+    return buildGrammarVocabularyInlineSpans(
+      passage: passage,
+      specialData: specialData,
+      baseStyle: baseStyle,
+    );
+  }
+  return buildReferenceMarkerInlineSpans(
+    passage: passage,
+    baseStyle: baseStyle,
+  );
+}
+
 class _OrderBlockRow extends StatelessWidget {
-  const _OrderBlockRow({required this.label, required this.text});
+  const _OrderBlockRow({
+    required this.label,
+    required this.text,
+    this.specialData = const <String, dynamic>{},
+  });
 
   final String label;
   final String text;
+  final Map<String, dynamic> specialData;
 
   @override
   Widget build(BuildContext context) {
@@ -667,12 +787,15 @@ class _OrderBlockRow extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: SelectableText(
-              text,
-              style: const TextStyle(
-                color: _TeacherProblemSetPreviewScreenState._ink,
-                height: 1.5,
-                fontWeight: FontWeight.w600,
+            child: SelectableText.rich(
+              _buildTeacherPassageSpans(
+                passage: text,
+                specialData: specialData,
+                baseStyle: const TextStyle(
+                  color: _TeacherProblemSetPreviewScreenState._ink,
+                  height: 1.5,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
@@ -682,11 +805,63 @@ class _OrderBlockRow extends StatelessWidget {
   }
 }
 
+class _LanguagePositionPreview extends StatelessWidget {
+  const _LanguagePositionPreview({
+    required this.position,
+    required this.text,
+    required this.showText,
+  });
+
+  final int position;
+  final String text;
+  final bool showText;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(
+              text: insertionPositionLabel(position),
+              style: const TextStyle(
+                color: Color(0xFF2563EB),
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            if (showText && text.trim().isNotEmpty)
+              TextSpan(
+                text: ' ${text.trim()}',
+                style: const TextStyle(
+                  color: _TeacherProblemSetPreviewScreenState._ink,
+                  decoration: TextDecoration.underline,
+                  decorationThickness: 1.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _OptionRow extends StatelessWidget {
-  const _OptionRow({required this.option, required this.isCorrect});
+  const _OptionRow({
+    required this.option,
+    required this.isCorrect,
+    this.underline = false,
+  });
 
   final Map<String, dynamic> option;
   final bool isCorrect;
+  final bool underline;
 
   @override
   Widget build(BuildContext context) {
@@ -716,12 +891,15 @@ class _OptionRow extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                color: _TeacherProblemSetPreviewScreenState._ink,
-                fontWeight: isCorrect ? FontWeight.w800 : FontWeight.w600,
-                height: 1.45,
+            child: Text.rich(
+              buildChoiceInlineSpans(
+                text: text,
+                underlineWhole: underline,
+                baseStyle: TextStyle(
+                  color: _TeacherProblemSetPreviewScreenState._ink,
+                  fontWeight: isCorrect ? FontWeight.w800 : FontWeight.w600,
+                  height: 1.45,
+                ),
               ),
             ),
           ),
@@ -900,10 +1078,16 @@ Map<String, dynamic> _specialData(Map<String, dynamic> q) {
 Map<String, String> _orderBlocks(Map<String, dynamic> specialData) {
   final rawBlocks = specialData['blocks'];
   if (rawBlocks is! Map) return const <String, String>{};
+  final selectable = specialData['selectable_blocks'];
+  final selectableLabels = selectable is List
+      ? selectable.map((value) => value.toString()).toSet()
+      : const <String>{};
   final entries = rawBlocks.entries
       .map((entry) => MapEntry(entry.key.toString(), entry.value.toString()))
       .where((entry) =>
           entry.key.trim().isNotEmpty && entry.value.trim().isNotEmpty)
+      .where((entry) =>
+          selectableLabels.isEmpty || selectableLabels.contains(entry.key))
       .toList()
     ..sort((a, b) => a.key.compareTo(b.key));
   return Map<String, String>.fromEntries(entries);
@@ -1121,6 +1305,8 @@ String _questionTypeLabel(String type) {
     'purpose' => '목적',
     'mismatch' || 'content_mismatch' => '내용 불일치',
     'content' || 'detail' || 'match' => '내용 일치',
+    'reference' => '지칭',
+    'content_match' => '내용일치',
     'order' || 'sequence' => '순서 배열',
     'insert' || 'insertion' => '문장 삽입',
     'grammar' => '어법',
