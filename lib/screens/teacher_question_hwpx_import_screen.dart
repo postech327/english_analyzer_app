@@ -59,10 +59,33 @@ class _TeacherQuestionHwpxImportScreenState
         throw const FormatException('HWPX 파일만 선택할 수 있습니다.');
       }
       final extracted = extractWorkbookTextFromHwpx(file.bytes);
+      debugQuestionHwpxParagraphStructure(
+        extracted.paragraphs,
+        paragraphRuns: extracted.paragraphRuns,
+        paragraphIndexes: extracted.paragraphIndexes,
+      );
+      for (var index = 0;
+          index < extracted.paragraphUnderlineRanges.length;
+          index++) {
+        final xmlParagraphIndex = index < extracted.paragraphIndexes.length
+            ? extracted.paragraphIndexes[index]
+            : index;
+        for (final range in extracted.paragraphUnderlineRanges[index]) {
+          debugPrint(
+            '[HwpxUnderlineRun] paragraph=$xmlParagraphIndex '
+            'run=${range.runStartIndex == range.runEndIndex ? range.runStartIndex : '${range.runStartIndex}-${range.runEndIndex}'} '
+            'underline=true text="${_preview(range.text)}" '
+            'start=${range.start} end=${range.end}',
+          );
+        }
+      }
       final parsed = parseQuestionHwpxImportText(
         extracted.text,
         textbookFolderName: _textbookController.text.trim(),
         unitFolderName: _unitController.text.trim(),
+        debugParagraphs: extracted.paragraphs,
+        debugParagraphIndexes: extracted.paragraphIndexes,
+        paragraphUnderlineRanges: extracted.paragraphUnderlineRanges,
       );
       _debugParsedQuestions(parsed.questions);
       if (!mounted) return;
@@ -172,6 +195,17 @@ class _TeacherQuestionHwpxImportScreenState
     if (questions.isEmpty) {
       _toast('저장 가능한 선택 문제가 없습니다.');
       return;
+    }
+    debugPrint('[ImportSavePayload] questions=${questions.length}');
+    for (var index = 0; index < questions.length; index++) {
+      final question = questions[index];
+      debugPrint(
+        '[ImportSaveDraft] index=$index '
+        'no=${question.questionNo} '
+        'type=${question.questionType} '
+        'source="${_preview(question.source)}" '
+        'passageGroup=${question.specialData?['long_passage_group'] ?? '-'}',
+      );
     }
     setState(() => _saving = true);
     try {
@@ -485,6 +519,15 @@ class _QuestionPreviewCard extends StatelessWidget {
     final numberedSentences = question.specialData?['numbered_sentences'];
     final numberedSentenceCount =
         numberedSentences is List ? numberedSentences.length : 0;
+    final rawUnderlineRanges = question.specialData?['underline_ranges'];
+    final underlineRanges = rawUnderlineRanges is List
+        ? rawUnderlineRanges
+        : const <dynamic>[];
+    final underlinePreview = underlineRanges.isEmpty
+        ? ''
+        : _preview(
+            (underlineRanges.first as Map)['text']?.toString() ?? '',
+          );
     final isUnsupportedSpecial =
         (isInsertion || isIrrelevant) && !question.isSaveable;
     final blocks = _questionImportBlocks(question.specialData);
@@ -578,6 +621,11 @@ class _QuestionPreviewCard extends StatelessWidget {
                           ];
     final previewBadgeLabels = <String>[
       ...basePreviewBadgeLabels,
+      if (question.specialData?['underline_ranges'] case final List ranges) ...[
+        'underline spans: ${ranges.length}',
+        if (ranges.isNotEmpty)
+          'underline text: ${_preview((ranges.first as Map)['text']?.toString() ?? '')}',
+      ],
       if (question.specialData?['shared_passage'] == true)
         'shared passage: yes',
     ];
@@ -667,6 +715,16 @@ class _QuestionPreviewCard extends StatelessWidget {
                 _InfoPill(
                     label: 'choices:', value: '${question.choices.length}'),
                 _InfoPill(label: 'answer:', value: answer),
+              ],
+              if (underlineRanges.isNotEmpty) ...[
+                _InfoPill(
+                  label: 'underline spans:',
+                  value: '${underlineRanges.length}',
+                ),
+                _InfoPill(
+                  label: 'underline text:',
+                  value: underlinePreview,
+                ),
               ],
               _InfoPill(
                 label: 'warnings:',

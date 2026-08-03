@@ -6,6 +6,8 @@ import '../../utils/blank_display_passage.dart';
 import '../../utils/insertion_display_prompt.dart';
 import '../../utils/grammar_vocabulary_inline_spans.dart';
 import '../../utils/irrelevant_display_passage.dart';
+import '../../utils/original_underline_inline_spans.dart';
+import '../../widgets/special_question_interaction_widgets.dart';
 import 'package:english_analyzer_app/services/teacher_problem_set_service.dart';
 import 'package:english_analyzer_app/widgets/problem_set_assignment_dialog.dart';
 
@@ -241,10 +243,13 @@ class _SummaryCard extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _InfoPill(icon: Icons.folder_outlined, text: folderName),
-                  _InfoPill(
+                  TeacherPreviewInfoPill(
+                    icon: Icons.folder_outlined,
+                    text: folderName,
+                  ),
+                  TeacherPreviewInfoPill(
                       icon: Icons.quiz_outlined, text: '$questionCount문항'),
-                  _InfoPill(
+                  TeacherPreviewInfoPill(
                     icon: Icons.category_outlined,
                     text: distributionText,
                   ),
@@ -447,6 +452,8 @@ class _QuestionCard extends StatelessWidget {
       specialData['fixed_end'],
     ]);
     final insertionSentences = _insertionSentences(specialData);
+    final insertionSelectedPositions =
+        _insertionSelectedPositionSet(specialData);
     final irrelevantRawPassage =
         (specialData['passage_with_numbers'] ?? passage).toString();
     final irrelevantDisplayPassage = irrelevantPassageForDisplay(
@@ -588,20 +595,32 @@ class _QuestionCard extends StatelessWidget {
                   .isNotEmpty)
                 _SectionBlock(
                   label: '\uBCF8\uBB38',
-                  child: SelectableText(
-                    insertionPassageForDisplay(
+                  child: InsertionPassageView(
+                    passage: insertionPassageForDisplay(
                       _firstText([
                         specialData['passage_with_positions'],
                         passage,
                       ]),
                     ),
+                    selectedPositions: insertionSelectedPositions,
+                  ),
+                ),
+              if (languagePositions.isNotEmpty)
+                _SectionBlock(
+                  label: '위치 선택',
+                  child: _TeacherInsertionPositionPreview(
+                    positions: languagePositions,
+                    specialData: specialData,
                   ),
                 ),
             ] else if (isIrrelevant) ...[
               if (irrelevantDisplayPassage.isNotEmpty)
                 _SectionBlock(
                   label: '본문',
-                  child: SelectableText(irrelevantDisplayPassage),
+                  child: IrrelevantPassageView(
+                    passage: irrelevantDisplayPassage,
+                    selectedPosition: _asInt(specialData['answer_position']),
+                  ),
                 ),
             ] else ...[
               if (passage.isNotEmpty)
@@ -642,7 +661,15 @@ class _QuestionCard extends StatelessWidget {
                                         DefaultTextStyle.of(context).style,
                                   ),
                                 )
-                              : SelectableText(passage),
+                              : SelectableText.rich(
+                                  buildQuestionOriginalUnderlineInlineSpans(
+                                    questionType: type,
+                                    passage: passage,
+                                    specialData: specialData,
+                                    baseStyle:
+                                        DefaultTextStyle.of(context).style,
+                                  ),
+                                ),
                 ),
               if (isLanguageInteraction &&
                   languagePositions.isNotEmpty &&
@@ -805,6 +832,69 @@ class _OrderBlockRow extends StatelessWidget {
   }
 }
 
+class _TeacherInsertionPositionPreview extends StatelessWidget {
+  const _TeacherInsertionPositionPreview({
+    required this.positions,
+    required this.specialData,
+  });
+
+  final List<int> positions;
+  final Map<String, dynamic> specialData;
+
+  @override
+  Widget build(BuildContext context) {
+    final rawMultiple = specialData['answer_positions'];
+    if (rawMultiple is Map && rawMultiple.isNotEmpty) {
+      final answers = <String, int>{};
+      for (final entry in rawMultiple.entries) {
+        final position = _asInt(entry.value);
+        if (position != null) answers[entry.key.toString()] = position;
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final entry in answers.entries) ...[
+            Text(
+              '(${entry.key})',
+              style: const TextStyle(
+                color: _TeacherProblemSetPreviewScreenState._ink,
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 9,
+              runSpacing: 9,
+              children: [
+                for (final position in positions)
+                  StrongPositionChoice(
+                    label: insertionPositionLabel(position),
+                    selected: entry.value == position,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 13),
+          ],
+        ],
+      );
+    }
+
+    final answerPosition = _asInt(specialData['answer_position']);
+    return Wrap(
+      spacing: 9,
+      runSpacing: 9,
+      children: [
+        for (final position in positions)
+          StrongPositionChoice(
+            label: insertionPositionLabel(position),
+            selected: answerPosition == position,
+          ),
+      ],
+    );
+  }
+}
+
 class _LanguagePositionPreview extends StatelessWidget {
   const _LanguagePositionPreview({
     required this.position,
@@ -952,8 +1042,12 @@ class _SectionBlock extends StatelessWidget {
   }
 }
 
-class _InfoPill extends StatelessWidget {
-  const _InfoPill({required this.icon, required this.text});
+class TeacherPreviewInfoPill extends StatelessWidget {
+  const TeacherPreviewInfoPill({
+    super.key,
+    required this.icon,
+    required this.text,
+  });
 
   final IconData icon;
   final String text;
@@ -973,12 +1067,15 @@ class _InfoPill extends StatelessWidget {
           Icon(icon,
               size: 15, color: _TeacherProblemSetPreviewScreenState._muted),
           const SizedBox(width: 5),
-          Text(
-            text,
-            style: const TextStyle(
-              color: _TeacherProblemSetPreviewScreenState._ink,
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
+          Flexible(
+            child: Text(
+              text,
+              softWrap: true,
+              style: const TextStyle(
+                color: _TeacherProblemSetPreviewScreenState._ink,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
         ],
@@ -1103,6 +1200,20 @@ Map<String, String> _insertionSentences(Map<String, dynamic> specialData) {
       .toList()
     ..sort((a, b) => a.key.compareTo(b.key));
   return Map<String, String>.fromEntries(entries);
+}
+
+Set<int> _insertionSelectedPositionSet(Map<String, dynamic> specialData) {
+  final selected = <int>{};
+  final single = _asInt(specialData['answer_position']);
+  if (single != null) selected.add(single);
+  final multiple = specialData['answer_positions'];
+  if (multiple is Map) {
+    for (final value in multiple.values) {
+      final position = _asInt(value);
+      if (position != null) selected.add(position);
+    }
+  }
+  return selected;
 }
 
 String _orderAnswerSummary(
