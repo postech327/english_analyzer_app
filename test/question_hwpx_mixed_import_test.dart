@@ -127,6 +127,122 @@ void main() {
     expect(question.answerText, '3');
     expect(question.isSaveable, isTrue, reason: question.saveabilityReason);
   });
+
+  test('keeps ten independent questions when a five-question long set follows',
+      () {
+    final draft = parseQuestionHwpxImportText(
+      '$_mixedSource\n$_fiveQuestionLongTail',
+    );
+    final savable =
+        draft.questions.where((question) => question.isSaveable).toList();
+    final payload =
+        savable.map((question) => question.toRequestJson()).toList();
+
+    expect(draft.questions, hasLength(15));
+    expect(savable, hasLength(15));
+    expect(payload, hasLength(15));
+    expect(
+      draft.questions.map((question) => question.questionNo),
+      List<int>.generate(15, (index) => index + 1),
+    );
+    expect(
+      draft.questions.take(10).map((question) => question.questionType),
+      [
+        'topic',
+        'title',
+        'gist',
+        'blank',
+        'order',
+        'insertion',
+        'irrelevant',
+        'grammar',
+        'vocabulary_correction',
+        'insertion',
+      ],
+    );
+    expect(
+      draft.questions.skip(10).map((question) => question.questionType),
+      ['title', 'blank', 'topic', 'gist', 'content_match'],
+    );
+    expect(
+      payload.map((question) => question['question_no']),
+      List<int>.generate(15, (index) => index + 1),
+    );
+  });
+
+  test('keeps both children when a two-question long set follows ten questions',
+      () {
+    final draft = parseQuestionHwpxImportText(
+      '$_mixedSource\n$_twoQuestionLongTail',
+    );
+    final savable =
+        draft.questions.where((question) => question.isSaveable).toList();
+    final selectedNos = savable.map((question) => question.questionNo).toList();
+    final payload =
+        savable.map((question) => question.toRequestJson()).toList();
+
+    expect(draft.questions, hasLength(12));
+    expect(savable, hasLength(12));
+    expect(selectedNos, List<int>.generate(12, (index) => index + 1));
+    expect(draft.questions[10].questionType, 'blank');
+    expect(draft.questions[10].passage, isNotEmpty);
+    expect(draft.questions[11].questionType, 'grammar_correction');
+    expect(draft.questions[11].passage, isNotEmpty);
+    expect(payload, hasLength(12));
+    expect(
+      payload.map((question) => question['question_no']),
+      List<int>.generate(12, (index) => index + 1),
+    );
+  });
+
+  test(
+      'repairs order reference and content-match children under a long-passage header variant',
+      () {
+    final draft = parseQuestionHwpxImportText(
+      '$_mixedSource\n$_twoIndependentBridge\n$_threeQuestionLongTail',
+    );
+    final savable =
+        draft.questions.where((question) => question.isSaveable).toList();
+    final selectedNos = savable.map((question) => question.questionNo).toList();
+    final payload =
+        savable.map((question) => question.toRequestJson()).toList();
+
+    expect(draft.questions, hasLength(15));
+    expect(savable, hasLength(15));
+    expect(selectedNos, List<int>.generate(15, (index) => index + 1));
+
+    final order = draft.questions[12];
+    expect(order.questionType, 'order');
+    expect(order.passage, isNotEmpty);
+    expect(order.specialData?['blocks'], isA<Map>());
+    expect(order.specialData?['blocks'], hasLength(4));
+    expect(order.specialData?['answer_order'], ['B', 'A', 'D', 'C']);
+    expect(order.specialData, contains('fixed_start'));
+    expect(order.specialData, contains('fixed_end'));
+    expect(order.specialData?['shared_passage'], isTrue);
+
+    final reference = draft.questions[13];
+    expect(reference.questionType, 'reference');
+    expect(reference.passage, isNotEmpty);
+    expect(reference.choices, hasLength(5));
+    expect(reference.answerIndex, 1);
+    expect(reference.specialData?['shared_passage'], isTrue);
+
+    final content = draft.questions[14];
+    expect(content.questionType, 'content_match');
+    expect(content.passage, isNotEmpty);
+    expect(content.choices, hasLength(5));
+    expect(content.specialData?['interaction_type'], 'multi_select');
+    expect(content.specialData?['answer_indices'], [1, 4]);
+    expect(content.answerText, '2,5');
+    expect(content.specialData?['shared_passage'], isTrue);
+
+    expect(payload, hasLength(15));
+    expect(
+      payload.map((question) => question['question_no']),
+      List<int>.generate(15, (index) => index + 1),
+    );
+  });
 }
 
 const _mixedSource = '''
@@ -210,6 +326,116 @@ Good institutions ① break trust, ② support dialogue, ③ share evidence, ④
 (B) Nevertheless, monitoring technology has advanced quickly.
 Environmental taxes can be precisely targeted. (①) When emissions rise, the tax base rises. (②) Polluters have an incentive to reduce emissions. (③) Continuous measurement can be costly. (④) New tools improve accuracy. (⑤) Future applications may be wider.
 [정답] (A) ① (B) ②
+''';
+
+const _fiveQuestionLongTail = '''
+※ 다음 글을 읽고, 물음에 답하시오.
+Careful readers connect new evidence with prior knowledge. They compare claims,
+check whether each conclusion follows from the passage, and revise an early
+interpretation when later details provide a better explanation. This process
+makes reading an active form of reasoning rather than passive recognition.
+
+11) 다음 글의 제목으로 가장 적절한 것은?
+① Passive Recognition Alone
+② Reading as Active Reasoning
+③ Avoiding Later Evidence
+④ Memorizing Every Sentence
+⑤ Ignoring Prior Knowledge
+[정답] ②
+
+12) 다음 빈칸에 들어갈 말로 가장 적절한 것은?
+① active reasoning
+② random guessing
+③ passive copying
+④ visual distraction
+⑤ silent avoidance
+[정답] ①
+
+13) 다음 글의 주제로 가장 적절한 것은?
+① readers should avoid revising interpretations
+② reading improves through evidence-based reasoning
+③ conclusions never depend on later details
+④ prior knowledge prevents comprehension
+⑤ passive recognition is always sufficient
+[정답] ②
+
+14) 다음 글의 요지로 가장 적절한 것은?
+① Good readers compare evidence and revise conclusions.
+② Every first interpretation is necessarily correct.
+③ Later details should be ignored during reading.
+④ Reading requires only recognizing printed words.
+⑤ Prior knowledge has no role in comprehension.
+[정답] ①
+
+15) 윗글의 내용과 일치하는 것은?
+① Readers never use prior knowledge.
+② Readers should preserve every early interpretation.
+③ Later evidence can improve an interpretation.
+④ Active reasoning interferes with comprehension.
+⑤ Reading is described as passive recognition.
+[정답] ③
+''';
+
+const _twoQuestionLongTail = '''
+※ 다음 글을 읽고, 물음에 답하시오.
+Careful readers ① compare new evidence, ② connect it with prior knowledge,
+③ being willing to revise an early interpretation, ④ check later details,
+and ⑤ explain why the final conclusion is convincing. This process makes
+reading an active form of reasoning rather than __________ recognition.
+
+11:
+다음 빈칸에 들어갈 말로 가장 적절한 것은?
+① passive
+② careful
+③ active
+④ revised
+⑤ logical
+[정답] ①
+
+12) 다음 글의 밑줄 친 부분 중, 어법상 틀린 것을 바르게 고치시오. (정답 최대 2개)
+[정답] ③ being → are ⑤ convincing → convinced
+''';
+
+const _twoIndependentBridge = '''
+11) 다음 글의 제목으로 가장 적절한 것은?
+Reliable evidence helps readers revise an early interpretation.
+① Ignoring Evidence
+② Revising Ideas with Evidence
+③ Memorizing Every Detail
+④ Avoiding New Information
+⑤ Reading without Reasoning
+[정답] ②
+
+12) 다음 글의 밑줄 친 부분 중, 어법상 틀린 것을 바르게 고치시오. (정답 최대 2개)
+Readers ① compare evidence and ② revises conclusions when new details ③ appear.
+[정답] ② revises → revise
+''';
+
+const _threeQuestionLongTail = '''
+※ 다음 지문을 읽고 물음에 답하시오.
+(A) One evening, little William was on his way home when (a) he saw a tired vendor.
+(B) William offered the vendor water because (b) he wanted to help.
+(C) The elderly vendor thanked him, and (c) he pointed toward the village road.
+(D) Later, a shopkeeper heard the story and praised William while (d) he listened.
+
+13) 주어진 글 다음에 이어질 글의 순서로 가장 적절한 것은?
+① A-B-C-D
+② B-A-D-C
+③ C-B-D-A
+④ D-C-B-A
+⑤ C-D-A-B
+[정답] ②
+
+14) 밑줄 친 (a)~(e) 중에서 가리키는 대상이 나머지 넷과 다른 것은?
+[정답] ②
+
+15) 윗글의 내용과 일치하는 것을 모두 고르시오. (정답 최대 2개)
+① William ignored the vendor.
+② William offered the vendor water.
+③ The vendor refused to speak.
+④ The shopkeeper punished William.
+⑤ A shopkeeper praised William.
+[정답] ②,⑤
 ''';
 
 const _promptlessIrrelevantSource = '''

@@ -217,7 +217,16 @@ void main() {
   test('keeps five long-passage groups aligned across eleven questions', () {
     final draft = parseQuestionHwpxImportText(_fiveGroupSet);
 
-    expect(draft.questions, hasLength(11));
+    expect(
+      draft.questions,
+      hasLength(11),
+      reason: draft.questions
+          .map(
+            (question) =>
+                '${question.questionNo}:${question.questionType}:${question.specialData?['source_no'] ?? '-'}',
+          )
+          .join(', '),
+    );
     expect(
       draft.questions.where((question) => question.isSaveable),
       hasLength(11),

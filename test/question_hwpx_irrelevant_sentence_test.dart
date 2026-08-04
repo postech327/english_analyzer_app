@@ -78,6 +78,41 @@ void main() {
     expect(question.saveabilityReason, 'ok');
   });
 
+  test('recovers a separated promptless irrelevant tail after vocabulary', () {
+    final draft = parseQuestionHwpxImportText(
+      _separatedPromptlessIrrelevantTailSource,
+    );
+
+    expect(draft.questions, hasLength(1));
+    final question = draft.questions.single;
+    expect(question.questionType, 'irrelevant');
+    expect(question.source, contains('23강 1번 변형'));
+    expect(question.questionText, '다음 글에서 전체 흐름과 관계없는 문장은?');
+    expect(question.answerText, '5');
+    expect(question.specialData?['positions'], hasLength(7));
+    expect(question.passage, startsWith('There is a problem in biology'));
+    expect(question.passage, isNot(contains('[어휘]')));
+    expect(question.isSaveable, isTrue, reason: question.saveabilityReason);
+  });
+
+  test('drops a numberless fifth-choice vocabulary tail orphan', () {
+    final draft = parseQuestionHwpxImportText(_fifthChoiceVocabularyTailSource);
+
+    expect(draft.questions, hasLength(1));
+    final question = draft.questions.single;
+    expect(question.questionType, 'topic');
+    expect(question.choices, hasLength(5));
+    expect(question.choices.last, contains('ecosystem stability'));
+    expect(
+      draft.questions.any(
+        (item) =>
+            item.questionText.startsWith('⑤') &&
+            item.questionText.contains('[어휘]'),
+      ),
+      isFalse,
+    );
+  });
+
   test('uses passage with numbers without rebuilding marker prefixes', () {
     final display = irrelevantPassageForDisplay(<String, dynamic>{
       'passage_with_numbers': '''
@@ -212,4 +247,33 @@ const _actualMissingTypeFragmentSource = '''
 7)
 glance \uD790\uB057 \uBD04 counterintuitive \uC9C1\uAD00\uC5D0 \uBC18\uD558\uB294 instability \uBD88\uC548\uC815 align with ~\uC5D0 \uBD80\uD569\uD558\uB2E4 There is a problem in biology known as the paradox of enrichment. An increase in food supply for prey should result in population growth. Yet, in reality, the outcome is sometimes counterintuitive. For instance, if rabbits multiply, wolves may also increase. However, once the number of wolves exceeds a threshold, prey can decline sharply. In some ecosystems, competition among predators changes their fur color. Thus, a larger food supply for prey can produce ecosystem instability. This demonstrates that the common assumption is not always correct.
 [\uC815\uB2F5] \u2464
+''';
+
+const _separatedPromptlessIrrelevantTailSource = '''
+[수능특강(영어) 23강 1번 변형]
+[정답] ⑤[해설]⑤ 어떤 생태계에서는 포식자들 간의 자원 경쟁이 생존에 영향을 미치는 행동 적응을 유발할 수도 있다.[어휘] glance 힐끗 봄
+[정답] ⑤
+[해설]
+⑤ 어떤 생태계에서는 포식자들 간의 자원 경쟁이 생존에 영향을 미치는 행동 적응을 유발할 수도 있다.
+[어휘]
+glance 힐끗 봄
+counterintuitive 직관에 반한
+There is a problem in biology known as the paradox of enrichment. More food can increase a prey population. Yet the result can be counterintuitive. Predators can also increase rapidly. Competition can alter behavior in some ecosystems. The enlarged predator population can then reduce prey sharply. Thus extra food may create instability. This demonstrates that the common assumption is not always correct.
+*paradox 역설
+''';
+
+const _fifthChoiceVocabularyTailSource = '''
+<기본형>
+[정답] ⑤
+1)
+다음 글의 주제로 가장 적절한 것은?
+Ecologists compare food supply and population stability across several habitats.
+① predator migration
+② seasonal rainfall
+③ habitat color
+④ nesting behavior
+⑤ ecosystem stability
+[정답] ⑤
+[해설]
+⑤ ecosystem stability[어휘] habitat 서식지 Vocabulary predator 포식자
 ''';

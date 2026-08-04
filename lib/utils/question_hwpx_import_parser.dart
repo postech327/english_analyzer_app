@@ -5,45 +5,218 @@ import 'package:flutter/foundation.dart';
 import '../models/problem_set_import_draft.dart';
 import '../models/question_import_draft.dart';
 import 'irrelevant_display_passage.dart';
+import 'workbook_hwpx_text_extractor.dart';
+
+void debugQuestionHwpxParagraphStructure(
+  List<String> paragraphs, {
+  List<List<String>> paragraphRuns = const <List<String>>[],
+  List<int> paragraphIndexes = const <int>[],
+}) {
+  if (paragraphs.isEmpty) return;
+  final normalizedParagraphs = <String>[
+    for (final paragraph in paragraphs) _qmNormalizeText(paragraph),
+  ];
+  final longHeaderPositions = <int>[
+    for (var index = 0; index < normalizedParagraphs.length; index++)
+      if (_q4ParagraphHasLongHeader(normalizedParagraphs[index])) index,
+  ];
+  if (longHeaderPositions.isEmpty) {
+    debugPrint(
+      '[HwpxLongBoundary] longHeaderDetected=false paragraphs=${paragraphs.length}',
+    );
+    return;
+  }
+
+  var groupStart = longHeaderPositions.last;
+  var firstPrompt = -1;
+  for (final headerPosition in longHeaderPositions.reversed) {
+    final nextHeader = longHeaderPositions.firstWhere(
+      (position) => position > headerPosition,
+      orElse: () => paragraphs.length,
+    );
+    final promptPositions = <int>[
+      for (var index = headerPosition + 1; index < nextHeader; index++)
+        if (_q4ParagraphHasQuestionHeader(normalizedParagraphs[index])) index,
+    ];
+    if (promptPositions.length >= 2) {
+      groupStart = headerPosition;
+      firstPrompt = promptPositions.first;
+      break;
+    }
+  }
+  if (firstPrompt == -1) {
+    for (var index = groupStart + 1; index < paragraphs.length; index++) {
+      if (_q4ParagraphHasQuestionHeader(normalizedParagraphs[index])) {
+        firstPrompt = index;
+        break;
+      }
+    }
+  }
+
+  var blockEnd = groupStart - 1;
+  while (blockEnd >= 0 &&
+      (_qmIsLegacyHeading(normalizedParagraphs[blockEnd]) ||
+          normalizedParagraphs[blockEnd].trim().isEmpty)) {
+    blockEnd--;
+  }
+  final passageEnd = firstPrompt == -1 ? paragraphs.length : firstPrompt;
+  final sharedPassagePresent = paragraphs
+      .sublist(groupStart + 1, passageEnd)
+      .any((paragraph) => RegExp(r'[A-Za-z]').hasMatch(paragraph));
+  int xmlIndex(int position) =>
+      position >= 0 && position < paragraphIndexes.length
+          ? paragraphIndexes[position]
+          : position;
+  debugPrint(
+    '[HwpxLongBoundary] longHeaderDetected=true '
+    'block12EndParagraph=${xmlIndex(blockEnd)} '
+    'longGroupStartParagraph=${xmlIndex(groupStart)} '
+    'groupStartParagraph=${xmlIndex(groupStart)} '
+    'sharedPassagePresent=$sharedPassagePresent',
+  );
+
+  final logStart = blockEnd < 0 ? groupStart : blockEnd;
+  final logEnd = firstPrompt == -1 ? groupStart : firstPrompt;
+  for (var index = logStart; index <= logEnd; index++) {
+    final normalized = normalizedParagraphs[index]
+        .replaceAll('\n', ' | ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    final longHeader = _q4ParagraphHasLongHeader(normalizedParagraphs[index]);
+    final questionHeader =
+        _q4ParagraphHasQuestionHeader(normalizedParagraphs[index]);
+    final sourceOrHeader = longHeader ||
+        _qmIsLegacyHeading(normalizedParagraphs[index]) ||
+        normalizedParagraphs[index]
+            .split('\n')
+            .any((line) => _q2IsSourceLine(line.trim()));
+    final runs =
+        index < paragraphRuns.length ? paragraphRuns[index] : const <String>[];
+    debugPrint(
+      '[HwpxLongParagraph] index=${xmlIndex(index)} '
+      'normalized="${_qmPreview(normalized, limit: 120)}" '
+      'longHeaderMatcher=$longHeader '
+      'questionHeaderMatcher=$questionHeader '
+      'sourceOrHeader=$sourceOrHeader '
+      'runCount=${runs.length} '
+      'runs=${runs.map((run) => _qmPreview(run, limit: 40)).toList()}',
+    );
+  }
+}
+
+bool _q4ParagraphHasLongHeader(String normalizedParagraph) {
+  return normalizedParagraph
+      .split('\n')
+      .any((line) => _q4IsLongPassageHeader(line.trim()));
+}
+
+bool _q4ParagraphHasQuestionHeader(String normalizedParagraph) {
+  return normalizedParagraph.split('\n').any((line) {
+    final clean = line.trim();
+    return _qmQuestionNumberFromLine(clean) != null ||
+        _q4LooksLikeChildQuestionPrompt(clean);
+  });
+}
 
 ProblemSetImportDraft parseQuestionHwpxImportText(
   String rawText, {
   String textbookFolderName = '',
   String unitFolderName = '',
+  List<String> debugParagraphs = const <String>[],
+  List<int> debugParagraphIndexes = const <int>[],
+  List<List<HwpxUnderlineRange>> paragraphUnderlineRanges =
+      const <List<HwpxUnderlineRange>>[],
 }) {
   final normalized = _qmNormalizeText(rawText);
-  final directlyParsedLongSetQuestions =
+  final confirmedAnswerExplanationResidues =
+      _qmConfirmedAnswerExplanationChoiceResidues(normalized);
+  final rawDirectlyParsedLongSetQuestions =
       _q4ParseLongPassageSetQuestions(normalized);
+  final blocks = _qmSplitQuestionBlocks(normalized);
+  final rawBlockParsedQuestions = <QuestionImportDraft>[
+    for (var index = 0; index < blocks.length; index++)
+      _qmParseQuestionBlock(blocks[index], fallbackNo: index + 1),
+  ];
+  _qmDebugDraftParagraphBoundaries(
+    rawBlockParsedQuestions,
+    debugParagraphs,
+    debugParagraphIndexes,
+  );
+  final blockParsedQuestions = _qmRepairComplementaryAndOrphanDrafts(
+    rawBlockParsedQuestions,
+    confirmedAnswerExplanationResidues,
+  );
+  final directlyParsedLongSetQuestions = _q4AlignDirectQuestionNumbers(
+    blockParsedQuestions,
+    rawDirectlyParsedLongSetQuestions,
+  );
+  _q4DebugAlignedLongGroups(directlyParsedLongSetQuestions);
   final longPassageSets = directlyParsedLongSetQuestions.isEmpty
       ? _q4DetectLongPassageSets(normalized)
       : const <_Q4LongPassageSet>[];
-  final blocks = directlyParsedLongSetQuestions.isEmpty
-      ? _qmSplitQuestionBlocks(normalized)
-      : const <_QmQuestionBlock>[];
-  debugPrint(
-    '[QuestionImportParser] normalizedLength=${normalized.length} '
-    'blocks=${directlyParsedLongSetQuestions.isEmpty ? blocks.length : directlyParsedLongSetQuestions.length}',
+  final rawAnswerBoundaries = normalized
+      .split('\n')
+      .where((line) => _q2IsAnswerLine(line.trim()))
+      .length;
+  _q4DebugStageQuestions('blockDrafts', blockParsedQuestions);
+  _q4DebugStageQuestions(
+    'directLongDraftsBeforeAlignment',
+    rawDirectlyParsedLongSetQuestions,
   );
-  final parsedQuestions = directlyParsedLongSetQuestions.isNotEmpty
-      ? directlyParsedLongSetQuestions
+  _q4DebugStageQuestions(
+    'directLongDraftsAfterAlignment',
+    directlyParsedLongSetQuestions,
+  );
+  debugPrint(
+    '[QuestionImportStages] normalizedLength=${normalized.length} '
+    'rawAnswerBoundaries=$rawAnswerBoundaries '
+    'rawQuestionBoundaries=${blocks.length} '
+    'blockDrafts=${blockParsedQuestions.length} '
+    'directLongDrafts=${directlyParsedLongSetQuestions.length} '
+    'directLongQuestionNos=${directlyParsedLongSetQuestions.map((question) => question.questionNo).toList()}',
+  );
+  final mergedParsedQuestions = directlyParsedLongSetQuestions.isNotEmpty
+      ? _q4MergeDirectlyParsedQuestions(
+          blockParsedQuestions,
+          directlyParsedLongSetQuestions,
+          confirmedAnswerExplanationResidues,
+        )
+      : blockParsedQuestions;
+  final hasExplicitQuestionNumbers = normalized
+      .split(RegExp(r'\n+'))
+      .any((line) => _qmQuestionNumberFromLine(line.trim()) != null);
+  final parsedQuestions = hasExplicitQuestionNumbers
+      ? mergedParsedQuestions
       : <QuestionImportDraft>[
-          for (var index = 0; index < blocks.length; index++)
-            _qmParseQuestionBlock(blocks[index], fallbackNo: index + 1),
+          for (var index = 0; index < mergedParsedQuestions.length; index++)
+            mergedParsedQuestions[index].copyWith(questionNo: index + 1),
         ];
   final questions = _q4ApplyLongPassageSets(
     parsedQuestions,
     longPassageSets,
   );
+  _q4DebugStageQuestions('beforeSaveabilityRepair', questions);
   final insertionRepairedQuestions =
       _q2RepairExactSingleInsertionQuestions(questions, normalized);
   var repairedQuestions = _q2RepairActualMissingTypeIrrelevantQuestions(
     insertionRepairedQuestions,
+    normalized,
   );
   repairedQuestions = _q3RecoverMissingGrammarVocabularyPassages(
     repairedQuestions,
     normalized,
   );
   repairedQuestions = _q3DropVocabularyOnlyQuestions(repairedQuestions);
+  repairedQuestions = _qmApplyOriginalUnderlineRanges(
+    repairedQuestions,
+    paragraphUnderlineRanges,
+  );
+  _q4DebugStageQuestions('finalCandidates', repairedQuestions);
+  debugPrint(
+    '[QuestionImportStages] mergedDrafts=${parsedQuestions.length} '
+    'finalCandidates=${repairedQuestions.length} '
+    'savable=${repairedQuestions.where((question) => question.isSaveable).length}',
+  );
   _qmDebugQuestions(repairedQuestions);
 
   final usableQuestions = repairedQuestions
@@ -83,6 +256,763 @@ ProblemSetImportDraft parseQuestionHwpxImportText(
   );
 }
 
+const _originalUnderlineQuestionTypes = <String>{
+  'topic',
+  'title',
+  'gist',
+  'blank',
+  'implication',
+};
+
+List<QuestionImportDraft> _qmApplyOriginalUnderlineRanges(
+  List<QuestionImportDraft> questions,
+  List<List<HwpxUnderlineRange>> paragraphUnderlineRanges,
+) {
+  final sourceRanges = paragraphUnderlineRanges
+      .expand((ranges) => ranges)
+      .where((range) => range.text.trim().isNotEmpty)
+      .toList(growable: false);
+
+  return <QuestionImportDraft>[
+    for (final question in questions)
+      if (_originalUnderlineQuestionTypes.contains(
+        question.questionType.trim().toLowerCase(),
+      ))
+        _qmQuestionWithOriginalUnderlineRanges(question, sourceRanges)
+      else
+        question,
+  ];
+}
+
+QuestionImportDraft _qmQuestionWithOriginalUnderlineRanges(
+  QuestionImportDraft question,
+  List<HwpxUnderlineRange> sourceRanges,
+) {
+  final passage = question.passage;
+  final mapped = <Map<String, dynamic>>[];
+  for (final sourceRange in sourceRanges) {
+    final target = sourceRange.text.trim();
+    if (target.isEmpty || _qmIsUnderlineBlankPlaceholder(target)) continue;
+    final located = _qmLocateIgnoringWhitespace(passage, target);
+    if (located == null) continue;
+    if (mapped.any(
+      (range) => range['start'] == located.$1 && range['end'] == located.$2,
+    )) {
+      continue;
+    }
+    mapped.add(<String, dynamic>{
+      'start': located.$1,
+      'end': located.$2,
+      'text': passage.substring(located.$1, located.$2),
+    });
+  }
+  mapped.sort(
+    (left, right) => (left['start'] as int).compareTo(right['start'] as int),
+  );
+
+  final specialData = <String, dynamic>{...?question.specialData};
+  if (mapped.isNotEmpty) {
+    specialData['underline_ranges'] = mapped;
+  } else {
+    specialData.remove('underline_ranges');
+  }
+  final warnings = <String>[
+    ...question.warnings.where(
+      (warning) => warning != 'missing_underlined_target',
+    ),
+    if (question.questionType.trim().toLowerCase() == 'implication' &&
+        mapped.isEmpty)
+      'missing_underlined_target',
+  ];
+  return question.copyWith(
+    specialData: specialData,
+    clearSpecialData: specialData.isEmpty,
+    warnings: warnings,
+  );
+}
+
+bool _qmIsUnderlineBlankPlaceholder(String text) =>
+    RegExp(r'^\s*(?:_{2,}|\[\s*\])\s*$').hasMatch(text);
+
+(int, int)? _qmLocateIgnoringWhitespace(String passage, String target) {
+  final normalizedPassage = StringBuffer();
+  final originalIndexes = <int>[];
+  var previousWasWhitespace = false;
+  for (var index = 0; index < passage.length; index++) {
+    final char = passage[index];
+    final isWhitespace = char.trim().isEmpty;
+    if (isWhitespace) {
+      if (previousWasWhitespace) continue;
+      normalizedPassage.write(' ');
+      originalIndexes.add(index);
+    } else {
+      normalizedPassage.write(char);
+      originalIndexes.add(index);
+    }
+    previousWasWhitespace = isWhitespace;
+  }
+  final normalizedTarget = target.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (normalizedTarget.isEmpty) return null;
+  final normalizedStart =
+      normalizedPassage.toString().indexOf(normalizedTarget);
+  if (normalizedStart < 0) return null;
+  final normalizedEnd = normalizedStart + normalizedTarget.length - 1;
+  if (normalizedEnd >= originalIndexes.length) return null;
+  return (originalIndexes[normalizedStart], originalIndexes[normalizedEnd] + 1);
+}
+
+List<QuestionImportDraft> _qmRepairComplementaryAndOrphanDrafts(
+  List<QuestionImportDraft> questions,
+  Set<String> confirmedAnswerExplanationResidues,
+) {
+  final repaired = <QuestionImportDraft>[];
+  for (var index = 0; index < questions.length; index++) {
+    final current = questions[index];
+    final next = index + 1 < questions.length ? questions[index + 1] : null;
+    if (next != null && _qmAreComplementaryDrafts(current, next)) {
+      final merged = current.copyWith(
+        passage:
+            current.passage.trim().isNotEmpty ? current.passage : next.passage,
+        choices: current.choices.isNotEmpty ? current.choices : next.choices,
+        answerIndex: current.answerIndex ?? next.answerIndex,
+        answerRaw: current.answerRaw.trim().isNotEmpty
+            ? current.answerRaw
+            : next.answerRaw,
+        explanation: current.explanation.trim().isNotEmpty
+            ? current.explanation
+            : next.explanation,
+        warnings: <String>[
+          ...current.warnings.where(
+            (warning) =>
+                warning != '본문을 찾지 못했습니다.' && warning != '선택지를 2개 이상 찾지 못했습니다.',
+          ),
+        ],
+      );
+      debugPrint(
+        '[QuestionImportBoundaryRepair] path=recovered '
+        'action=merge_complementary from=${current.questionNo},${next.questionNo} '
+        'type=${current.questionType} passagePresent=${merged.passage.trim().isNotEmpty} '
+        'choicesCount=${merged.choices.length}',
+      );
+      repaired.add(merged);
+      index++;
+      continue;
+    }
+    final previous = repaired.isEmpty ? null : repaired.last;
+    if (previous != null &&
+        _qmLooksLikeTailVocabularyOrphan(current, previous)) {
+      final recoveredChoice = _qmTailChoiceText(current.questionText);
+      final markerPosition = _qmLeadingChoicePosition(current.questionText);
+      if (previous.choices.length == 4 &&
+          markerPosition == 5 &&
+          recoveredChoice.isNotEmpty) {
+        repaired[repaired.length - 1] = previous.copyWith(
+          choices: <String>[...previous.choices, recoveredChoice],
+          warnings: previous.warnings
+              .where((warning) =>
+                  !warning.toLowerCase().contains('choice') &&
+                  !warning.contains('선택지'))
+              .toList(growable: false),
+        );
+        debugPrint(
+          '[QuestionImportBoundaryRepair] path=recovered '
+          'action=restore_fifth_choice previousNo=${previous.questionNo} '
+          'orphanNo=${current.questionNo}',
+        );
+      } else {
+        debugPrint(
+          '[QuestionImportBoundaryRepair] path=block '
+          'action=drop_tail_vocabulary_orphan previousNo=${previous.questionNo} '
+          'orphanNo=${current.questionNo} choicesCount=${current.choices.length}',
+        );
+      }
+      continue;
+    }
+    if (_qmIsChoiceOrExplanationOrphan(
+      current,
+      repaired,
+      confirmedAnswerExplanationResidues,
+    )) {
+      debugPrint(
+        '[QuestionImportBoundaryRepair] path=block '
+        'action=drop_orphan no=${current.questionNo} '
+        'type=${current.questionType} passagePresent=false '
+        'choicesCount=${current.choices.length} '
+        'question="${_qmPreview(current.questionText, limit: 100)}" '
+        'matchedByQuestionPrompt=false matchedByChoiceLine=true '
+        'matchedByAnswerOrExplanationResidue=true',
+      );
+      continue;
+    }
+    repaired.add(current);
+  }
+  return repaired;
+}
+
+bool _qmLooksLikeTailVocabularyOrphan(
+  QuestionImportDraft question,
+  QuestionImportDraft previous,
+) {
+  final text = question.questionText.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (question.questionType.trim().isNotEmpty ||
+      question.passage.trim().isNotEmpty ||
+      question.source.trim().isNotEmpty ||
+      question.choices.isNotEmpty ||
+      text.isEmpty ||
+      _q2InferQuestionType(text).isNotEmpty ||
+      _q2LooksLikeAnySpecialPrompt(text) ||
+      _qmLeadingChoicePosition(text) == null ||
+      _qmVocabularyTailMarkerIndex(text) == -1 ||
+      previous.questionType.trim().isEmpty ||
+      previous.passage.trim().isEmpty) {
+    return false;
+  }
+  final markerPosition = _qmLeadingChoicePosition(text);
+  final linkedByAnswer = markerPosition != null &&
+      (question.answerIndex == markerPosition - 1 ||
+          previous.answerIndex == markerPosition - 1);
+  final normalizedTail = _qmChoiceBody(_qmTailChoiceText(text));
+  final linkedByChoice = previous.choices.any((choice) {
+    final normalizedChoice = _qmChoiceBody(choice);
+    return normalizedChoice.isNotEmpty &&
+        normalizedTail.isNotEmpty &&
+        (normalizedChoice == normalizedTail ||
+            normalizedChoice.contains(normalizedTail) ||
+            normalizedTail.contains(normalizedChoice));
+  });
+  return linkedByAnswer || linkedByChoice;
+}
+
+int? _qmLeadingChoicePosition(String text) {
+  const hollow = '①②③④⑤';
+  const filled = '❶❷❸❹❺';
+  final match = RegExp(r'^[\s\(\uFF08]*([①-⑤❶-❺])').firstMatch(text.trim());
+  if (match == null) return null;
+  final token = match.group(1)!;
+  final hollowIndex = hollow.indexOf(token);
+  if (hollowIndex >= 0) return hollowIndex + 1;
+  final filledIndex = filled.indexOf(token);
+  return filledIndex >= 0 ? filledIndex + 1 : null;
+}
+
+int _qmVocabularyTailMarkerIndex(String text) {
+  final match = RegExp(
+    r'\[\s*(?:어휘|해설|풀이)\s*\]|'
+    r'어휘\s*및\s*표현|Words\s*&\s*Phrases|Vocabulary|'
+    r'(?:^|\s)(?:어휘|해설|풀이)(?:\s|:)',
+    caseSensitive: false,
+  ).firstMatch(text);
+  return match?.start ?? -1;
+}
+
+String _qmTailChoiceText(String text) {
+  final markerIndex = _qmVocabularyTailMarkerIndex(text);
+  final choice = markerIndex == -1 ? text : text.substring(0, markerIndex);
+  return choice.replaceAll(RegExp(r'\s+'), ' ').trim();
+}
+
+String _qmChoiceBody(String text) =>
+    text.replaceAll(RegExp(r'\s+'), ' ').trim().replaceFirst(
+          RegExp(r'^[\s\(\uFF08]*[①-⑤❶-❺][\)\uFF09]*\s*'),
+          '',
+        );
+
+bool _qmAreComplementaryDrafts(
+  QuestionImportDraft promptDraft,
+  QuestionImportDraft contentDraft,
+) {
+  final hasSupportedPrompt = promptDraft.questionType.trim().isNotEmpty &&
+      (_q2LooksLikePrompt(promptDraft.questionText) ||
+          _q2LooksLikeAnySpecialPrompt(promptDraft.questionText));
+  final promptNeedsContent =
+      promptDraft.passage.trim().isEmpty && promptDraft.choices.length < 2;
+  final contentHasStructure = contentDraft.passage.trim().isNotEmpty &&
+      contentDraft.choices.length >= 2;
+  final contentHasNoIndependentIdentity =
+      contentDraft.questionType.trim().isEmpty &&
+          contentDraft.source.trim().isEmpty &&
+          !_q2LooksLikePrompt(contentDraft.questionText) &&
+          !_q2LooksLikeAnySpecialPrompt(contentDraft.questionText);
+  return hasSupportedPrompt &&
+      promptNeedsContent &&
+      contentHasStructure &&
+      contentHasNoIndependentIdentity;
+}
+
+bool _qmIsChoiceOrExplanationOrphan(
+  QuestionImportDraft question,
+  List<QuestionImportDraft> previousQuestions,
+  Set<String> confirmedAnswerExplanationResidues,
+) {
+  final text = question.questionText.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (question.questionType.trim().isNotEmpty ||
+      question.passage.trim().isNotEmpty ||
+      question.source.trim().isNotEmpty ||
+      text.isEmpty ||
+      !RegExp(r'^[①②③④⑤❶❷❸❹❺]\s*').hasMatch(text) ||
+      _q2LooksLikePrompt(text) ||
+      _q2LooksLikeAnySpecialPrompt(text)) {
+    return false;
+  }
+  if (confirmedAnswerExplanationResidues.contains(text)) return true;
+  return previousQuestions.reversed.take(2).any((previous) {
+    final normalizedExplanation =
+        previous.explanation.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return normalizedExplanation.contains(text) ||
+        previous.choices.any(
+          (choice) => choice.replaceAll(RegExp(r'\s+'), ' ').trim() == text,
+        );
+  });
+}
+
+Set<String> _qmConfirmedAnswerExplanationChoiceResidues(String normalizedText) {
+  final lines = normalizedText
+      .split(RegExp(r'\n+'))
+      .map((line) => line.replaceAll(RegExp(r'\s+'), ' ').trim())
+      .where((line) => line.isNotEmpty)
+      .toList(growable: false);
+  final result = <String>{};
+  for (var index = 0; index < lines.length; index++) {
+    final line = lines[index];
+    if (!RegExp(r'^[①②③④⑤❶❷❸❹❺]\s*').hasMatch(line)) continue;
+    var belongsToAnswerOrExplanation = false;
+    for (var previous = index - 1;
+        previous >= 0 && previous >= index - 7;
+        previous--) {
+      final candidate = lines[previous];
+      if (_q2IsAnswerLine(candidate) || _q2IsExplanationLine(candidate)) {
+        belongsToAnswerOrExplanation = true;
+        break;
+      }
+      if (_q2IsSourceLine(candidate) ||
+          _qmIsLegacyHeading(candidate) ||
+          _q4IsLongPassageHeader(candidate) ||
+          _q2LooksLikePrompt(candidate) ||
+          _q2LooksLikeAnySpecialPrompt(candidate) ||
+          _q3LooksLikeEnglishPassageLine(candidate)) {
+        break;
+      }
+    }
+    if (belongsToAnswerOrExplanation) result.add(line);
+  }
+  return result;
+}
+
+void _qmDebugDraftParagraphBoundaries(
+  List<QuestionImportDraft> questions,
+  List<String> paragraphs,
+  List<int> paragraphIndexes,
+) {
+  if (paragraphs.isEmpty || questions.isEmpty) return;
+  final normalized = paragraphs
+      .map((paragraph) => paragraph.replaceAll(RegExp(r'\s+'), ' ').trim())
+      .toList(growable: false);
+  final starts = <int>[];
+  for (final question in questions) {
+    final probes = <String>[
+      question.questionText,
+      if (question.choices.isNotEmpty) question.choices.first,
+      question.source,
+    ]
+        .map((value) => value.replaceAll(RegExp(r'\s+'), ' ').trim())
+        .where((value) => value.isNotEmpty)
+        .map((value) => value.substring(0, value.length.clamp(0, 48)))
+        .toList(growable: false);
+    final start = normalized.indexWhere(
+      (paragraph) => probes.any(paragraph.contains),
+    );
+    starts.add(start);
+  }
+  int xmlIndex(int position) =>
+      position >= 0 && position < paragraphIndexes.length
+          ? paragraphIndexes[position]
+          : position;
+  for (var index = 0; index < questions.length; index++) {
+    final question = questions[index];
+    final start = starts[index];
+    var end = start;
+    for (var next = index + 1; next < starts.length; next++) {
+      if (starts[next] > start) {
+        end = starts[next] - 1;
+        break;
+      }
+    }
+    final questionText =
+        question.questionText.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final matchedByChoiceLine =
+        RegExp(r'^[①②③④⑤❶❷❸❹❺]\s*').hasMatch(questionText);
+    final paragraphText =
+        start >= 0 && start < normalized.length ? normalized[start] : '';
+    final matchedByAnswerOrExplanationResidue =
+        _q2IsAnswerLine(paragraphText) || _q2IsExplanationLine(paragraphText);
+    debugPrint(
+      '[QuestionImportDraftBoundary] startParagraph=${xmlIndex(start)} '
+      'endParagraph=${xmlIndex(end)} path=block '
+      'questionNo=${question.questionNo} type=${question.questionType} '
+      'question="${_qmPreview(questionText, limit: 100)}" '
+      'passagePresent=${question.passage.trim().isNotEmpty} '
+      'choicesCount=${question.choices.length} '
+      'sourceNo="${_qmPreview(question.source, limit: 32)}" '
+      'matchedByQuestionPrompt=${_q2LooksLikePrompt(questionText) || _q2LooksLikeAnySpecialPrompt(questionText)} '
+      'matchedByChoiceLine=$matchedByChoiceLine '
+      'matchedByAnswerOrExplanationResidue=$matchedByAnswerOrExplanationResidue',
+    );
+  }
+}
+
+void _q4DebugAlignedLongGroups(
+  List<QuestionImportDraft> directQuestions,
+) {
+  final grouped = <String, List<QuestionImportDraft>>{};
+  for (final question in directQuestions) {
+    final group =
+        (question.specialData?['long_passage_group'] ?? '-').toString();
+    grouped.putIfAbsent(group, () => <QuestionImportDraft>[]).add(question);
+  }
+  for (final entry in grouped.entries) {
+    debugPrint(
+      '[LongPassageAlignedGroup] group=${entry.key} '
+      'directLongDraftCount=${entry.value.length} '
+      'directLongQuestionNos=${entry.value.map((question) => question.questionNo).toList()}',
+    );
+  }
+}
+
+List<QuestionImportDraft> _q4AlignDirectQuestionNumbers(
+  List<QuestionImportDraft> blockQuestions,
+  List<QuestionImportDraft> directQuestions,
+) {
+  if (directQuestions.isEmpty || blockQuestions.isEmpty) {
+    return directQuestions;
+  }
+  final usedBlockNumbers = <int>{};
+  final aligned = <QuestionImportDraft>[];
+  for (final direct in directQuestions) {
+    final explicitSourceNo = int.tryParse(
+      direct.specialData?['source_no']?.toString() ?? '',
+    );
+    if (explicitSourceNo != null) {
+      usedBlockNumbers.add(explicitSourceNo);
+      aligned.add(
+        direct.questionNo == explicitSourceNo
+            ? direct
+            : direct.copyWith(questionNo: explicitSourceNo),
+      );
+      debugPrint(
+        '[LongPassageNumberAlign] from=${direct.questionNo} '
+        'to=$explicitSourceNo reason=explicit_source_no',
+      );
+      continue;
+    }
+    final promptKey = _q4QuestionPromptKey(direct.questionText);
+    final candidates = blockQuestions
+        .where(
+          (block) =>
+              !usedBlockNumbers.contains(block.questionNo) &&
+              _q4QuestionPromptKey(block.questionText) == promptKey,
+        )
+        .toList();
+    if (candidates.isEmpty) {
+      aligned.add(direct);
+      continue;
+    }
+    candidates.sort((left, right) {
+      final scoreCompare = _q4DirectAlignmentScore(right, direct)
+          .compareTo(_q4DirectAlignmentScore(left, direct));
+      if (scoreCompare != 0) return scoreCompare;
+      return right.questionNo.compareTo(left.questionNo);
+    });
+    final target = candidates.first;
+    usedBlockNumbers.add(target.questionNo);
+    final specialData = <String, dynamic>{
+      ...?direct.specialData,
+      'source_no': target.questionNo,
+    };
+    final repaired = direct.copyWith(
+      questionNo: target.questionNo,
+      specialData: specialData,
+    );
+    aligned.add(repaired);
+    debugPrint(
+      '[LongPassageNumberAlign] from=${direct.questionNo} '
+      'to=${target.questionNo} prompt="${_qmPreview(direct.questionText)}" '
+      'targetPassagePresent=${target.passage.trim().isNotEmpty} '
+      'targetSaveable=${target.isSaveable}',
+    );
+  }
+  return aligned;
+}
+
+int _q4DirectAlignmentScore(
+  QuestionImportDraft block,
+  QuestionImportDraft direct,
+) {
+  var score = 0;
+  if (block.passage.trim().isEmpty) score += 80;
+  if (!block.isSaveable) score += 40;
+  if (block.specialData == null || block.specialData!.isEmpty) score += 20;
+  if (_q4TypesAreCompatible(block.questionType, direct.questionType)) {
+    score += 30;
+  }
+  if (block.source.trim().isNotEmpty &&
+      block.source.trim() == direct.source.trim()) {
+    score += 10;
+  }
+  return score;
+}
+
+bool _q4TypesAreCompatible(String left, String right) {
+  String normalize(String type) {
+    final value = type.trim().toLowerCase();
+    if (value == 'mismatch' || value == 'content') return 'content_match';
+    return value;
+  }
+
+  return normalize(left) == normalize(right);
+}
+
+List<QuestionImportDraft> _q4MergeDirectlyParsedQuestions(
+  List<QuestionImportDraft> blockQuestions,
+  List<QuestionImportDraft> longPassageQuestions,
+  Set<String> confirmedAnswerExplanationResidues,
+) {
+  final longByNumber = <int, QuestionImportDraft>{
+    for (final question in longPassageQuestions) question.questionNo: question,
+  };
+  final longPromptKeys = longPassageQuestions
+      .map((question) => _q4QuestionPromptKey(question.questionText))
+      .where((key) => key.isNotEmpty)
+      .toSet();
+  final longSourceNumbersByPrompt = <String, Set<int>>{};
+  for (final question in longPassageQuestions) {
+    final promptKey = _q4QuestionPromptKey(question.questionText);
+    final sourceNo = int.tryParse(
+      question.specialData?['source_no']?.toString() ?? '',
+    );
+    if (promptKey.isNotEmpty && sourceNo != null) {
+      longSourceNumbersByPrompt
+          .putIfAbsent(promptKey, () => <int>{})
+          .add(sourceNo);
+    }
+  }
+  final merged = <QuestionImportDraft>[];
+  final seenNumbers = <int>{};
+  final hasStandaloneBlockPassage =
+      blockQuestions.any((question) => question.passage.trim().isNotEmpty);
+
+  for (final question in blockQuestions) {
+    final replacement = longByNumber[question.questionNo];
+    if (replacement != null) {
+      _q4DebugDraft(
+        'mergeBeforeBlock',
+        question,
+        extra: 'score=${_q4QuestionCompletenessScore(question)}',
+      );
+      _q4DebugDraft(
+        'mergeBeforeDirect',
+        replacement,
+        extra: 'score=${_q4QuestionCompletenessScore(replacement)}',
+      );
+      final blockIsChoiceOrExplanationResidue = _qmIsUnidentifiedChoiceResidue(
+        question,
+        confirmedAnswerExplanationResidues,
+      );
+      final combined = _q4CombineQuestionDetails(question, replacement);
+      final selected = blockIsChoiceOrExplanationResidue
+          ? replacement
+          : _q4MoreCompleteQuestion(question, combined);
+      if (seenNumbers.add(question.questionNo)) merged.add(selected);
+      final selectedDirectData =
+          selected.specialData?['shared_passage'] == true;
+      debugPrint(
+        '[LongPassageMergeSelect] no=${question.questionNo} '
+        'selected=${blockIsChoiceOrExplanationResidue ? 'direct_over_residue' : selectedDirectData ? 'direct_merged' : 'block'} '
+        'blockSaveable=${question.isSaveable} '
+        'directSaveable=${replacement.isSaveable} '
+        'selectedSaveable=${selected.isSaveable}',
+      );
+      continue;
+    }
+    final isChoiceOrExplanationResidue = _qmIsUnidentifiedChoiceResidue(
+      question,
+      confirmedAnswerExplanationResidues,
+    );
+    if (isChoiceOrExplanationResidue) {
+      debugPrint(
+        '[LongPassageMergeSkip] no=${question.questionNo} '
+        'reason=choice_or_explanation_residue '
+        'question="${_qmPreview(question.questionText, limit: 100)}"',
+      );
+      continue;
+    }
+    final promptKey = _q4QuestionPromptKey(question.questionText);
+    final isAnswerRegionResidual = question.passage.trim().isEmpty &&
+        longPromptKeys.contains(promptKey) &&
+        (!hasStandaloneBlockPassage ||
+            (longSourceNumbersByPrompt[promptKey] ?? const <int>{})
+                .contains(question.questionNo));
+    if (isAnswerRegionResidual) {
+      debugPrint(
+        '[LongPassageMergeSkip] no=${question.questionNo} '
+        'reason=answer_region_residual',
+      );
+      continue;
+    }
+    if (seenNumbers.add(question.questionNo)) merged.add(question);
+  }
+  for (final question in longPassageQuestions) {
+    if (seenNumbers.add(question.questionNo)) merged.add(question);
+  }
+  _q4DebugStageQuestions('mergeAfterDedupe', merged);
+  merged.sort((left, right) => left.questionNo.compareTo(right.questionNo));
+  _q4DebugStageQuestions('mergeAfterSort', merged);
+  debugPrint(
+    '[LongPassageMerge] blockDrafts=${blockQuestions.length} '
+    'directLongDrafts=${longPassageQuestions.length} '
+    'mergedDrafts=${merged.length} '
+    'questionNos=${merged.map((question) => question.questionNo).toList()}',
+  );
+  return merged;
+}
+
+bool _qmIsUnidentifiedChoiceResidue(
+  QuestionImportDraft question,
+  Set<String> confirmedAnswerExplanationResidues,
+) {
+  final text = question.questionText.replaceAll(RegExp(r'\s+'), ' ').trim();
+  String choiceBody(String value) => value
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim()
+      .replaceFirst(RegExp(r'^[①②③④⑤❶❷❸❹❺]\s*'), '');
+  final textBody = choiceBody(text);
+  final repeatsOwnChoice = question.choices.any(
+    (choice) => choiceBody(choice) == textBody,
+  );
+  return question.questionType.trim().isEmpty &&
+      question.passage.trim().isEmpty &&
+      question.source.trim().isEmpty &&
+      (question.choices.length >= 2 || question.answerIndex != null) &&
+      RegExp(r'^[①②③④⑤❶❷❸❹❺]\s*').hasMatch(text) &&
+      (repeatsOwnChoice || confirmedAnswerExplanationResidues.contains(text));
+}
+
+QuestionImportDraft _q4CombineQuestionDetails(
+  QuestionImportDraft block,
+  QuestionImportDraft direct,
+) {
+  final specialData = <String, dynamic>{
+    ...?block.specialData,
+    ...?direct.specialData,
+  };
+  final directInteraction =
+      (specialData['interaction_type'] ?? '').toString().trim().toLowerCase();
+  final keepDirectNullAnswerIndex = direct.questionType == 'content_match' &&
+      directInteraction == 'multi_select';
+  final choices = direct.choices.length >= block.choices.length
+      ? direct.choices
+      : block.choices;
+  return direct.copyWith(
+    source: direct.source.trim().isNotEmpty ? direct.source : block.source,
+    questionText: direct.questionText.trim().isNotEmpty
+        ? direct.questionText
+        : block.questionText,
+    passage: direct.passage.trim().isNotEmpty ? direct.passage : block.passage,
+    choices: choices,
+    answerIndex: keepDirectNullAnswerIndex
+        ? null
+        : direct.answerIndex ?? block.answerIndex,
+    clearAnswerIndex: keepDirectNullAnswerIndex,
+    answerRaw:
+        direct.answerRaw.trim().isNotEmpty ? direct.answerRaw : block.answerRaw,
+    explanation: direct.explanation.trim().isNotEmpty
+        ? direct.explanation
+        : block.explanation,
+    specialData: specialData,
+    answerText: (direct.answerText ?? '').trim().isNotEmpty
+        ? direct.answerText
+        : block.answerText,
+    warnings: direct.warnings,
+    isSpecialUnsupported: false,
+  );
+}
+
+QuestionImportDraft _q4MoreCompleteQuestion(
+  QuestionImportDraft block,
+  QuestionImportDraft direct,
+) {
+  final blockScore = _q4QuestionCompletenessScore(block);
+  final directScore = _q4QuestionCompletenessScore(direct);
+  return directScore >= blockScore ? direct : block;
+}
+
+int _q4QuestionCompletenessScore(QuestionImportDraft question) {
+  var score = question.isSaveable ? 100 : 0;
+  final type = question.questionType.trim().toLowerCase();
+  if (type.isNotEmpty) score += 10;
+  if (question.questionText.trim().isNotEmpty) score += 10;
+  if (question.passage.trim().isNotEmpty) score += 35;
+  score += question.choices.length.clamp(0, 5) * 3;
+  if (question.answerIndex != null ||
+      (question.answerText ?? '').trim().isNotEmpty) {
+    score += 15;
+  }
+  final special = question.specialData;
+  if (special?.isNotEmpty == true) score += 20;
+  if (special?['shared_passage'] == true) score += 15;
+  if (type == 'order') {
+    final blocks = special?['blocks'];
+    final answerOrder = special?['answer_order'];
+    score += (blocks is Map ? blocks.length.clamp(0, 4) : 0) * 8;
+    score += (answerOrder is List ? answerOrder.length.clamp(0, 4) : 0) * 5;
+  } else if (type == 'reference') {
+    if (question.choices.length >= 5) score += 20;
+  } else if (type == 'content_match' || type == 'mismatch') {
+    if (question.choices.length >= 5) score += 20;
+    final answerIndices = special?['answer_indices'];
+    if (answerIndices is List && answerIndices.isNotEmpty) score += 25;
+  }
+  if (question.warnings.isEmpty) score += 5;
+  return score;
+}
+
+String _q4QuestionPromptKey(String text) {
+  return text.replaceAll(RegExp(r'\s+'), '').trim().toLowerCase();
+}
+
+void _q4DebugStageQuestions(
+  String stage,
+  Iterable<QuestionImportDraft> questions,
+) {
+  for (final question in questions) {
+    _q4DebugDraft(stage, question);
+  }
+}
+
+void _q4DebugDraft(
+  String stage,
+  QuestionImportDraft question, {
+  String extra = '',
+}) {
+  final specialKeys =
+      question.specialData?.keys.toList(growable: false) ?? const <String>[];
+  final answer = question.answerIndex == null
+      ? (question.answerText ?? question.answerRaw).trim()
+      : '${question.answerIndex! + 1}';
+  debugPrint(
+    '[QuestionImportStageDraft] stage=$stage '
+    'no=${question.questionNo} '
+    'type=${question.questionType} '
+    'passagePresent=${question.passage.trim().isNotEmpty} '
+    'choicesCount=${question.choices.length} '
+    'answer="${_qmPreview(answer, limit: 24)}" '
+    'specialDataKeys=$specialKeys '
+    'groupId=${question.specialData?['long_passage_group'] ?? '-'} '
+    'source="${_qmPreview(question.source, limit: 32)}" '
+    'question="${_qmPreview(question.questionText, limit: 48)}"'
+    '${extra.isEmpty ? '' : ' $extra'}',
+  );
+}
+
 List<QuestionImportDraft> _q4ParseLongPassageSetQuestions(
   String normalizedText,
 ) {
@@ -113,6 +1043,7 @@ List<QuestionImportDraft> _q4ParseLongPassageSetQuestions(
     ];
     debugPrint(
       '[LongPassageGroupScan] header="${lines[headerIndex]}" '
+      'headerIndex=$headerIndex sectionEnd=$sectionEnd '
       'childCount=${promptIndexes.length} '
       'prompts=${promptIndexes.map((index) => _qmPreview(lines[index])).toList()}',
     );
@@ -120,7 +1051,8 @@ List<QuestionImportDraft> _q4ParseLongPassageSetQuestions(
 
     var firstBlockStart = promptIndexes.first;
     if (firstBlockStart > headerIndex + 1 &&
-        _qmQuestionNumberFromLine(lines[firstBlockStart - 1]) != null) {
+        (_qmQuestionNumberFromLine(lines[firstBlockStart - 1]) != null ||
+            _q4AnswerRegionNumber(lines[firstBlockStart - 1]) != null)) {
       firstBlockStart--;
     }
     final passageLines = _q4SharedPassageLines(
@@ -139,11 +1071,19 @@ List<QuestionImportDraft> _q4ParseLongPassageSetQuestions(
       continue;
     }
 
+    final precedingQuestionNo = _q4LastQuestionNumberBefore(
+      lines,
+      headerIndex,
+    );
+    if (precedingQuestionNo > lastQuestionNo) {
+      lastQuestionNo = precedingQuestionNo;
+    }
     group++;
     debugPrint(
-      '[LongPassageGroup] group=$group '
+      '[LongPassageGroup] stage=rawLongGroupDetection group=$group '
       'sharedStart="${_qmPreview(passage)}" '
-      'childCount=${promptIndexes.length}',
+      'passagePresent=${passage.isNotEmpty} '
+      'blocks=${sharedBlocks.length} childCount=${promptIndexes.length}',
     );
     final rawQuestionNos = <int>[];
     for (final promptIndex in promptIndexes) {
@@ -172,7 +1112,8 @@ List<QuestionImportDraft> _q4ParseLongPassageSetQuestions(
       var blockStart = promptIndex;
       final rawNumber = rawQuestionNos[promptPosition];
       if (blockStart > headerIndex + 1 &&
-          _qmQuestionNumberFromLine(lines[blockStart - 1]) != null) {
+          (_qmQuestionNumberFromLine(lines[blockStart - 1]) != null ||
+              _q4AnswerRegionNumber(lines[blockStart - 1]) != null)) {
         blockStart--;
       }
       final nextPromptIndex = promptPosition + 1 < promptIndexes.length
@@ -183,17 +1124,28 @@ List<QuestionImportDraft> _q4ParseLongPassageSetQuestions(
           _qmQuestionNumberFromLine(lines[blockEnd - 1]) != null) {
         blockEnd--;
       }
-      final normalizedNumber =
-          rawNumber > lastQuestionNo ? rawNumber : lastQuestionNo + 1;
-      lastQuestionNo = normalizedNumber;
-      normalizedQuestionNos.add(normalizedNumber);
       final blockLines = lines.sublist(blockStart, blockEnd);
       final sourceQuestionNo = rawNumber > 0
           ? rawNumber
           : _q4SourceQuestionNumberFromLines(blockLines);
+      final preferredNumber = rawNumber > 0
+          ? rawNumber
+          : precedingQuestionNo > 0
+              ? sourceQuestionNo ?? 0
+              : 0;
+      final normalizedNumber = preferredNumber > lastQuestionNo
+          ? preferredNumber
+          : lastQuestionNo + 1;
+      lastQuestionNo = normalizedNumber;
+      normalizedQuestionNos.add(normalizedNumber);
       var parsed = _qmParseQuestionBlock(
         _QmQuestionBlock(number: normalizedNumber, lines: blockLines),
         fallbackNo: normalizedNumber,
+      );
+      _q4DebugDraft(
+        'directLongCreated',
+        parsed,
+        extra: 'groupId=$group sourceNo=${sourceQuestionNo ?? '-'}',
       );
       if (parsed.questionType.trim().toLowerCase() == 'order') {
         final fullAnswerRaw = _q2ExtractAnswerRawFull(blockLines).trim();
@@ -201,6 +1153,11 @@ List<QuestionImportDraft> _q4ParseLongPassageSetQuestions(
           parsed = parsed.copyWith(answerRaw: fullAnswerRaw);
         }
       }
+      _q4DebugDraft(
+        'directLongNumberNormalized',
+        parsed,
+        extra: 'groupId=$group rawNo=$rawNumber normalizedNo=$normalizedNumber',
+      );
       final repaired = _q4ApplyLongPassageSet(
         parsed,
         set,
@@ -211,6 +1168,7 @@ List<QuestionImportDraft> _q4ParseLongPassageSetQuestions(
         questionCount: promptIndexes.length,
       );
       questions.add(repaired);
+      _q4DebugDraft('directLongRepaired', repaired);
       debugPrint(
         '[LongPassageGroupDraft] group=$group '
         'child=${promptPosition + 1} no=${repaired.questionNo} '
@@ -223,6 +1181,15 @@ List<QuestionImportDraft> _q4ParseLongPassageSetQuestions(
     );
   }
   return questions;
+}
+
+int _q4LastQuestionNumberBefore(List<String> lines, int end) {
+  var last = 0;
+  for (var index = 0; index < end; index++) {
+    final number = _qmQuestionNumberFromLine(lines[index]);
+    if (number != null && number > last) last = number;
+  }
+  return last;
 }
 
 bool _q4LooksLikeChildQuestionPrompt(String line) {
@@ -354,20 +1321,42 @@ List<_Q4LongPassageSet> _q4DetectLongPassageSets(String normalizedText) {
 }
 
 bool _q4IsLongPassageHeader(String line) {
-  final compact =
-      line.replaceFirst(RegExp(r'^[※*]\s*'), '').replaceAll(RegExp(r'\s+'), '');
-  return (compact.contains('다음글을읽고') &&
-          (compact.contains('물음에답하시오') || compact.contains('물음에답하세요'))) ||
+  final compact = _q4CompactLongHeaderCandidate(line);
+  return (_q4HasLongPassageReadingLead(compact) &&
+          _q4HasLongPassageAnswerInstruction(compact)) ||
       compact == '<기본형>' ||
       compact == '<변형>' ||
       compact == '<패러형>';
 }
 
 bool _q4IsExplicitLongPassageHeader(String line) {
-  final compact =
-      line.replaceFirst(RegExp(r'^[※*]\s*'), '').replaceAll(RegExp(r'\s+'), '');
-  return compact.contains('다음글을읽고') &&
-      (compact.contains('물음에답하시오') || compact.contains('물음에답하세요'));
+  final compact = _q4CompactLongHeaderCandidate(line);
+  return _q4HasLongPassageReadingLead(compact) &&
+      _q4HasLongPassageAnswerInstruction(compact);
+}
+
+String _q4CompactLongHeaderCandidate(String text) {
+  return text
+      .replaceAll('\u00A0', ' ')
+      .replaceAll('\u3000', ' ')
+      .replaceAll(RegExp(r'[\u200B-\u200D\u2060\uFEFF]'), '')
+      .replaceAll(
+        RegExp(r'[\s,，.。:：;；·ㆍ※*•\[\]【】()（）]+'),
+        '',
+      )
+      .trim();
+}
+
+bool _q4HasLongPassageReadingLead(String compact) {
+  return RegExp(
+    r'(?:다음|아래)[가-힣]{0,8}(?:글|지문|제시문)을읽고',
+  ).hasMatch(compact);
+}
+
+bool _q4HasLongPassageAnswerInstruction(String compact) {
+  return RegExp(
+    r'(?:물음|질문|문제)[가-힣]{0,6}답(?:하시오|하세요|하라|해보시오|해보세요)',
+  ).hasMatch(compact);
 }
 
 Map<String, String> _q4SharedOrderBlocks(List<String> passageLines) {
@@ -573,6 +1562,15 @@ QuestionImportDraft _q4ApplyLongPassageSet(
     }
     final maxAnswers = _q4MaxAnswers(compactPrompt);
     if (maxAnswers != null) specialData['max_answers'] = maxAnswers;
+  }
+
+  if (questionType == 'order' && choices.isEmpty) {
+    final orderChoiceGroups =
+        _q2ChoiceGroups(rawQuestionLines ?? const <String>[])
+            .where((group) => group.choices.length >= 3);
+    if (orderChoiceGroups.isNotEmpty) {
+      choices = orderChoiceGroups.last.choices;
+    }
   }
 
   if (questionType == 'order' && set.blocks.length >= 3) {
@@ -1275,16 +2273,41 @@ bool _q3LooksLikeVocabularyNoteLine(String line) {
 
 List<QuestionImportDraft> _q2RepairActualMissingTypeIrrelevantQuestions(
   List<QuestionImportDraft> questions,
+  String normalizedText,
 ) {
   return [
     for (final question in questions)
-      _q2RepairActualMissingTypeIrrelevantQuestion(question),
+      _q2RepairActualMissingTypeIrrelevantQuestion(question, normalizedText),
   ];
 }
 
 QuestionImportDraft _q2RepairActualMissingTypeIrrelevantQuestion(
   QuestionImportDraft question,
+  String normalizedText,
 ) {
+  if (_q2LooksLikeSeparatedPromptlessIrrelevantTail(question)) {
+    final recoveredPassage = _q2RecoverSeparatedPromptlessPassage(
+      question,
+      normalizedText,
+    );
+    if (recoveredPassage.isNotEmpty) {
+      debugPrint(
+        '[IrrelevantTailRecovery] no=${question.questionNo} '
+        'sourcePresent=${question.source.trim().isNotEmpty} '
+        'passagePresent=true',
+      );
+      return _q2RepairActualMissingTypeIrrelevantQuestion(
+        question.copyWith(
+          questionText: '',
+          passage: recoveredPassage,
+          explanation: question.explanation.trim().isNotEmpty
+              ? question.explanation
+              : _qmTailChoiceText(question.questionText),
+        ),
+        normalizedText,
+      );
+    }
+  }
   if (question.questionType.trim().isNotEmpty ||
       question.questionText.trim().isNotEmpty ||
       question.choices.isNotEmpty ||
@@ -1392,6 +2415,71 @@ QuestionImportDraft _q2RepairActualMissingTypeIrrelevantQuestion(
   return repaired;
 }
 
+bool _q2LooksLikeSeparatedPromptlessIrrelevantTail(
+  QuestionImportDraft question,
+) {
+  final text = question.questionText.replaceAll(RegExp(r'\s+'), ' ').trim();
+  return question.questionType.trim().isEmpty &&
+      question.passage.trim().isEmpty &&
+      question.choices.isEmpty &&
+      question.source.trim().isNotEmpty &&
+      question.answerIndex != null &&
+      question.answerIndex! >= 0 &&
+      question.answerIndex! < 7 &&
+      _qmLeadingChoicePosition(text) == question.answerIndex! + 1 &&
+      _qmVocabularyTailMarkerIndex(text) != -1 &&
+      _q2InferQuestionType(text).isEmpty &&
+      !_q2LooksLikeAnySpecialPrompt(text);
+}
+
+String _q2RecoverSeparatedPromptlessPassage(
+  QuestionImportDraft question,
+  String normalizedText,
+) {
+  final lines = normalizedText
+      .split(RegExp(r'\n+'))
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList(growable: false);
+  final sourceKey = question.source.replaceAll(RegExp(r'\s+'), ' ').trim();
+  final sourceIndex = lines.lastIndexWhere(
+    (line) => line.replaceAll(RegExp(r'\s+'), ' ').contains(sourceKey),
+  );
+  if (sourceIndex == -1) return '';
+  var passageStart = -1;
+  for (var index = sourceIndex + 1; index < lines.length; index++) {
+    final line = lines[index];
+    if (index > sourceIndex + 1 && _q2IsSourceLine(line)) break;
+    if (_q3IsRecoverableEnglishPassageStart(line)) {
+      passageStart = index;
+      break;
+    }
+  }
+  if (passageStart == -1) return '';
+  final passage = <String>[];
+  for (var index = passageStart; index < lines.length; index++) {
+    final line = lines[index];
+    if (index > passageStart &&
+        (_q2IsSourceLine(line) ||
+            _qmIsLegacyHeading(line) ||
+            _q2IsAnswerLine(line) ||
+            _q2IsExplanationLine(line) ||
+            _q2IsVocabularyLine(line) ||
+            _q2LooksLikePrompt(line) ||
+            _q2LooksLikeAnySpecialPrompt(line))) {
+      break;
+    }
+    if (_q2LooksLikeVocabularyNoteLine(line)) continue;
+    passage.add(line);
+  }
+  final recovered = passage.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+  final sentenceCount = recovered
+      .split(RegExp(r'(?<=[.!?])\s+'))
+      .where((sentence) => sentence.trim().isNotEmpty)
+      .length;
+  return sentenceCount >= 7 ? recovered : '';
+}
+
 String _qmNormalizeText(String rawText) {
   var text = rawText
       .replaceAll('\r\n', '\n')
@@ -1414,6 +2502,7 @@ String _qmNormalizeText(String rawText) {
         RegExp(r'\s+([①②③④⑤⑥⑦⑧⑨])'),
         (match) => '\n${match.group(1)}',
       );
+  text = _q4JoinSplitLongPassageHeaderLines(text);
   text = _q3SplitEmbeddedGrammarPromptLines(text);
   text = _q4SplitEmbeddedLongPassagePromptLines(text);
   return text
@@ -1423,6 +2512,49 @@ String _qmNormalizeText(String rawText) {
       .where((line) => !_qmLooksLikeFileName(line))
       .join('\n')
       .trim();
+}
+
+String _q4JoinSplitLongPassageHeaderLines(String text) {
+  final lines = text.split('\n');
+  final output = <String>[];
+  for (var index = 0; index < lines.length; index++) {
+    final line = lines[index].trim();
+    final compact = _q4CompactLongHeaderCandidate(line);
+    final possibleStart = line.length <= 100 &&
+        (compact.contains('다음') || compact.contains('아래'));
+    if (!possibleStart || _q4IsExplicitLongPassageHeader(line)) {
+      output.add(lines[index]);
+      continue;
+    }
+    var matchedEnd = -1;
+    var joined = line;
+    final last = (index + 4).clamp(index, lines.length - 1);
+    for (var next = index + 1; next <= last; next++) {
+      final fragment = lines[next].trim();
+      if (fragment.isEmpty) continue;
+      joined = '$joined $fragment'.trim();
+      if (_q4IsExplicitLongPassageHeader(joined)) {
+        matchedEnd = next;
+        break;
+      }
+      if (_qmQuestionNumberFromLine(fragment) != null ||
+          _q4LooksLikeChildQuestionPrompt(fragment) ||
+          joined.length > 180) {
+        break;
+      }
+    }
+    if (matchedEnd == -1) {
+      output.add(lines[index]);
+      continue;
+    }
+    output.add(joined);
+    debugPrint(
+      '[LongPassageHeaderJoin] startLine=$index endLine=$matchedEnd '
+      'normalized="${_qmPreview(_q4CompactLongHeaderCandidate(joined), limit: 120)}"',
+    );
+    index = matchedEnd;
+  }
+  return output.join('\n');
 }
 
 String _q4SplitEmbeddedLongPassagePromptLines(String text) {
@@ -1974,11 +3106,24 @@ List<_QmQuestionBlock> _qmSplitQuestionBlocks(String text) {
   for (var i = 0; i < starts.length; i++) {
     final start = starts[i];
     final end = i + 1 < starts.length ? starts[i + 1] : lines.length;
+    final rawBlockLines = lines.sublist(start, end);
+    final nextLongHeaderIndex = rawBlockLines.indexWhere(
+      _q4IsLongPassageHeader,
+      1,
+    );
+    final blockLines = nextLongHeaderIndex == -1
+        ? rawBlockLines
+        : rawBlockLines.sublist(0, nextLongHeaderIndex);
     final number = numberedStarts.isNotEmpty
         ? numberedStarts[i].number
-        : (_qmBlockNumber(lines.sublist(start, end)) ?? i + 1);
-    blocks.add(
-        _QmQuestionBlock(number: number, lines: lines.sublist(start, end)));
+        : (_qmBlockNumber(blockLines) ?? i + 1);
+    blocks.add(_QmQuestionBlock(number: number, lines: blockLines));
+    if (nextLongHeaderIndex != -1) {
+      debugPrint(
+        '[BlockBoundary] no=$number reason=next_long_passage_group '
+        'trimmedLines=${rawBlockLines.length - blockLines.length}',
+      );
+    }
   }
   if (numberedStarts.isEmpty && blocks.length > 7) {
     blocks = _qmMergeFallbackContinuationBlocks(blocks);

@@ -6,6 +6,8 @@ import '../../utils/blank_display_passage.dart';
 import '../../utils/insertion_display_prompt.dart';
 import '../../utils/grammar_vocabulary_inline_spans.dart';
 import '../../utils/irrelevant_display_passage.dart';
+import '../../utils/original_underline_inline_spans.dart';
+import '../../widgets/special_question_interaction_widgets.dart';
 import 'student_exam_result_screen.dart';
 
 class StudentExamTakeScreen extends StatefulWidget {
@@ -1228,6 +1230,8 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     return '${normalized.substring(0, 120)}...';
   }
 
+  /* Legacy prompt-text underline inference removed: HWPX run ranges are used. */
+  // ignore: unused_element
   String _extractUnderlineTarget(String rawPrompt) {
     final text = rawPrompt.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (text.isEmpty) return '';
@@ -1259,6 +1263,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     return text.trim();
   }
 
+  // ignore: unused_element
   _TextRange? _findUnderlineRange(String passage, String target) {
     final cleanTarget = _cleanUnderlineTarget(target);
     if (passage.trim().isEmpty || cleanTarget.isEmpty) return null;
@@ -1297,33 +1302,6 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     final end =
         normalizedToOriginal[normalizedIndex + normalizedTarget.length - 1] + 1;
     return _TextRange(start, end);
-  }
-
-  TextSpan _withUnderlineTarget({
-    required String text,
-    required String target,
-  }) {
-    final range = _findUnderlineRange(text, target);
-    if (range == null) return _passageTextSpan(text);
-
-    final spans = <TextSpan>[];
-    if (range.start > 0) {
-      spans.add(_passageTextSpan(text.substring(0, range.start)));
-    }
-    spans.add(
-      TextSpan(
-        text: text.substring(range.start, range.end),
-        style: _passageTextStyle().copyWith(
-          decoration: TextDecoration.underline,
-          decorationThickness: 1.6,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
-    if (range.end < text.length) {
-      spans.add(_passageTextSpan(text.substring(range.end)));
-    }
-    return TextSpan(children: spans, style: _passageTextStyle());
   }
 
   @override
@@ -1395,20 +1373,6 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
             passage: questionPassage,
             question: currentQuestion,
           );
-    final rawPrompt =
-        (currentQuestion['question_text'] ?? currentQuestion['text'] ?? '')
-            .toString();
-    final underlineTarget = _extractUnderlineTarget(rawPrompt);
-    final underlineFound =
-        _findUnderlineRange(displayPassage, underlineTarget) != null;
-    if (underlineTarget.isNotEmpty) {
-      debugPrint(
-        '[UnderlineTarget] q=${currentIndex + 1} '
-        'type=${(currentQuestion['question_type'] ?? '').toString()} '
-        'target="$underlineTarget" found=$underlineFound',
-      );
-    }
-
     return Scaffold(
       backgroundColor: _surface,
       appBar: AppBar(
@@ -1453,8 +1417,8 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                       passage: displayPassage,
                       questionType:
                           (currentQuestion['question_type'] ?? '').toString(),
-                      underlineTarget: underlineTarget,
                       specialData: specialData,
+                      interactionQuestionId: qId,
                     ),
                     const SizedBox(height: 14),
                     _buildInsertionAnswerCard(
@@ -1466,8 +1430,8 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                       passage: displayPassage,
                       questionType:
                           (currentQuestion['question_type'] ?? '').toString(),
-                      underlineTarget: underlineTarget,
                       specialData: specialData,
+                      interactionQuestionId: qId,
                     ),
                     const SizedBox(height: 14),
                     _buildIrrelevantAnswerCard(
@@ -1479,7 +1443,6 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                       passage: displayPassage,
                       questionType:
                           (currentQuestion['question_type'] ?? '').toString(),
-                      underlineTarget: underlineTarget,
                       specialData: specialData,
                     ),
                     const SizedBox(height: 14),
@@ -1498,7 +1461,6 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                       passage: displayPassage,
                       questionType:
                           (currentQuestion['question_type'] ?? '').toString(),
-                      underlineTarget: underlineTarget,
                       specialData: specialData,
                     ),
                     const SizedBox(height: 14),
@@ -1511,7 +1473,6 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                       passage: displayPassage,
                       questionType:
                           (currentQuestion['question_type'] ?? '').toString(),
-                      underlineTarget: underlineTarget,
                       specialData: specialData,
                     ),
                     const SizedBox(height: 14),
@@ -1690,8 +1651,8 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   Widget _buildPassageCard({
     required String passage,
     required String questionType,
-    required String underlineTarget,
     required Map<String, dynamic> specialData,
+    int? interactionQuestionId,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -1771,8 +1732,8 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
               child: _buildPassageContent(
                 passage: passage,
                 questionType: questionType.toLowerCase(),
-                underlineTarget: underlineTarget,
                 specialData: specialData,
+                interactionQuestionId: interactionQuestionId,
               ),
             ),
         ],
@@ -1783,8 +1744,8 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   Widget _buildPassageContent({
     required String passage,
     required String questionType,
-    required String underlineTarget,
     required Map<String, dynamic> specialData,
+    int? interactionQuestionId,
   }) {
     final text = passage.trim();
     if (text.isEmpty) {
@@ -1795,9 +1756,22 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     }
 
     if (questionType == 'irrelevant' || questionType == 'unrelated_sentence') {
-      return SelectableText(
-        text,
-        style: _passageTextStyle(),
+      return IrrelevantPassageView(
+        passage: text,
+        selectedPosition: interactionQuestionId == null
+            ? null
+            : irrelevantAnswers[interactionQuestionId],
+        onPositionSelected: interactionQuestionId == null
+            ? null
+            : (position) {
+                setState(() {
+                  irrelevantAnswers[interactionQuestionId] = position;
+                });
+                debugPrint(
+                  '[StudentIrrelevantAnswer] '
+                  'q=$interactionQuestionId selected=$position',
+                );
+              },
       );
     }
 
@@ -1810,6 +1784,19 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                 .allMatches(givenSentence)
                 .length >=
             2;
+        final selectedPositions = <int>{};
+        if (interactionQuestionId != null) {
+          if (isMultiple) {
+            selectedPositions.addAll(
+              (multipleInsertionAnswers[interactionQuestionId] ??
+                      const <String, int>{})
+                  .values,
+            );
+          } else {
+            final selected = insertionAnswers[interactionQuestionId];
+            if (selected != null) selectedPositions.add(selected);
+          }
+        }
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1848,8 +1835,9 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            SelectableText.rich(
-              _withUnderlineTarget(text: body, target: underlineTarget),
+            InsertionPassageView(
+              passage: body,
+              selectedPositions: selectedPositions,
             ),
           ],
         );
@@ -1916,10 +1904,16 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     }
 
     return SelectableText.rich(
-      _withUnderlineTarget(text: text, target: underlineTarget),
+      buildQuestionOriginalUnderlineInlineSpans(
+        questionType: questionType,
+        passage: text,
+        specialData: specialData,
+        baseStyle: _passageTextStyle(),
+      ),
     );
   }
 
+  // ignore: unused_element
   TextSpan _passageTextSpan(String text) {
     final spans = <TextSpan>[];
     final pattern = RegExp(
@@ -1970,6 +1964,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     );
   }
 
+  // ignore: unused_element
   TextStyle _highlightPassageTextStyle({required bool isBlank}) {
     return TextStyle(
       color: isBlank ? _blue : _purple,
@@ -2338,10 +2333,10 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
               runSpacing: 10,
               children: [
                 for (final position in positions)
-                  ChoiceChip(
-                    label: Text(insertionPositionLabel(position)),
+                  StrongPositionChoice(
+                    label: insertionPositionLabel(position),
                     selected: selected == position,
-                    onSelected: (_) {
+                    onTap: () {
                       setState(() {
                         insertionAnswers[qId] = position;
                       });
@@ -2349,16 +2344,6 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                         '[StudentInsertionAnswer] q=$qId selected=$position',
                       );
                     },
-                    selectedColor: const Color(0xFFEFF6FF),
-                    backgroundColor: Colors.white,
-                    labelStyle: TextStyle(
-                      color: selected == position ? _blue : _ink,
-                      fontWeight: FontWeight.w900,
-                    ),
-                    side: BorderSide(
-                      color: selected == position ? _blue : _line,
-                      width: selected == position ? 1.6 : 1,
-                    ),
                   ),
               ],
             ),
@@ -2425,10 +2410,10 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
               runSpacing: 10,
               children: [
                 for (final position in positions)
-                  ChoiceChip(
-                    label: Text(insertionPositionLabel(position)),
+                  StrongPositionChoice(
+                    label: insertionPositionLabel(position),
                     selected: selected[entry.key] == position,
-                    onSelected: (_) {
+                    onTap: () {
                       setState(() {
                         final next = Map<String, int>.from(
                           multipleInsertionAnswers[qId] ??
@@ -2441,16 +2426,6 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                         '[StudentInsertionAnswer] q=$qId selected=${_multipleInsertionAnswerText(qId, specialData)}',
                       );
                     },
-                    selectedColor: const Color(0xFFEFF6FF),
-                    backgroundColor: Colors.white,
-                    labelStyle: TextStyle(
-                      color: selected[entry.key] == position ? _blue : _ink,
-                      fontWeight: FontWeight.w900,
-                    ),
-                    side: BorderSide(
-                      color: selected[entry.key] == position ? _blue : _line,
-                      width: selected[entry.key] == position ? 1.6 : 1,
-                    ),
                   ),
               ],
             ),
@@ -2507,10 +2482,10 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
             runSpacing: 10,
             children: [
               for (final position in positions)
-                ChoiceChip(
-                  label: Text(insertionPositionLabel(position)),
+                StrongPositionChoice(
+                  label: insertionPositionLabel(position),
                   selected: selected == position,
-                  onSelected: (_) {
+                  onTap: () {
                     setState(() {
                       irrelevantAnswers[qId] = position;
                     });
@@ -2518,16 +2493,6 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                       '[StudentIrrelevantAnswer] q=$qId selected=$position',
                     );
                   },
-                  selectedColor: const Color(0xFFEFF6FF),
-                  backgroundColor: Colors.white,
-                  labelStyle: TextStyle(
-                    color: selected == position ? _blue : _ink,
-                    fontWeight: FontWeight.w900,
-                  ),
-                  side: BorderSide(
-                    color: selected == position ? _blue : _line,
-                    width: selected == position ? 1.6 : 1,
-                  ),
                 ),
             ],
           ),
