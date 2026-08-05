@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:english_analyzer_app/utils/question_hwpx_import_parser.dart';
 import 'package:english_analyzer_app/utils/workbook_hwpx_text_extractor.dart';
+import 'package:english_analyzer_app/utils/workbook_import_parser.dart';
 
 void main() {
   test('extracts HWPX section paragraphs in section order', () {
@@ -34,6 +35,43 @@ void main() {
     );
     expect(result.text, contains('1. First statement.'));
     expect(result.text, contains('1. Second statement.'));
+  });
+
+  test('joins split Korean T/F runs and keeps the trailing statement set', () {
+    final archive = Archive()
+      ..addFile(
+        ArchiveFile.string(
+          'Contents/section0.xml',
+          _sectionXmlRuns([
+            ['Unit 1 Gateway', ' ', '[정답] TFTTT', '[해설]', '2) 앞쪽 해설'],
+            ['[정답] TFTTT'],
+            ['[해설]'],
+            ['2) 앞쪽 해설'],
+            ['English source passage.'],
+            ['1)', '첫 번째 진술은 본문과 일치한다.'],
+            ['2)', '두 번째 진술은 본문과 일치하지 않는다.'],
+            ['3)', '세 번째 진술은 본문과 일치한다.'],
+            ['4)', '네 번째 진술은 본문과 일치한다.'],
+            ['5)', '다섯 번째 진술은 본문과 일치한다.'],
+            ['[정답] TFTTT'],
+            ['[해설]'],
+            ['2) 두 번째 진술은 본문과 일치하지 않는다.'],
+          ]),
+        ),
+      );
+
+    final extracted = extractWorkbookTextFromHwpx(
+      ZipEncoder().encode(archive),
+    );
+    final candidate = parseWorkbookImportText(extracted.text).single;
+
+    expect(extracted.paragraphRuns.first, hasLength(5));
+    expect(candidate.questionType, 'true_false');
+    expect(candidate.subtype, 'true_false_ko');
+    expect(candidate.passageText, 'English source passage.');
+    expect(candidate.answer['items'], hasLength(5));
+    expect(candidate.hasBlockingErrors, isFalse);
+    expect(candidate.warnings, isEmpty);
   });
 
   test('rejects bytes that are not an HWPX zip', () {

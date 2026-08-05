@@ -305,31 +305,76 @@ String _importAnswerPayload(String rawText) {
 }
 
 String? _detectTrueFalseSubtype(String rawText) {
-  final answerMatch = RegExp(
-    r'^\s*\[(?:정답|답)\]\s*:?[ \t]*([^\n]*)$',
-    caseSensitive: false,
-    multiLine: true,
-  ).firstMatch(rawText);
+  final answerMatch = _selectTrueFalseAnswerMatch(rawText);
   if (answerMatch == null) return null;
-  final compactAnswers =
-      (answerMatch.group(1) ?? '').replaceAll(RegExp(r'[^TtFfOo○×]'), '');
-  if (compactAnswers.length < 2) return null;
+  final answers = normalizeTrueFalseAnswers(answerMatch.group(1) ?? '');
 
   final beforeAnswers = rawText.substring(0, answerMatch.start);
-  final statements = _numberedStatementMatches(beforeAnswers);
-  if (statements.length < 2) return null;
+  final statements = _terminalNumberedStatementMatches(beforeAnswers);
+  if (statements.isEmpty ||
+      (!_hasTrueFalsePrompt(rawText) && statements.length < 2) ||
+      answers.length < statements.length) {
+    return null;
+  }
   final statementText =
-      statements.map((match) => match.group(1) ?? '').join(' ');
+      statements.map((match) => match.group(2) ?? '').join(' ');
   final koreanCount = RegExp(r'[가-힣]').allMatches(statementText).length;
   final englishCount = RegExp(r'[A-Za-z]').allMatches(statementText).length;
   return koreanCount > englishCount ? 'true_false_ko' : 'true_false_en';
 }
 
-List<RegExpMatch> _numberedStatementMatches(String text) {
-  return RegExp(
-    r'^\s*\d+\s*[.)]\s*(.+)$',
+final RegExp _trueFalseAnswerMarkerPattern = RegExp(
+  r'^\s*\[?\s*(?:정답|답|answer)\s*\]?\s*[:：]?[ \t]*([^\n]*)$',
+  caseSensitive: false,
+  multiLine: true,
+);
+
+RegExpMatch? _selectTrueFalseAnswerMatch(String rawText) {
+  final matches = _trueFalseAnswerMarkerPattern.allMatches(rawText).toList();
+  for (final match in matches.reversed) {
+    final answers = normalizeTrueFalseAnswers(match.group(1) ?? '');
+    if (answers.isEmpty) continue;
+    final statements = _terminalNumberedStatementMatches(
+      rawText.substring(0, match.start),
+    );
+    if (statements.isNotEmpty && answers.length >= statements.length) {
+      return match;
+    }
+  }
+  return null;
+}
+
+List<RegExpMatch> _terminalNumberedStatementMatches(String text) {
+  final matches = RegExp(
+    r'^\s*(\d+)\s*[.)]\s*(.+)$',
     multiLine: true,
   ).allMatches(text).toList();
+  var start = -1;
+  for (var index = 0; index < matches.length; index++) {
+    if ((matches[index].group(1) ?? '') == '1') start = index;
+  }
+  if (start < 0) return const <RegExpMatch>[];
+  final result = <RegExpMatch>[];
+  var expected = 1;
+  for (var index = start; index < matches.length; index++) {
+    final number = int.tryParse(matches[index].group(1) ?? '');
+    if (number != expected) break;
+    result.add(matches[index]);
+    expected++;
+  }
+  return result;
+}
+
+bool _hasTrueFalsePrompt(String rawText) {
+  final normalized = rawText
+      .replaceAll('\u00a0', ' ')
+      .replaceAll('\u3000', ' ')
+      .replaceAll(RegExp(r'[\u200b-\u200d\ufeff\s]+'), '')
+      .toLowerCase();
+  return RegExp(
+    r'(?:일치하면.*(?:t|o|○).*(?:일치하지않으면|불일치).*(?:f|x|×)|맞으면.*(?:t|o|○).*(?:틀리면|거짓).*(?:f|x|×)|옳으면.*(?:o|○|t).*(?:틀리면|옳지않으면).*(?:x|×|f)|참(?:이면|거짓)|참/거짓|t/f|o/x|○/×|내용과일치하는지판단|참거짓을판단)',
+    caseSensitive: false,
+  ).hasMatch(normalized);
 }
 
 WorkbookImportCandidate _parseCandidate(
@@ -667,13 +712,13 @@ WorkbookImportCandidate _trueFalseCandidate(
 ) {
   final imported = _parseTrueFalseImport(rawText);
   final statementText =
-      (sections['문항'] ?? imported.statementText ?? rawText).replaceAll(
+      (imported.statementText ?? sections['문항'] ?? rawText).replaceAll(
     RegExp(r'\[\s*T\s*/\s*F\s*\]', caseSensitive: false),
     '',
   );
-  final passage = sections['본문'] ?? imported.passageText ?? '';
+  final passage = imported.passageText ?? sections['본문'] ?? '';
   final answerExplanationText =
-      sections['정답'] ?? imported.answerExplanationText ?? '';
+      imported.answerExplanationText ?? sections['정답'] ?? '';
   final parsed = parseTrueFalseRawText(
     statementText,
     subtype,
@@ -719,30 +764,30 @@ class _TrueFalseImportData {
 }
 
 _TrueFalseImportData _parseTrueFalseImport(String rawText) {
-  final answerMarker = RegExp(
-    r'^\s*\[(?:정답|답)\]\s*:?[ \t]*([^\n]*)$',
-    caseSensitive: false,
-    multiLine: true,
-  ).firstMatch(rawText);
+  final answerMarker = _selectTrueFalseAnswerMatch(rawText);
   if (answerMarker == null) return const _TrueFalseImportData();
 
+  final trailing = rawText.substring(answerMarker.end);
   final explanationMarker = RegExp(
-    r'^\s*\[해설\]\s*:?[ \t]*(.*)$',
+    r'^\s*\[\s*(?:해설|설명)\s*\]\s*:?[ \t]*(.*)$',
+    caseSensitive: false,
     multiLine: true,
-  ).firstMatch(rawText);
+  ).firstMatch(trailing);
   final translationMarker = RegExp(
-    r'^\s*\[해석\]\s*:?[ \t]*(.*)$',
+    r'^\s*\[\s*(?:해석|번역)\s*\]\s*:?[ \t]*(.*)$',
+    caseSensitive: false,
     multiLine: true,
-  ).firstMatch(rawText);
+  ).firstMatch(trailing);
   final beforeAnswers = rawText.substring(0, answerMarker.start).trim();
-  final statementMatches = _numberedStatementMatches(beforeAnswers);
+  final statementMatches = _terminalNumberedStatementMatches(beforeAnswers);
   if (statementMatches.isEmpty) return const _TrueFalseImportData();
 
   final firstStatementStart = statementMatches.first.start;
   final headerAndPassage = beforeAnswers.substring(0, firstStatementStart);
   final unitMatch = _unitHeaderPattern.firstMatch(headerAndPassage);
-  final passage =
-      headerAndPassage.replaceFirst(unitMatch?.group(0) ?? '', '').trim();
+  final passage = _stripLeadingTrueFalseMetadata(
+    headerAndPassage.replaceFirst(unitMatch?.group(0) ?? '', '').trim(),
+  );
   final statements = beforeAnswers.substring(firstStatementStart).trim();
   final answerPayload = (answerMarker.group(1) ?? '').trim();
 
@@ -751,9 +796,9 @@ _TrueFalseImportData _parseTrueFalseImport(String rawText) {
     final end = translationMarker != null &&
             translationMarker.start > explanationMarker.start
         ? translationMarker.start
-        : rawText.length;
+        : trailing.length;
     final sameLine = (explanationMarker.group(1) ?? '').trim();
-    final following = rawText.substring(explanationMarker.end, end).trim();
+    final following = trailing.substring(explanationMarker.end, end).trim();
     explanationText =
         [sameLine, following].where((value) => value.isNotEmpty).join('\n');
   }
@@ -768,6 +813,38 @@ _TrueFalseImportData _parseTrueFalseImport(String rawText) {
     statementText: statements,
     answerExplanationText: canonicalAnswerText,
   );
+}
+
+String _stripLeadingTrueFalseMetadata(String text) {
+  final lines = text.split(RegExp(r'\r?\n'));
+  var index = 0;
+  while (index < lines.length && lines[index].trim().isEmpty) {
+    index++;
+  }
+  if (index >= lines.length ||
+      !_trueFalseAnswerMarkerPattern.hasMatch(lines[index])) {
+    return text.trim();
+  }
+  index++;
+  while (index < lines.length && lines[index].trim().isEmpty) {
+    index++;
+  }
+  if (index < lines.length &&
+      RegExp(
+        r'^\s*\[\s*(?:해설|설명)\s*\]',
+        caseSensitive: false,
+      ).hasMatch(lines[index])) {
+    index++;
+    while (index < lines.length) {
+      final line = lines[index].trim();
+      if (line.isEmpty || RegExp(r'^\d+\s*[.)]').hasMatch(line)) {
+        index++;
+        continue;
+      }
+      break;
+    }
+  }
+  return lines.sublist(index).join('\n').trim();
 }
 
 WorkbookImportCandidate _initialBlankCandidate(

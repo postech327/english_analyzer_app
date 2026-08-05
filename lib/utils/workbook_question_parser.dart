@@ -367,7 +367,7 @@ TrueFalseRawParseResult parseTrueFalseRawText(
   final warnings = <String>[];
   final statements = _parseNumberedBlocks(rawText);
   final answerText = answerExplanationText ?? '';
-  final answers = _parseTrueFalseAnswers(answerText);
+  final answers = normalizeTrueFalseAnswers(answerText);
   final explanations = _parseExplanations(answerText);
 
   if (statements.isEmpty && rawText.trim().isNotEmpty) {
@@ -762,17 +762,41 @@ Map<int, String> _parseNumberedBlocks(String text) {
   return blocks;
 }
 
-List<bool> _parseTrueFalseAnswers(String text) {
-  final normalized =
-      text.replaceAll(RegExp(r'[Oo○]'), 'T').replaceAll('×', 'F');
+List<bool> normalizeTrueFalseAnswers(String text) {
   final answerLine = RegExp(
-    r'(정답|답|answer)\s*[:：]?\s*([TtFf\s,/\-]+)',
+    r'(?:정답|답|answer)\s*[:：]?\s*(.*)',
     caseSensitive: false,
-  ).firstMatch(normalized);
-  final target = answerLine?.group(2) ?? normalized;
-  final compact = target.replaceAll(RegExp(r'[^TtFf]'), '');
-  if (compact.isEmpty) return const [];
-  return compact.split('').map((value) => value.toUpperCase() == 'T').toList();
+  ).firstMatch(text);
+  var target = (answerLine?.group(1) ?? text)
+      .replaceAll('\u00a0', ' ')
+      .replaceAll('\u3000', ' ')
+      .replaceAll(RegExp(r'[\u200b-\u200d\ufeff]'), ' ')
+      .trim();
+  final sectionEnd = RegExp(
+    r'\[\s*(?:해설|설명|번역|해석)\s*\]',
+    caseSensitive: false,
+  ).firstMatch(target);
+  if (sectionEnd != null) target = target.substring(0, sectionEnd.start);
+
+  final compact = target.replaceAll(RegExp(r'[\s,;/|\-–—①-⑳]'), '');
+  if (RegExp(r'^[TtFfOoXx○×]+$').hasMatch(compact)) {
+    return compact
+        .split('')
+        .map((value) => RegExp(r'^[TtOo○]$').hasMatch(value))
+        .toList();
+  }
+
+  final tokenPattern = RegExp(
+    r'사실\s*아님|옳지\s*않다|불일치|틀리다|거짓|false|[FfXx×]|맞다|옳다|일치|참|사실|true|[TtOo○]',
+    caseSensitive: false,
+  );
+  return tokenPattern.allMatches(target).map((match) {
+    final token =
+        (match.group(0) ?? '').toLowerCase().replaceAll(RegExp(r'\s+'), '');
+    return !RegExp(
+      r'^(?:사실아님|옳지않다|불일치|틀리다|거짓|false|f|x|×)$',
+    ).hasMatch(token);
+  }).toList();
 }
 
 Map<int, String> _parseExplanations(String text) {

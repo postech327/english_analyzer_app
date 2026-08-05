@@ -6,14 +6,17 @@ import '../models/workbook_attempt.dart';
 import '../services/learning_assignment_service.dart';
 import '../services/workbook_attempt_service.dart';
 import '../services/workbook_service.dart';
+import '../utils/workbook_import_parser.dart';
 
 class StudentWorkbookViewScreen extends StatefulWidget {
   const StudentWorkbookViewScreen({
     super.key,
     required this.assignment,
+    this.initialWorkbook,
   });
 
   final LearningAssignment assignment;
+  final Workbook? initialWorkbook;
 
   @override
   State<StudentWorkbookViewScreen> createState() =>
@@ -57,10 +60,12 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
   @override
   void initState() {
     super.initState();
-    _future = _workbookService.fetchStudentWorkbook(
-      widget.assignment.contentId,
-      sectionId: _selectedSectionId,
-    );
+    _future = widget.initialWorkbook != null
+        ? Future<Workbook>.value(widget.initialWorkbook)
+        : _workbookService.fetchStudentWorkbook(
+            widget.assignment.contentId,
+            sectionId: _selectedSectionId,
+          );
   }
 
   @override
@@ -450,22 +455,12 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
     final answers = <Map<String, dynamic>>[];
     for (final question in questions) {
       if (question.questionType == 'inline_choice') {
-        for (final item in _contentItems(question.content)) {
-          final number = _asInt(item['number']);
-          final choices = _stringList(item['choices']);
-          final selected =
-              _multipleChoiceAnswers[_localKey(question.id, number)];
-          final value =
-              selected != null && selected >= 0 && selected < choices.length
-                  ? choices[selected]
-                  : null;
-          answers.add({
-            'question_id': question.id,
-            'question_type': question.questionType,
-            'item_number': number,
-            'student_answer': value,
-          });
-        }
+        answers.addAll(
+          buildInlineChoiceSubmitAnswersForStudent(
+            question,
+            _multipleChoiceAnswers,
+          ),
+        );
         continue;
       }
       if (question.questionType == 'true_false' &&
@@ -588,14 +583,10 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
 
   bool _isQuestionAnswered(WorkbookQuestion question) {
     if (question.questionType == 'inline_choice') {
-      final items = _contentItems(question.content);
-      return items.isNotEmpty &&
-          items.every(
-            (item) =>
-                _multipleChoiceAnswers[
-                    _localKey(question.id, _asInt(item['number']))] !=
-                null,
-          );
+      return isInlineChoiceAnsweredForStudent(
+        question,
+        _multipleChoiceAnswers,
+      );
     }
     if (question.questionType == 'true_false' &&
         question.content['items'] is List) {
@@ -929,42 +920,63 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: currentIndex > 0
-                    ? () => _moveToQuestion(currentIndex - 1)
-                    : null,
-                icon: const Icon(Icons.arrow_back_rounded),
-                label: const Text('이전'),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: Text(
-                '${currentIndex + 1} / $questionCount',
-                style: const TextStyle(
-                  color: _ink,
-                  fontWeight: FontWeight.w900,
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 320;
+            final previous = currentIndex > 0
+                ? () => _moveToQuestion(currentIndex - 1)
+                : null;
+            final next = currentIndex < questionCount - 1
+                ? () => _moveToQuestion(currentIndex + 1)
+                : null;
+            return Row(
+              children: [
+                Expanded(
+                  child: compact
+                      ? OutlinedButton(
+                          onPressed: previous,
+                          child: const Text('이전'),
+                        )
+                      : OutlinedButton.icon(
+                          onPressed: previous,
+                          icon: const Icon(Icons.arrow_back_rounded),
+                          label: const Text('이전'),
+                        ),
                 ),
-              ),
-            ),
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: currentIndex < questionCount - 1
-                    ? () => _moveToQuestion(currentIndex + 1)
-                    : null,
-                icon: const Icon(Icons.arrow_forward_rounded),
-                label: const Text('다음'),
-                iconAlignment: IconAlignment.end,
-                style: FilledButton.styleFrom(
-                  backgroundColor: _blue,
-                  foregroundColor: Colors.white,
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 14),
+                  child: Text(
+                    '${currentIndex + 1} / $questionCount',
+                    style: const TextStyle(
+                      color: _ink,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          ],
+                Expanded(
+                  child: compact
+                      ? FilledButton(
+                          onPressed: next,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _blue,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text('다음'),
+                        )
+                      : FilledButton.icon(
+                          onPressed: next,
+                          icon: const Icon(Icons.arrow_forward_rounded),
+                          label: const Text('다음'),
+                          iconAlignment: IconAlignment.end,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _blue,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                ),
+              ],
+            );
+          },
         ),
         const SizedBox(height: 8),
         SizedBox(
@@ -996,11 +1008,16 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
 
   Widget _buildQuestionCard(WorkbookQuestion question) {
     final contentPassage = _asString(question.content['passage_text']);
-    final displayPassage = renderInlineChoicePassageForStudent(
-      (question.passageText ?? '').isNotEmpty
-          ? question.passageText!
-          : contentPassage,
+    final originalPassage = question.passageText ?? '';
+    final rawPassage =
+        originalPassage.isNotEmpty ? originalPassage : contentPassage;
+    final cleanedPassage = renderInlineChoicePassageForStudent(
+      rawPassage,
+      teacherOnlyTexts: question.questionType == 'inline_choice'
+          ? inlineChoiceTeacherOnlyTextsForStudent(question)
+          : const <String>[],
     );
+    final renderPassage = cleanedPassage;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -1051,7 +1068,7 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
               _TypePill(text: workbookQuestionDisplayLabel(question)),
             ],
           ),
-          if (displayPassage.isNotEmpty &&
+          if (renderPassage.isNotEmpty &&
               question.questionType != 'sentence_insertion') ...[
             const SizedBox(height: 12),
             const _QuestionSectionLabel(
@@ -1068,7 +1085,8 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
                 border: Border.all(color: const Color(0xFFE5EAF3)),
               ),
               child: Text(
-                displayPassage,
+                renderPassage,
+                key: ValueKey('student-workbook-passage-${question.id}'),
                 style: const TextStyle(
                   color: _ink,
                   height: 1.55,
@@ -1098,7 +1116,10 @@ class _StudentWorkbookViewScreenState extends State<StudentWorkbookViewScreen> {
             label: '답안 영역',
           ),
           const SizedBox(height: 7),
-          _answerArea(question),
+          KeyedSubtree(
+            key: ValueKey('student-workbook-answer-area-${question.id}'),
+            child: _answerArea(question),
+          ),
         ],
       ),
     );
@@ -3107,6 +3128,115 @@ List<Map<String, dynamic>> _contentItems(Map<String, dynamic> content) {
       .toList();
 }
 
+List<String> inlineChoiceTeacherOnlyTextsForStudent(
+  WorkbookQuestion question,
+) {
+  final values = <String>[];
+  final seen = <String>{};
+  void addValue(String rawValue) {
+    for (final value in _studentHiddenTextVariants(rawValue)) {
+      final normalized = _normalizeStudentHiddenText(value);
+      if (normalized.isNotEmpty && seen.add(normalized)) {
+        values.add(value);
+      }
+    }
+  }
+
+  const valueKeys = <String>{
+    'answer',
+    'correct',
+    'wrong',
+    'correct_answer',
+    'wrong_answer',
+    'correct_choice',
+    'wrong_choice',
+  };
+  const collectionKeys = <String>{
+    'choices',
+    'answers',
+    'correct_answers',
+    'wrong_answers',
+  };
+
+  void collect(dynamic node, {String? parentKey}) {
+    if (node is Map) {
+      for (final entry in node.entries) {
+        final key = entry.key.toString().toLowerCase();
+        final value = entry.value;
+        if (value is String && valueKeys.contains(key)) {
+          addValue(value);
+        } else if (collectionKeys.contains(key) ||
+            value is Map ||
+            value is List) {
+          collect(value, parentKey: key);
+        }
+      }
+      return;
+    }
+    if (node is List) {
+      for (final value in node) {
+        collect(value, parentKey: parentKey);
+      }
+      return;
+    }
+    if (node is String && collectionKeys.contains(parentKey)) {
+      addValue(node);
+    }
+  }
+
+  collect(question.content);
+  collect(question.answer);
+  return values;
+}
+
+Iterable<String> _studentHiddenTextVariants(String rawValue) sync* {
+  final value = _normalizeStudentLineSpacing(rawValue);
+  if (value.isEmpty) return;
+  yield value;
+  final parenthesisIndex = value.indexOf(RegExp(r'[\(（]'));
+  if (parenthesisIndex > 0) {
+    yield value.substring(0, parenthesisIndex).trim();
+  }
+  for (final part in value.split(RegExp(r'\s*(?:[/|;]|—|–)\s*'))) {
+    if (part.isNotEmpty && part != value) yield part;
+  }
+}
+
+List<Map<String, dynamic>> buildInlineChoiceSubmitAnswersForStudent(
+  WorkbookQuestion question,
+  Map<int, int> selectedAnswers,
+) {
+  final answers = <Map<String, dynamic>>[];
+  for (final item in _contentItems(question.content)) {
+    final number = _asInt(item['number']);
+    final choices = _stringList(item['choices']);
+    final selected = selectedAnswers[_localKey(question.id, number)];
+    final value = selected != null && selected >= 0 && selected < choices.length
+        ? choices[selected]
+        : null;
+    answers.add(<String, dynamic>{
+      'question_id': question.id,
+      'question_type': question.questionType,
+      'item_number': number,
+      'student_answer': value,
+    });
+  }
+  return answers;
+}
+
+bool isInlineChoiceAnsweredForStudent(
+  WorkbookQuestion question,
+  Map<int, int> selectedAnswers,
+) {
+  final items = _contentItems(question.content);
+  return items.isNotEmpty &&
+      items.every(
+        (item) =>
+            selectedAnswers[_localKey(question.id, _asInt(item['number']))] !=
+            null,
+      );
+}
+
 List<String> _stringList(dynamic value) {
   if (value is! List) return const [];
   return value.map((item) => item.toString()).toList();
@@ -3131,9 +3261,157 @@ String _asString(dynamic value) {
   return text == 'null' ? '' : text;
 }
 
-String renderInlineChoicePassageForStudent(String passageText) {
-  return passageText.replaceAllMapped(
+String renderInlineChoicePassageForStudent(
+  String passageText, {
+  Iterable<String> teacherOnlyTexts = const <String>[],
+}) {
+  final hiddenTexts = teacherOnlyTexts
+      .map((text) => text.trim())
+      .where((text) => text.isNotEmpty)
+      .toList(growable: false);
+  var studentPassage = passageText;
+  if (hiddenTexts.isNotEmpty) {
+    studentPassage = cleanStudentPassageText(
+      passageText,
+      hiddenTexts,
+    ).cleanedText;
+    studentPassage = _stripTrailingInlineChoiceTeacherBlock(
+      studentPassage,
+      hiddenTexts,
+    );
+  }
+  return studentPassage.replaceAllMapped(
     RegExp(r'\[\[(\d+):[^\]]+\]\]'),
     (match) => '(${match.group(1)}) ______',
   );
 }
+
+String _stripTrailingInlineChoiceTeacherBlock(
+  String passageText,
+  List<String> teacherOnlyTexts,
+) {
+  final hidden = teacherOnlyTexts
+      .map(_normalizeStudentHiddenText)
+      .where((text) => text.isNotEmpty)
+      .toSet();
+  if (hidden.isEmpty) return passageText;
+  final lines = passageText.split(RegExp(r'\r?\n'));
+  final tailStart = _studentPassageTailStartByCharacterOffset(
+    lines,
+    passageText.length,
+  );
+  for (var start = tailStart; start < lines.length; start++) {
+    final firstMatchCount = _studentTeacherLineMatchCount(lines[start], hidden);
+    if (firstMatchCount == 0) continue;
+
+    final confirmationLines = <String>[];
+    var sectionStart = lines.length;
+    for (var index = start; index < lines.length; index++) {
+      final line = lines[index].trim();
+      if (index > start && _isStudentWorkbookSectionMarker(line)) {
+        sectionStart = index;
+        break;
+      }
+      if (line.isNotEmpty && confirmationLines.length < 4) {
+        confirmationLines.add(line);
+      }
+    }
+    final confirmationMatches = confirmationLines
+        .map((line) => _studentTeacherLineMatchCount(line, hidden))
+        .fold<int>(0, (total, count) => total + count);
+    final matchedConfirmationLines = confirmationLines
+        .where((line) => _studentTeacherLineMatchCount(line, hidden) > 0)
+        .length;
+    final isContinuousBank = confirmationMatches >= 2 &&
+        matchedConfirmationLines >= 2 &&
+        matchedConfirmationLines >= (confirmationLines.length * 0.5).ceil();
+    final isCompactBank = firstMatchCount >= 3;
+    if (!isContinuousBank && !isCompactBank) continue;
+
+    final body = lines.take(start).join('\n').trim();
+    if (body.length < 40) continue;
+    final retainedSection = lines.skip(sectionStart).join('\n').trim();
+    return retainedSection.isEmpty ? body : '$body\n$retainedSection';
+  }
+  return passageText;
+}
+
+int _studentPassageTailStartByCharacterOffset(
+  List<String> lines,
+  int passageLength,
+) {
+  final threshold = (passageLength * 0.35).floor();
+  var offset = 0;
+  for (var index = 0; index < lines.length; index++) {
+    if (offset >= threshold) return index;
+    offset += lines[index].length + 1;
+  }
+  return 0;
+}
+
+int _studentTeacherLineMatchCount(String rawLine, Set<String> hidden) {
+  final line = _normalizeStudentLineSpacing(rawLine);
+  if (line.isEmpty) return 0;
+  final legacyMatches = _legacyStudentTeacherLineMatchCount(line, hidden);
+  if (legacyMatches > 0) return legacyMatches;
+  final withoutPrefix = line.replaceFirst(
+    RegExp(r'^\s*(?:[-*•◈▪]|\d+\s*[.)])\s*'),
+    '',
+  );
+  final parenthesisIndex = withoutPrefix.indexOf(RegExp(r'[\(（]'));
+  final answerPart = parenthesisIndex < 0
+      ? withoutPrefix
+      : withoutPrefix.substring(0, parenthesisIndex);
+  if (hidden.contains(_normalizeStudentHiddenText(answerPart))) return 1;
+
+  final separated = withoutPrefix
+      .split(RegExp(r'\s*(?:[,;/|]|—|–)\s*'))
+      .where((part) => part.trim().isNotEmpty)
+      .toList(growable: false);
+  if (separated.length < 2) return 0;
+  final matches = separated
+      .where((part) => hidden.contains(_normalizeStudentHiddenText(part)))
+      .length;
+  return matches == separated.length ? matches : 0;
+}
+
+bool _isStudentWorkbookSectionMarker(String line) {
+  if (line.isEmpty) return false;
+  return RegExp(
+    r'^(?:Unit\s+\d+\b|Test\s+\d+\b|(?:문제|Question)\s*\d+\b|Sincerely\b|Yours\s+(?:truly|sincerely|faithfully)\b|Best\s+regards\b|Regards\b|Respectfully\b)',
+    caseSensitive: false,
+  ).hasMatch(_normalizeStudentLineSpacing(line));
+}
+
+String _normalizeStudentLineSpacing(String value) => value
+    .replaceAll(RegExp(r'[\u00A0\u3000]'), ' ')
+    .replaceAll(RegExp(r'[\u200B\u200C\u200D\uFEFF]'), '')
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .trim();
+
+int _legacyStudentTeacherLineMatchCount(String rawLine, Set<String> hidden) {
+  final line = rawLine.trim();
+  if (line.isEmpty) return 0;
+  final separated = line
+      .split(RegExp(r'\s*[,;/|]\s*'))
+      .where((part) => part.trim().isNotEmpty)
+      .toList(growable: false);
+  if (separated.length >= 3 &&
+      separated.every(
+        (part) => hidden.contains(_normalizeStudentHiddenText(part)),
+      )) {
+    return separated.length;
+  }
+  final withoutPrefix = line.replaceFirst(
+    RegExp(r'^\s*(?:[-•·]\s*|\d+\s*[.)]\s*)'),
+    '',
+  );
+  final parenthesisIndex = withoutPrefix.indexOf('(');
+  final answerPart = parenthesisIndex < 0
+      ? withoutPrefix
+      : withoutPrefix.substring(0, parenthesisIndex);
+  return hidden.contains(_normalizeStudentHiddenText(answerPart)) ? 1 : 0;
+}
+
+String _normalizeStudentHiddenText(String value) =>
+    value.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9가-힣]+'), '');

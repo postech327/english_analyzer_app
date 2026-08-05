@@ -371,6 +371,93 @@ The passage explains a classroom study.
     );
   });
 
+  test('parses Korean T/F after duplicated HWPX header metadata', () {
+    final candidate = parseWorkbookImportText('''
+Unit 1 Gateway [정답] TFTTT[해설]2) 앞쪽 미리보기 해설입니다.
+
+[정답] TFTTT
+
+[해설]
+
+2) 앞쪽 미리보기 해설입니다.
+
+The source passage remains available to both teacher and student.
+
+1)첫 번째 진술은 본문과 일치한다.
+2)두 번째 진술은 본문과 일치하지 않는다.
+3)세 번째 진술은 본문과 일치한다.
+4)네 번째 진술은 본문과 일치한다.
+5)다섯 번째 진술은 본문과 일치한다.
+
+[정답] TFTTT
+
+[해설]
+
+2) 두 번째 진술은 본문과 일치하지 않는다.
+''').single;
+
+    expect(candidate.questionType, 'true_false');
+    expect(candidate.subtype, 'true_false_ko');
+    expect(candidate.hasBlockingErrors, isFalse);
+    expect(candidate.warnings, isEmpty);
+    expect(candidate.passageText, contains('The source passage'));
+    expect(candidate.passageText, isNot(contains('앞쪽 미리보기 해설')));
+    expect(candidate.answer['items'], hasLength(5));
+    expect(
+      (candidate.answer['items'] as List)
+          .map((item) => item['answer'])
+          .toList(),
+      [true, false, true, true, true],
+    );
+  });
+
+  test('normalizes Korean and symbolic true-false answer labels', () {
+    final cases = <String, List<bool>>{
+      'T / F': [true, false],
+      'True / False': [true, false],
+      'O / X': [true, false],
+      '○ / ×': [true, false],
+      '맞다 / 틀리다': [true, false],
+      '옳다 / 옳지 않다': [true, false],
+      '일치 / 불일치': [true, false],
+      '참 / 거짓': [true, false],
+      '사실 / 사실 아님': [true, false],
+      '① T / ② F': [true, false],
+    };
+
+    for (final entry in cases.entries) {
+      final candidate = parseWorkbookImportText('''
+다음 문장이 본문의 내용과 일치하는지 판단하시오. (T / F)
+1)첫 번째 한글 진술문이다.
+2)두 번째 한글 진술문이다.
+[정답] ${entry.key}
+''').single;
+      expect(candidate.questionType, 'true_false', reason: entry.key);
+      expect(candidate.subtype, 'true_false_ko', reason: entry.key);
+      expect(
+        (candidate.answer['items'] as List)
+            .map((item) => item['answer'])
+            .toList(),
+        entry.value,
+        reason: entry.key,
+      );
+      expect(candidate.hasBlockingErrors, isFalse, reason: entry.key);
+    }
+  });
+
+  test('detects a single Korean statement when a T/F prompt is explicit', () {
+    final candidate = parseWorkbookImportText('''
+다음 내용이 옳으면 O, 틀리면 X를 고르시오.
+1)본문의 핵심 내용과 일치하는 진술이다.
+정답: O
+''').single;
+
+    expect(candidate.questionType, 'true_false');
+    expect(candidate.subtype, 'true_false_ko');
+    expect(candidate.answer['items'], hasLength(1));
+    expect(candidate.answer['items'][0]['answer'], isTrue);
+  });
+
   test('does not over-split numbered initial blank and T/F source blocks', () {
     final initial = parseWorkbookImportText('''
 Unit 1 Gateway
