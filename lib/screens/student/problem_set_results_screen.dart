@@ -2,11 +2,17 @@ import 'package:flutter/material.dart';
 
 import '../../models/problem_set_result_summary.dart';
 import '../../services/problem_set_result_api.dart';
+import '../../widgets/student/unified_learning_result_card.dart';
 import 'student_exam_list_screen.dart';
 import 'student_exam_result_screen.dart';
 
 class ProblemSetResultsScreen extends StatefulWidget {
-  const ProblemSetResultsScreen({super.key});
+  const ProblemSetResultsScreen({
+    super.key,
+    this.resultsLoader,
+  });
+
+  final Future<List<ProblemSetResultSummary>> Function()? resultsLoader;
 
   @override
   State<ProblemSetResultsScreen> createState() =>
@@ -27,11 +33,14 @@ class _ProblemSetResultsScreenState extends State<ProblemSetResultsScreen> {
   @override
   void initState() {
     super.initState();
-    _future = ProblemSetResultApi.fetchResults();
+    _future = _loadResults();
   }
 
+  Future<List<ProblemSetResultSummary>> _loadResults() =>
+      widget.resultsLoader?.call() ?? ProblemSetResultApi.fetchResults();
+
   void _reload() {
-    setState(() => _future = ProblemSetResultApi.fetchResults());
+    setState(() => _future = _loadResults());
   }
 
   void _openResult(ProblemSetResultSummary item) {
@@ -95,9 +104,9 @@ class _ProblemSetResultsScreenState extends State<ProblemSetResultsScreen> {
           if (items.isEmpty) {
             return _MessagePanel(
               icon: Icons.assignment_outlined,
-              title: '아직 풀이한 내신 문제세트 결과가 없습니다.',
-              message: 'Start Exam에서 문제를 먼저 풀어 보세요.',
-              actionLabel: 'Start Exam으로 이동',
+              title: '학습 기록 없음',
+              message: '첫 내신 변형문제 학습을 시작해 보세요.',
+              actionLabel: '학습 시작',
               onAction: _openStartExam,
             );
           }
@@ -128,7 +137,7 @@ class _ProblemSetResultsScreenState extends State<ProblemSetResultsScreen> {
                 ...items.map(
                   (item) => Padding(
                     padding: const EdgeInsets.only(bottom: 14),
-                    child: _ResultCard(
+                    child: _UnifiedProblemResultCard(
                       item: item,
                       onOpen: () => _openResult(item),
                     ),
@@ -143,6 +152,47 @@ class _ProblemSetResultsScreenState extends State<ProblemSetResultsScreen> {
   }
 }
 
+class _UnifiedProblemResultCard extends StatelessWidget {
+  const _UnifiedProblemResultCard({
+    required this.item,
+    required this.onOpen,
+  });
+
+  final ProblemSetResultSummary item;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return UnifiedLearningResultCard(
+      title: item.problemSetName,
+      subtitle: item.source,
+      dateLabel: '응시일 ${_formatResultDate(item.submittedAt)}',
+      score: item.score,
+      correctCount: item.correctCount,
+      totalCount: item.totalCount,
+      leadingIcon: Icons.fact_check_rounded,
+      accentColor: const Color(0xFF2563EB),
+      badges: item.weakTypes.isEmpty ? const ['뚜렷한 약점 없음'] : item.weakTypes,
+      primaryActionLabel: '오답 다시보기',
+      onPrimaryAction: onOpen,
+      onTap: onOpen,
+    );
+  }
+}
+
+String _formatResultDate(String? value) {
+  if (value == null || value.isEmpty) return '-';
+  final parsed = DateTime.tryParse(value);
+  if (parsed == null) return value.split('T').first;
+  final local = parsed.toLocal();
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  return '$month.$day $hour:$minute';
+}
+
+// ignore: unused_element
 class _ResultCard extends StatelessWidget {
   const _ResultCard({
     required this.item,

@@ -10,6 +10,8 @@ import '../services/learning_assignment_service.dart';
 import '../services/student_problem_set_assignment_service.dart';
 import 'final_touch_list_screen.dart';
 import 'student/mock_exam_list_screen.dart';
+import 'student/mock_exam_report_screen.dart';
+import 'student/problem_set_results_screen.dart';
 import 'student/student_assigned_problem_sets_screen.dart';
 import 'student/student_exam_list_screen.dart';
 import 'student/student_results_hub_screen.dart';
@@ -17,9 +19,16 @@ import 'student_learning_assignments_screen.dart';
 import 'student_vocabulary_screens.dart';
 
 class StudentDashboardScreen extends StatefulWidget {
-  const StudentDashboardScreen({super.key, this.onOpenDrawer});
+  const StudentDashboardScreen({
+    super.key,
+    this.onOpenDrawer,
+    this.dashboardLoader,
+    this.onLearningDomainTap,
+  });
 
   final VoidCallback? onOpenDrawer;
+  final Future<Map<String, dynamic>> Function()? dashboardLoader;
+  final ValueChanged<String>? onLearningDomainTap;
 
   @override
   State<StudentDashboardScreen> createState() => _StudentDashboardScreenState();
@@ -27,6 +36,7 @@ class StudentDashboardScreen extends StatefulWidget {
 
 class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   Map<String, dynamic>? dashboard;
+  Object? dashboardError;
   bool isLoading = true;
   final _assignmentService = const LearningAssignmentService();
   final _problemSetAssignmentService =
@@ -37,18 +47,24 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _workbookAssignmentsFuture =
-        _assignmentService.fetchStudentAssignments(contentType: 'workbook');
-    _problemSetAssignmentsFuture =
-        _problemSetAssignmentService.fetchAssignedProblemSets();
+    _workbookAssignmentsFuture = _loadWorkbookAssignments();
+    _problemSetAssignmentsFuture = _loadProblemSetAssignments();
     loadDashboard();
   }
 
+  Future<List<LearningAssignment>> _loadWorkbookAssignments() {
+    if (widget.dashboardLoader != null) return Future.value(const []);
+    return _assignmentService.fetchStudentAssignments(contentType: 'workbook');
+  }
+
+  Future<List<StudentAssignedProblemSet>> _loadProblemSetAssignments() {
+    if (widget.dashboardLoader != null) return Future.value(const []);
+    return _problemSetAssignmentService.fetchAssignedProblemSets();
+  }
+
   Future<void> loadDashboard() async {
-    final workbookFuture =
-        _assignmentService.fetchStudentAssignments(contentType: 'workbook');
-    final problemSetFuture =
-        _problemSetAssignmentService.fetchAssignedProblemSets();
+    final workbookFuture = _loadWorkbookAssignments();
+    final problemSetFuture = _loadProblemSetAssignments();
     if (isLoading) {
       _workbookAssignmentsFuture = workbookFuture;
       _problemSetAssignmentsFuture = problemSetFuture;
@@ -59,12 +75,14 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       });
     }
     try {
-      final data = await ApiService.fetchDashboard();
+      final data =
+          await (widget.dashboardLoader?.call() ?? ApiService.fetchDashboard());
 
       if (!mounted) return;
 
       setState(() {
         dashboard = data;
+        dashboardError = null;
         isLoading = false;
       });
     } catch (e) {
@@ -73,12 +91,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       if (!mounted) return;
 
       setState(() {
-        dashboard = {
-          'best_score': null,
-          'latest_attempt_score': null,
-          'weakest_type': null,
-          'recommendations': [],
-        };
+        dashboardError = e;
         isLoading = false;
       });
     }
@@ -142,6 +155,37 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     if (isLoading || dashboard == null) {
+      if (!isLoading && dashboardError != null) {
+        return Scaffold(
+          backgroundColor: const Color(0xFFF6F8FC),
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.cloud_off_rounded,
+                      size: 42, color: Color(0xFF64748B)),
+                  const SizedBox(height: 12),
+                  const Text(
+                    '학습 현황을 불러오지 못했습니다.',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: () {
+                      setState(() => isLoading = true);
+                      loadDashboard();
+                    },
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('다시 시도'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }
       return const Scaffold(
         backgroundColor: Color(0xFFF6F8FC),
         body: Center(child: CircularProgressIndicator()),
@@ -149,17 +193,15 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     }
 
     final data = dashboard!;
+    final learningStatus = data['learning_status'] is Map
+        ? Map<String, dynamic>.from(data['learning_status'] as Map)
+        : const <String, dynamic>{};
     final totalAttempts = _safeNullableInt(data['total_attempts']) ?? 0;
-    final totalQuestionsSolved =
-        _safeNullableInt(data['total_questions_solved']) ?? 0;
     final hasAttempts = totalAttempts > 0;
-    final bestScore = hasAttempts ? _safeNullableInt(data['best_score']) : null;
     final latestScore =
         hasAttempts ? _safeNullableInt(data['latest_attempt_score']) : null;
     final averageScore =
         hasAttempts ? _safeNullableDouble(data['average_score']) : null;
-    final accuracy =
-        totalQuestionsSolved > 0 ? _safeNullableDouble(data['accuracy']) : null;
     final weakType = _safeText(
       data['weakest_type'],
       fallback: '아직 없음',
@@ -224,14 +266,8 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
             const SizedBox(height: 16),
             _todayLearningCard(),
             const SizedBox(height: 16),
-            _learningStatusCard(
-              totalAttempts: totalAttempts,
-              bestScore: bestScore,
-              latestScore: latestScore,
-              averageScore: averageScore,
-              accuracy: accuracy,
-              weakType: weakType,
-              recentResults: recentResults,
+            _learningDomainsCard(
+              learningStatus: learningStatus,
             ),
             const SizedBox(height: 16),
             _recentLearningCard(recentResults: recentResults),
@@ -631,6 +667,93 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     );
   }
 
+  Widget _learningDomainsCard({
+    required Map<String, dynamic> learningStatus,
+  }) {
+    _LearningDomainStatus domain(String key) =>
+        _LearningDomainStatus.fromJson(learningStatus[key]);
+
+    final workbook = domain('workbook');
+    final vocabulary = domain('vocabulary');
+    final problemSet = domain('problem_set');
+    final mockExam = domain('mock_exam');
+    final items = [
+      _StatusData(
+        label: '워크북',
+        value: workbook.valueText,
+        helper: workbook.helperText(completionLabel: '완료'),
+        icon: Icons.menu_book_rounded,
+        color: const Color(0xFF2563EB),
+        onTap: () => _openLearningDomain('workbook'),
+      ),
+      _StatusData(
+        label: '단어장',
+        value: vocabulary.percentValueText,
+        helper: vocabulary.helperText(
+          completionLabel: '완료',
+          percent: true,
+        ),
+        icon: Icons.spellcheck_rounded,
+        color: const Color(0xFF7C3AED),
+        onTap: () => _openLearningDomain('vocabulary'),
+      ),
+      _StatusData(
+        label: '내신 변형문제',
+        value: problemSet.valueText,
+        helper: problemSet.helperText(completionLabel: '응시'),
+        icon: Icons.fact_check_rounded,
+        color: const Color(0xFF0F766E),
+        onTap: () => _openLearningDomain('problem_set'),
+      ),
+      _StatusData(
+        label: '모의고사',
+        value: mockExam.valueText,
+        helper: mockExam.helperText(completionLabel: '응시'),
+        icon: Icons.assignment_rounded,
+        color: const Color(0xFFEA580C),
+        onTap: () => _openLearningDomain('mock_exam'),
+      ),
+    ];
+
+    return _SectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _SectionHeader(
+            icon: Icons.emoji_events_rounded,
+            title: '학습 상태 요약',
+            subtitle: '네 학습 영역의 최근 완료 결과와 누적 평균입니다.',
+            color: Color(0xFF6D4AFF),
+          ),
+          const SizedBox(height: 14),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = constraints.maxWidth >= 720
+                  ? 4
+                  : constraints.maxWidth >= 420
+                      ? 2
+                      : 1;
+              return GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: items.length,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: columns,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  mainAxisExtent: 142,
+                ),
+                itemBuilder: (context, index) =>
+                    _StatusTile(data: items[index]),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ignore: unused_element
   Widget _learningStatusCard({
     required int totalAttempts,
     required int? bestScore,
@@ -1011,6 +1134,60 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       context,
       MaterialPageRoute(builder: (_) => const StudentResultsHubScreen()),
     );
+  }
+
+  void _openVocabularyResults() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const StudentVocabularyListScreen(resultsMode: true),
+      ),
+    );
+  }
+
+  void _openWorkbookResults() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            const StudentLearningAssignmentsScreen(resultsMode: true),
+      ),
+    );
+  }
+
+  void _openProblemSetResults() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ProblemSetResultsScreen()),
+    );
+  }
+
+  void _openMockExamResults() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const StudentMockExamReportScreen()),
+    );
+  }
+
+  void _openLearningDomain(String domain) {
+    if (widget.onLearningDomainTap != null) {
+      widget.onLearningDomainTap!(domain);
+      return;
+    }
+    switch (domain) {
+      case 'workbook':
+        _openWorkbookResults();
+        break;
+      case 'vocabulary':
+        _openVocabularyResults();
+        break;
+      case 'problem_set':
+        _openProblemSetResults();
+        break;
+      case 'mock_exam':
+        _openMockExamResults();
+        break;
+    }
   }
 
   void _openLearningAssignments() {
@@ -1418,6 +1595,57 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
+class _LearningDomainStatus {
+  const _LearningDomainStatus({
+    required this.hasRecords,
+    required this.latestScore,
+    required this.averageScore,
+    required this.attemptCount,
+  });
+
+  factory _LearningDomainStatus.fromJson(dynamic value) {
+    final json = value is Map
+        ? Map<String, dynamic>.from(value)
+        : const <String, dynamic>{};
+    double? number(dynamic raw) {
+      if (raw is num) return raw.toDouble();
+      return double.tryParse(raw?.toString() ?? '');
+    }
+
+    return _LearningDomainStatus(
+      hasRecords: json['has_records'] == true,
+      latestScore: number(json['latest_score']),
+      averageScore: number(json['average_score']),
+      attemptCount: (number(json['attempt_count']) ?? 0).toInt(),
+    );
+  }
+
+  final bool hasRecords;
+  final double? latestScore;
+  final double? averageScore;
+  final int attemptCount;
+
+  String _score(double value) {
+    return value == value.roundToDouble()
+        ? value.toInt().toString()
+        : value.toStringAsFixed(1);
+  }
+
+  String get valueText => hasRecords && latestScore != null
+      ? '${_score(latestScore!)}점'
+      : '학습 기록 없음';
+
+  String get percentValueText => hasRecords && latestScore != null
+      ? '${_score(latestScore!)}%'
+      : '학습 기록 없음';
+
+  String helperText({required String completionLabel, bool percent = false}) {
+    if (!hasRecords || averageScore == null) return '첫 학습을 시작해 보세요';
+    final unit = percent ? '%' : '점';
+    return '평균 ${_score(averageScore!)}$unit · $completionLabel $attemptCount회';
+  }
+}
+
 class _StatusData {
   const _StatusData({
     required this.label,
@@ -1425,6 +1653,7 @@ class _StatusData {
     required this.helper,
     required this.icon,
     required this.color,
+    this.onTap,
   });
 
   final String label;
@@ -1432,6 +1661,7 @@ class _StatusData {
   final String helper;
   final IconData icon;
   final Color color;
+  final VoidCallback? onTap;
 }
 
 class _StatusTile extends StatelessWidget {
@@ -1441,63 +1671,73 @@ class _StatusTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: data.color.withValues(alpha: 0.08),
+    return Material(
+      color: data.color.withValues(alpha: 0.08),
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: data.color.withValues(alpha: 0.18)),
+        side: BorderSide(color: data.color.withValues(alpha: 0.18)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        key: ValueKey('learning-domain-${data.label}'),
+        onTap: data.onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: data.color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(data.icon, color: data.color, size: 18),
+              Row(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: data.color.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(data.icon, color: data.color, size: 18),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      data.label,
+                      maxLines: 2,
+                      textAlign: TextAlign.end,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF64748B),
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const Spacer(),
               Text(
-                data.label,
+                data.value,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: const Color(0xFF111827),
+                  fontSize: data.value == '학습 기록 없음' ? 15 : 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                data.helper,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: Color(0xFF64748B),
                   fontSize: 11.5,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
           ),
-          const Spacer(),
-          Text(
-            data.value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Color(0xFF111827),
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            data.helper,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Color(0xFF64748B),
-              fontSize: 11.5,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

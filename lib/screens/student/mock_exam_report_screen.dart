@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 
 import '../../services/student_mock_exam_service.dart';
+import '../../widgets/student/unified_learning_result_card.dart';
+import 'mock_exam_list_screen.dart';
 import 'mock_exam_attempt_detail_screen.dart';
 
 class StudentMockExamReportScreen extends StatefulWidget {
-  const StudentMockExamReportScreen({super.key});
+  const StudentMockExamReportScreen({
+    super.key,
+    this.reportLoader,
+  });
+
+  final Future<Map<String, dynamic>> Function()? reportLoader;
 
   @override
   State<StudentMockExamReportScreen> createState() =>
@@ -25,11 +32,15 @@ class _StudentMockExamReportScreenState
   @override
   void initState() {
     super.initState();
-    _future = StudentMockExamService.fetchMockExamReport();
+    _future = _loadReport();
   }
 
+  Future<Map<String, dynamic>> _loadReport() =>
+      widget.reportLoader?.call() ??
+      StudentMockExamService.fetchMockExamReport();
+
   void _reload() {
-    setState(() => _future = StudentMockExamService.fetchMockExamReport());
+    setState(() => _future = _loadReport());
   }
 
   @override
@@ -85,6 +96,18 @@ class _ReportBody extends StatelessWidget {
     final recentAttempts = _asList(data['recent_attempts']);
     final trend = _asList(data['score_trend']);
 
+    if (recentAttempts.isEmpty) {
+      return UnifiedLearningResultsEmptyState(
+        icon: Icons.assignment_rounded,
+        accentColor: const Color(0xFF0891B2),
+        actionLabel: '모의고사 시작',
+        onStart: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const MockExamListScreen()),
+        ),
+      );
+    }
+
     return RefreshIndicator(
       onRefresh: () async {
         final state = context
@@ -100,7 +123,7 @@ class _ReportBody extends StatelessWidget {
           const SizedBox(height: 14),
           _TrendCard(items: trend),
           const SizedBox(height: 14),
-          _RecentAttemptsCard(items: recentAttempts),
+          _UnifiedRecentAttemptsCard(items: recentAttempts),
         ],
       ),
     );
@@ -413,6 +436,69 @@ class _TrendCard extends StatelessWidget {
   }
 }
 
+class _UnifiedRecentAttemptsCard extends StatelessWidget {
+  const _UnifiedRecentAttemptsCard({required this.items});
+
+  final List<dynamic> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionTitle('최근 모의고사 결과', Icons.history_rounded),
+          const SizedBox(height: 14),
+          if (items.isEmpty)
+            const _EmptyText('아직 응시한 모의고사가 없습니다.')
+          else
+            ...items.map((item) {
+              final data = _asMap(item);
+              final attemptId = _asInt(data['attempt_id']);
+              void openResult() {
+                if (attemptId <= 0) return;
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => StudentMockExamAttemptDetailScreen(
+                      attemptId: attemptId,
+                    ),
+                  ),
+                );
+              }
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: UnifiedLearningResultCard(
+                  title: _asText(data['title'], '모의고사'),
+                  subtitle: [
+                    _asText(data['grade'], ''),
+                    if (data['year'] != null) '${data['year']}년',
+                    if (data['month'] != null) '${data['month']}월',
+                  ].where((value) => value.isNotEmpty).join(' · '),
+                  dateLabel: '응시일 ${_formatDate(data['submitted_at'])}',
+                  score: _asDouble(data['score']),
+                  correctCount: _asInt(data['correct_count']),
+                  totalCount: _asInt(data['total_questions'], 20),
+                  leadingIcon: Icons.assignment_rounded,
+                  accentColor: const Color(0xFF0891B2),
+                  badges: _asList(data['weak_types'])
+                      .map((value) => value.toString())
+                      .where((value) => value.isNotEmpty)
+                      .toList(),
+                  primaryActionLabel: '오답 다시보기',
+                  onPrimaryAction: attemptId <= 0 ? null : openResult,
+                  onTap: attemptId <= 0 ? null : openResult,
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+}
+
+// ignore: unused_element
 class _RecentAttemptsCard extends StatelessWidget {
   const _RecentAttemptsCard({required this.items});
 
