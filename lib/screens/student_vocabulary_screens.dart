@@ -5,12 +5,24 @@ import 'package:flutter/material.dart';
 import '../models/vocabulary.dart';
 import '../services/vocabulary_service.dart';
 import '../utils/vocabulary_learning_utils.dart';
+import '../widgets/student/unified_learning_result_card.dart';
 
 const _studentVocabPurple = Color(0xFF6D5CE7);
 const _studentVocabSurface = Color(0xFFF7F6FC);
 
 class StudentVocabularyListScreen extends StatefulWidget {
-  const StudentVocabularyListScreen({super.key});
+  const StudentVocabularyListScreen({
+    super.key,
+    this.resultsMode = false,
+    this.setsLoader,
+    this.attemptsLoader,
+    this.attemptDetailLoader,
+  });
+
+  final bool resultsMode;
+  final Future<List<VocabularySet>> Function()? setsLoader;
+  final Future<List<VocabularyAttempt>> Function(int setId)? attemptsLoader;
+  final Future<VocabularyAttempt> Function(int attemptId)? attemptDetailLoader;
 
   @override
   State<StudentVocabularyListScreen> createState() =>
@@ -21,11 +33,31 @@ class _StudentVocabularyListScreenState
     extends State<StudentVocabularyListScreen> {
   final _service = const VocabularyService();
   late Future<List<VocabularySet>> _future;
+  Map<int, List<VocabularyAttempt>> _attemptsBySet = {};
 
   @override
   void initState() {
     super.initState();
-    _future = _service.fetchStudentSets();
+    _future = _loadSets();
+  }
+
+  Future<List<VocabularySet>> _loadSets() async {
+    final sets =
+        await (widget.setsLoader?.call() ?? _service.fetchStudentSets());
+    if (!widget.resultsMode) return sets;
+    final entries = await Future.wait(
+      sets.map((set) async {
+        final attempts = await (widget.attemptsLoader?.call(set.id) ??
+            _service.fetchStudentAttempts(set.id));
+        return MapEntry(set.id, attempts);
+      }),
+    );
+    _attemptsBySet = Map<int, List<VocabularyAttempt>>.fromEntries(entries);
+    return sets;
+  }
+
+  void _reload() {
+    setState(() => _future = _loadSets());
   }
 
   @override
@@ -35,10 +67,17 @@ class _StudentVocabularyListScreenState
       appBar: AppBar(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
-        title: const Text(
-          '단어장 학습',
-          style: TextStyle(fontWeight: FontWeight.w900),
+        title: Text(
+          widget.resultsMode ? '단어장 결과' : '단어장 학습',
+          style: const TextStyle(fontWeight: FontWeight.w900),
         ),
+        actions: [
+          IconButton(
+            tooltip: '새로고침',
+            onPressed: _reload,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
       ),
       body: FutureBuilder<List<VocabularySet>>(
         future: _future,
@@ -47,9 +86,27 @@ class _StudentVocabularyListScreenState
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return Center(child: Text('${snapshot.error}'));
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('${snapshot.error}', textAlign: TextAlign.center),
+                    const SizedBox(height: 12),
+                    FilledButton(
+                      onPressed: _reload,
+                      child: const Text('다시 시도'),
+                    ),
+                  ],
+                ),
+              ),
+            );
           }
           final items = snapshot.data ?? const [];
+          if (widget.resultsMode) {
+            return _buildResults(items);
+          }
           if (items.isEmpty) {
             return const Center(
               child: Padding(
@@ -151,6 +208,169 @@ class _StudentVocabularyListScreenState
             ],
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildResults(List<VocabularySet> sets) {
+    final completed = sets
+        .where((set) => (_attemptsBySet[set.id] ?? const []).isNotEmpty)
+        .toList()
+      ..sort((a, b) {
+        final aDate = _attemptsBySet[a.id]!.first.createdAt ?? '';
+        final bDate = _attemptsBySet[b.id]!.first.createdAt ?? '';
+        return bDate.compareTo(aDate);
+      });
+    final notStarted = sets
+        .where((set) => (_attemptsBySet[set.id] ?? const []).isEmpty)
+        .toList();
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 32),
+      children: [
+        const Text(
+          '단어장 퀴즈 결과',
+          style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          '최근 정답률과 단어별 학습 결과를 확인합니다.',
+          style: TextStyle(
+            color: Color(0xFF64748B),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 18),
+        if (completed.isEmpty && notStarted.isEmpty)
+          UnifiedLearningResultsEmptyState(
+            icon: Icons.translate_rounded,
+            accentColor: _studentVocabPurple,
+            onStart: () => Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const StudentVocabularyListScreen(),
+              ),
+            ),
+          )
+        else ...[
+          for (final set in completed) ...[
+            Builder(
+              builder: (context) {
+                final attempts = _attemptsBySet[set.id]!;
+                final latest = attempts.first;
+                Future<void> openResult() async {
+                  final detail =
+                      await (widget.attemptDetailLoader?.call(latest.id) ??
+                          _service.fetchStudentAttempt(latest.id));
+                  if (!context.mounted) return;
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => StudentVocabularyResultScreen(
+                        attempt: detail,
+                        vocabularySet: set,
+                      ),
+                    ),
+                  );
+                }
+
+                return UnifiedLearningResultCard(
+                  title: set.title,
+                  subtitle: [set.sourceLabel, set.unitLabel]
+                      .whereType<String>()
+                      .where((value) => value.isNotEmpty)
+                      .join(' · '),
+                  dateLabel: '최근 학습 ${_shortDate(latest.createdAt)}',
+                  score: latest.score,
+                  scoreUnit: '%',
+                  correctCount: latest.correctCount,
+                  totalCount: latest.totalCount,
+                  leadingIcon: Icons.translate_rounded,
+                  accentColor: _studentVocabPurple,
+                  badges: ['${attempts.length}회 완료', latest.rangeLabel ?? '전체'],
+                  primaryActionLabel: '결과 보기',
+                  secondaryActionLabel: '다시 학습',
+                  onPrimaryAction: openResult,
+                  onSecondaryAction: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => StudentVocabularyDetailScreen(
+                        setId: set.id,
+                      ),
+                    ),
+                  ),
+                  onTap: openResult,
+                );
+              },
+            ),
+            const SizedBox(height: 14),
+          ],
+          if (notStarted.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            const Text(
+              '학습 기록 없음',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 10),
+            for (final set in notStarted) ...[
+              _VocabularyNoResultCard(
+                vocabularySet: set,
+                onStart: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        StudentVocabularyDetailScreen(setId: set.id),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+          ],
+        ],
+      ],
+    );
+  }
+}
+
+class _VocabularyNoResultCard extends StatelessWidget {
+  const _VocabularyNoResultCard({
+    required this.vocabularySet,
+    required this.onStart,
+  });
+
+  final VocabularySet vocabularySet;
+  final VoidCallback onStart;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            vocabularySet.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 6),
+          const Text('학습 기록 없음 · 첫 학습을 시작해 보세요'),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: onStart,
+            icon: const Icon(Icons.play_arrow_rounded),
+            label: const Text('학습하기'),
+            style: FilledButton.styleFrom(
+              backgroundColor: _studentVocabPurple,
+            ),
+          ),
+        ],
       ),
     );
   }

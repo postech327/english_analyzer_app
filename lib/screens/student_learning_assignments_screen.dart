@@ -4,11 +4,22 @@ import '../models/learning_assignment.dart';
 import '../models/workbook_attempt.dart';
 import '../services/learning_assignment_service.dart';
 import '../services/workbook_attempt_service.dart';
+import '../widgets/student/unified_learning_result_card.dart';
 import 'final_touch_list_screen.dart';
 import 'student_workbook_view_screen.dart';
 
 class StudentLearningAssignmentsScreen extends StatefulWidget {
-  const StudentLearningAssignmentsScreen({super.key});
+  const StudentLearningAssignmentsScreen({
+    super.key,
+    this.resultsMode = false,
+    this.assignmentLoader,
+    this.latestAttemptLoader,
+  });
+
+  final bool resultsMode;
+  final Future<List<LearningAssignment>> Function()? assignmentLoader;
+  final Future<WorkbookAttempt?> Function(int assignmentId)?
+      latestAttemptLoader;
 
   @override
   State<StudentLearningAssignmentsScreen> createState() =>
@@ -44,14 +55,17 @@ class _StudentLearningAssignmentsScreenState
   }
 
   Future<List<LearningAssignment>> _loadAssignments() async {
-    final items = await _service.fetchStudentAssignments();
+    final items = await (widget.assignmentLoader?.call() ??
+        _service.fetchStudentAssignments());
     final workbookItems = items.where((item) => item.isWorkbook).toList();
     final entries = await Future.wait(
       workbookItems.map((item) async {
         try {
-          final latest = await _attemptService.fetchLatestForStudent(item.id);
+          final latest = await (widget.latestAttemptLoader?.call(item.id) ??
+              _attemptService.fetchLatestForStudent(item.id));
           return MapEntry(item.id, latest);
         } catch (_) {
+          if (widget.resultsMode) rethrow;
           return MapEntry<int, WorkbookAttempt?>(item.id, null);
         }
       }),
@@ -104,6 +118,21 @@ class _StudentLearningAssignmentsScreenState
     _reload();
   }
 
+  void _openWorkbookResult(
+    LearningAssignment assignment,
+    WorkbookAttempt attempt,
+  ) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StudentWorkbookAttemptResultScreen(
+          assignment: assignment,
+          attempt: attempt,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -113,9 +142,9 @@ class _StudentLearningAssignmentsScreenState
         foregroundColor: _ink,
         elevation: 0,
         surfaceTintColor: Colors.white,
-        title: const Text(
-          '내 학습',
-          style: TextStyle(fontWeight: FontWeight.w900),
+        title: Text(
+          widget.resultsMode ? '워크북 결과' : '내 학습',
+          style: const TextStyle(fontWeight: FontWeight.w900),
         ),
       ),
       body: RefreshIndicator(
@@ -137,6 +166,9 @@ class _StudentLearningAssignmentsScreenState
             }
 
             final allItems = snapshot.data ?? const [];
+            if (widget.resultsMode) {
+              return _buildWorkbookResults(allItems);
+            }
             final items = _filtered(allItems);
 
             return ListView(
@@ -168,6 +200,213 @@ class _StudentLearningAssignmentsScreenState
             );
           },
         ),
+      ),
+    );
+  }
+
+  Widget _buildWorkbookResults(List<LearningAssignment> allItems) {
+    final workbookItems = allItems.where((item) => item.isWorkbook).toList();
+    final completed = workbookItems
+        .where((item) => _latestWorkbookAttempts[item.id] != null)
+        .toList()
+      ..sort((a, b) {
+        final aDate = _latestWorkbookAttempts[a.id]?.submittedAt ?? '';
+        final bDate = _latestWorkbookAttempts[b.id]?.submittedAt ?? '';
+        return bDate.compareTo(aDate);
+      });
+    final inProgress = workbookItems
+        .where((item) => _latestWorkbookAttempts[item.id] == null)
+        .toList();
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 112),
+      children: [
+        const Text(
+          '워크북 학습 결과',
+          style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          '완료한 워크북의 최근 점수와 제출 결과를 확인합니다.',
+          style: TextStyle(
+            color: _muted,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 18),
+        if (completed.isEmpty)
+          UnifiedLearningResultsEmptyState(
+            icon: Icons.menu_book_rounded,
+            accentColor: _blue,
+            actionLabel: '워크북 학습 시작',
+            onStart: () => Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const StudentLearningAssignmentsScreen(),
+              ),
+            ),
+          )
+        else
+          for (final assignment in completed) ...[
+            Builder(
+              builder: (context) {
+                final attempt = _latestWorkbookAttempts[assignment.id]!;
+                final subtitle = [
+                  assignment.sourceLabel,
+                  assignment.folderName,
+                ]
+                    .whereType<String>()
+                    .where((value) => value.isNotEmpty)
+                    .join(' · ');
+                return UnifiedLearningResultCard(
+                  title: assignment.title.isEmpty ? '워크북' : assignment.title,
+                  subtitle: subtitle,
+                  dateLabel: '최근 제출 ${_dateTimeText(attempt.submittedAt)}',
+                  score: attempt.scorePercent,
+                  correctCount: attempt.correctCount,
+                  totalCount: attempt.totalQuestions,
+                  leadingIcon: Icons.menu_book_rounded,
+                  accentColor: _blue,
+                  badges: ['${attempt.attemptNo}회차', '완료'],
+                  primaryActionLabel: '결과 보기',
+                  secondaryActionLabel: '다시 풀기',
+                  onPrimaryAction: () =>
+                      _openWorkbookResult(assignment, attempt),
+                  onSecondaryAction: () => _openAssignment(assignment),
+                  onTap: () => _openWorkbookResult(assignment, attempt),
+                );
+              },
+            ),
+            const SizedBox(height: 14),
+          ],
+        if (inProgress.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          const Text(
+            '학습 중',
+            style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 10),
+          for (final assignment in inProgress)
+            _AssignmentCard(
+              assignment: assignment,
+              latestAttempt: null,
+              onTap: () => _openAssignment(assignment),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+class StudentWorkbookAttemptResultScreen extends StatelessWidget {
+  const StudentWorkbookAttemptResultScreen({
+    super.key,
+    required this.assignment,
+    required this.attempt,
+  });
+
+  final LearningAssignment assignment;
+  final WorkbookAttempt attempt;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF6F8FC),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFF6F8FC),
+        title: const Text(
+          '워크북 결과',
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(18, 12, 18, 32),
+        children: [
+          UnifiedLearningResultCard(
+            title: assignment.title.isEmpty ? '워크북' : assignment.title,
+            subtitle: [assignment.sourceLabel, assignment.folderName]
+                .whereType<String>()
+                .where((value) => value.isNotEmpty)
+                .join(' · '),
+            dateLabel: '최근 제출 ${_dateTimeText(attempt.submittedAt)}',
+            score: attempt.scorePercent,
+            correctCount: attempt.correctCount,
+            totalCount: attempt.totalQuestions,
+            leadingIcon: Icons.menu_book_rounded,
+            accentColor: const Color(0xFF2563EB),
+            badges: ['${attempt.attemptNo}회차'],
+          ),
+          const SizedBox(height: 18),
+          const Text(
+            '문항별 결과',
+            style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 10),
+          if (attempt.results.isEmpty)
+            const Text('문항별 상세 결과가 없습니다.')
+          else
+            for (var index = 0; index < attempt.results.length; index++) ...[
+              _WorkbookAnswerResultTile(
+                index: index + 1,
+                result: attempt.results[index],
+              ),
+              const SizedBox(height: 9),
+            ],
+        ],
+      ),
+    );
+  }
+}
+
+class _WorkbookAnswerResultTile extends StatelessWidget {
+  const _WorkbookAnswerResultTile({
+    required this.index,
+    required this.result,
+  });
+
+  final int index;
+  final WorkbookAttemptAnswerResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    final color =
+        result.isCorrect ? const Color(0xFF16A34A) : const Color(0xFFDC2626);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            result.isCorrect
+                ? Icons.check_circle_rounded
+                : Icons.cancel_rounded,
+            color: color,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$index번 · ${result.questionType}',
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 4),
+                Text('내 답: ${result.studentAnswer ?? '-'}'),
+                if (!result.isCorrect)
+                  Text(
+                    '정답: ${result.correctAnswer ?? '-'}',
+                    style: TextStyle(color: color, fontWeight: FontWeight.w800),
+                  ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
