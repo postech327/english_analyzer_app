@@ -127,6 +127,7 @@ class FinalTouchDetail extends FinalTouchSummary {
 }
 
 class FinalTouchSentenceDetail {
+  final String semanticSentenceId;
   final int sentenceNo;
   final String original;
   final String translation;
@@ -141,6 +142,7 @@ class FinalTouchSentenceDetail {
   final String questionPoint;
 
   const FinalTouchSentenceDetail({
+    this.semanticSentenceId = '',
     required this.sentenceNo,
     required this.original,
     required this.translation,
@@ -157,6 +159,7 @@ class FinalTouchSentenceDetail {
 
   factory FinalTouchSentenceDetail.fromJson(Map<String, dynamic> json) {
     return FinalTouchSentenceDetail(
+      semanticSentenceId: _asStrictString(json['semantic_sentence_id']),
       sentenceNo: _asInt(json['sentence_no']),
       original: _asString(json['original']),
       translation: _asString(
@@ -370,3 +373,5 @@ int? _asNullableInt(dynamic value) {
 }
 
 String _asString(dynamic value) => value?.toString() ?? '';
+
+String _asStrictString(dynamic value) => value is String ? value.trim() : '';
