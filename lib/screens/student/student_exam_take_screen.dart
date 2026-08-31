@@ -417,9 +417,9 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
           });
         } else if (_languageInteractionType(specialData) == 'multi_select' ||
             _languageInteractionType(specialData) == 'correction_multi') {
-          final selected = (multiSelectAnswers[qId] ?? const <int>{}).toList()
-            ..sort();
-          final answerText = selected.join(',');
+          final answerText = serializeLanguagePositionSelection(
+            multiSelectAnswers[qId] ?? const <int>{},
+          );
           debugPrint(
             '[StudentLanguageNumberAnswer] q=$qId '
             'interaction=${_languageInteractionType(specialData)} '
@@ -2518,9 +2518,9 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '정답을 모두 선택하세요.',
-            style: TextStyle(
+          Text(
+            maxAnswers == 1 ? '정답을 하나 선택하세요.' : '정답을 모두 선택하세요.',
+            style: const TextStyle(
               color: _ink,
               fontSize: 15,
               fontWeight: FontWeight.w900,
@@ -2540,16 +2540,12 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
                   selected: selected.contains(position),
                   onSelected: (checked) {
                     setState(() {
-                      final next = Set<int>.from(
-                          multiSelectAnswers[qId] ?? const <int>{});
-                      if (checked) {
-                        if (maxAnswers <= 0 || next.length < maxAnswers) {
-                          next.add(position);
-                        }
-                      } else {
-                        next.remove(position);
-                      }
-                      multiSelectAnswers[qId] = next;
+                      multiSelectAnswers[qId] = updateLanguagePositionSelection(
+                        selected: multiSelectAnswers[qId] ?? const <int>{},
+                        position: position,
+                        checked: checked,
+                        maxAnswers: maxAnswers,
+                      );
                     });
                   },
                   selectedColor: const Color(0xFFEFF6FF),
@@ -2576,7 +2572,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
       TextSpan(
         children: [
           TextSpan(
-            text: insertionPositionLabel(position),
+            text: grammarVocabularyPositionLabel(specialData, position),
             style: const TextStyle(fontWeight: FontWeight.w900),
           ),
           if (showPositionText && positionText.isNotEmpty)

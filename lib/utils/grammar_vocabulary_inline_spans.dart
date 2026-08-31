@@ -7,6 +7,7 @@ const grammarVocabularyQuestionTypes = <String>{
   'vocabulary_count',
   'grammar_correction',
   'vocabulary_correction',
+  'correction',
 };
 
 bool isGrammarVocabularyQuestionType(String? questionType) {
@@ -48,6 +49,44 @@ String grammarVocabularyPositionText(
 ) {
   final texts = _positionTexts(specialData);
   return texts[position.toString()] ?? texts[_positionLabel(position)] ?? '';
+}
+
+String grammarVocabularyPositionLabel(
+  Map<String, dynamic> specialData,
+  int position,
+) {
+  final raw = specialData['position_labels'];
+  if (raw is List && position >= 1 && position <= raw.length) {
+    final label = raw[position - 1].toString().trim();
+    if (label.isNotEmpty) return label;
+  }
+  if (raw is Map) {
+    final label =
+        (raw[position.toString()] ?? raw[position])?.toString().trim();
+    if (label != null && label.isNotEmpty) return label;
+  }
+  return _positionLabel(position);
+}
+
+Set<int> updateLanguagePositionSelection({
+  required Set<int> selected,
+  required int position,
+  required bool checked,
+  required int maxAnswers,
+}) {
+  final next = Set<int>.from(selected);
+  if (!checked) {
+    next.remove(position);
+    return next;
+  }
+  if (maxAnswers == 1) return <int>{position};
+  if (maxAnswers <= 0 || next.length < maxAnswers) next.add(position);
+  return next;
+}
+
+String serializeLanguagePositionSelection(Iterable<int> selected) {
+  final sorted = selected.toSet().toList()..sort();
+  return sorted.join(',');
 }
 
 List<String> grammarVocabularyFallbackStudentOptions({
