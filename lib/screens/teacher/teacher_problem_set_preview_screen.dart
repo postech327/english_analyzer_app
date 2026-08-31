@@ -391,6 +391,7 @@ class _QuestionCard extends StatelessWidget {
       'vocabulary_count',
       'grammar_correction',
       'vocabulary_correction',
+      'correction',
     };
     final isLanguageInteraction =
         languageTypes.contains(type.trim().toLowerCase());
@@ -683,6 +684,10 @@ class _QuestionCard extends StatelessWidget {
                       for (final position in languagePositions)
                         _LanguagePositionPreview(
                           position: position,
+                          label: grammarVocabularyPositionLabel(
+                            specialData,
+                            position,
+                          ),
                           text: grammarVocabularyPositionText(
                             specialData,
                             position,
@@ -898,11 +903,13 @@ class _TeacherInsertionPositionPreview extends StatelessWidget {
 class _LanguagePositionPreview extends StatelessWidget {
   const _LanguagePositionPreview({
     required this.position,
+    required this.label,
     required this.text,
     required this.showText,
   });
 
   final int position;
+  final String label;
   final String text;
   final bool showText;
 
@@ -919,7 +926,7 @@ class _LanguagePositionPreview extends StatelessWidget {
         TextSpan(
           children: [
             TextSpan(
-              text: insertionPositionLabel(position),
+              text: label,
               style: const TextStyle(
                 color: Color(0xFF2563EB),
                 fontWeight: FontWeight.w900,
@@ -1426,6 +1433,7 @@ String _questionTypeLabel(String type) {
     'vocabulary_count' => '어휘 개수',
     'grammar_correction' => '어법 고치기',
     'vocabulary_correction' => '어휘 고치기',
+    'correction' => '어법·문맥 고치기',
     _ => type.trim().isEmpty ? '유형 미지정' : type.trim(),
   };
 }
