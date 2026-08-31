@@ -51,6 +51,9 @@ class FinalTouchSentenceAnalysis extends StatelessWidget {
         const SizedBox(height: 12),
         for (var index = 0; index < details.length; index++) ...[
           _ReadableSentenceAnalysisCard(
+            key: details[index].semanticSentenceId.trim().isEmpty
+                ? null
+                : ValueKey<String>(details[index].semanticSentenceId.trim()),
             detail: details[index],
             fallbackTranslation: index < translationFallbacks.length
                 ? translationFallbacks[index]
@@ -658,6 +661,7 @@ bool _looksLikeWholePassageTranslation(String translation, String original) {
 
 class _ReadableSentenceAnalysisCard extends StatelessWidget {
   const _ReadableSentenceAnalysisCard({
+    super.key,
     required this.detail,
     required this.fallbackTranslation,
     required this.highlightType,
