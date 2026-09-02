@@ -1,6 +1,7 @@
 import 'package:english_analyzer_app/config/auth_store.dart';
 import 'package:english_analyzer_app/models/correction_generation_models.dart';
 import 'package:english_analyzer_app/screens/teacher/teacher_semantic_correction_screen.dart';
+import 'package:english_analyzer_app/screens/teacher_question_maker_screen.dart';
 import 'package:english_analyzer_app/services/correction_generation_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -20,6 +21,29 @@ void main() {
       find.byKey(const Key('correction-analyze-button')),
     );
     expect(button.onPressed, isNull);
+  });
+
+  testWidgets('question maker body entry opens correction screen and returns', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(900, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      const MaterialApp(home: TeacherQuestionMakerScreen()),
+    );
+
+    final entry = find.byKey(const Key('semantic-correction-entry-button'));
+    expect(entry, findsOneWidget);
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    expect(find.byType(TeacherSemanticCorrectionScreen), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(TeacherQuestionMakerScreen), findsOneWidget);
+    expect(entry, findsOneWidget);
   });
 
   testWidgets('candidates render, select, and enable generation', (
@@ -177,16 +201,14 @@ class FakeCorrectionGateway implements CorrectionGenerationGateway {
     'data': {
       'question_id': 'CORRECTION-1',
       'stem': {'ko': '다음 글의 밑줄 친 부분 중 어색한 것을 고치시오.'},
-      'corrupted_passage': '①word1 ②word2 ③word3 ④Therefore ⑤word5.',
+      'original_passage': 'word1 word2 word3 However word5.',
+      'corrupted_passage': 'word1 word2 word3 Therefore word5.',
       'markers': [
-        for (var index = 1; index <= 5; index++)
-          {
-            'marker_position': index,
-            'marker': String.fromCharCode(0x2460 + index - 1),
-            'display_text': index == 4 ? 'Therefore' : 'word$index',
-            'original_text': index == 4 ? 'However' : 'word$index',
-            'is_corrupted': index == 4,
-          },
+        _marker(1, '①', 0, 5, 'word1', 'word1'),
+        _marker(2, '②', 6, 11, 'word2', 'word2'),
+        _marker(3, '③', 12, 17, 'word3', 'word3'),
+        _marker(4, '④', 18, 25, 'However', 'Therefore', corrupted: true),
+        _marker(5, '⑤', 26, 31, 'word5', 'word5'),
       ],
       'answer': 4,
       'corruption': {'original_text': 'However'},
@@ -249,3 +271,22 @@ class FakeCorrectionGateway implements CorrectionGenerationGateway {
     return const CorrectionSaveResult(problemSetId: 17, savedQuestionCount: 1);
   }
 }
+
+Map<String, dynamic> _marker(
+  int position,
+  String marker,
+  int start,
+  int end,
+  String original,
+  String display, {
+  bool corrupted = false,
+}) =>
+    {
+      'marker_position': position,
+      'marker': marker,
+      'start_char': start,
+      'end_char': end,
+      'display_text': display,
+      'original_text': original,
+      'is_corrupted': corrupted,
+    };

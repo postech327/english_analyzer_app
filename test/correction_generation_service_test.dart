@@ -103,6 +103,10 @@ void main() {
     expect(generated.answer, 4);
     expect(generated.correctExpression, 'However');
     expect(generated.markers, hasLength(5));
+    expect(
+      generated.markedPreviewPassage,
+      '①word1 ②word2 ③word3 ④Therefore ⑤word5.',
+    );
   });
 
   test('save uses official semantic_corrections import payload', () async {
@@ -213,22 +217,15 @@ Map<String, dynamic> _generatedResponse() => {
         'target': _candidateJson(),
         'stem': {'ko': '다음 글의 밑줄 친 부분 중 어색한 것을 고치시오.'},
         'markers': [
-          for (var index = 1; index <= 5; index++)
-            {
-              'marker_position': index,
-              'marker': String.fromCharCode(0x2460 + index - 1),
-              'target_sentence_id': 'S$index',
-              'target_sentence_index': index - 1,
-              'start_char': index * 10,
-              'end_char': index * 10 + 4,
-              'original_text': index == 4 ? 'However' : 'word$index',
-              'display_text': index == 4 ? 'Therefore' : 'word$index',
-              'is_corrupted': index == 4,
-            },
+          _marker(1, '①', 0, 5, 'word1', 'word1'),
+          _marker(2, '②', 6, 11, 'word2', 'word2'),
+          _marker(3, '③', 12, 17, 'word3', 'word3'),
+          _marker(4, '④', 18, 25, 'However', 'Therefore', corrupted: true),
+          _marker(5, '⑤', 26, 31, 'word5', 'word5'),
         ],
         'answer': 4,
-        'original_passage': 'Original passage.',
-        'corrupted_passage': '①word1 ②word2 ③word3 ④Therefore ⑤word5.',
+        'original_passage': 'word1 word2 word3 However word5.',
+        'corrupted_passage': 'word1 word2 word3 Therefore word5.',
         'corruption': {
           'target_id': 'TARGET-S2-1',
           'target_sentence_id': 'S2',
@@ -258,4 +255,25 @@ Map<String, dynamic> _generatedResponse() => {
         'judge_result': {'overall_valid': true},
         'judge_issues': [],
       },
+    };
+
+Map<String, dynamic> _marker(
+  int position,
+  String marker,
+  int start,
+  int end,
+  String original,
+  String display, {
+  bool corrupted = false,
+}) =>
+    {
+      'marker_position': position,
+      'marker': marker,
+      'target_sentence_id': 'S$position',
+      'target_sentence_index': position - 1,
+      'start_char': start,
+      'end_char': end,
+      'original_text': original,
+      'display_text': display,
+      'is_corrupted': corrupted,
     };

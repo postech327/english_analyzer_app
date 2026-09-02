@@ -29,6 +29,7 @@ class _TeacherQuestionMakerScreenState
     extends State<TeacherQuestionMakerScreen> {
   static const _brandBlue = Color(0xFF2563EB);
   static const _ink = Color(0xFF172033);
+  static const _muted = Color(0xFF64748B);
   static const _line = Color(0xFFE2E8F0);
   static const _surface = Color(0xFFF4F7FB);
 
@@ -38,6 +39,15 @@ class _TeacherQuestionMakerScreenState
   QuestionTypeKey _selectedType = QuestionTypeKey.all;
   int _numQuestions = 1;
   bool _isLoading = false;
+
+  Future<void> _openSemanticCorrection() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const TeacherSemanticCorrectionScreen(),
+      ),
+    );
+  }
 
   String _labelForType(QuestionTypeKey type) {
     switch (type) {
@@ -150,14 +160,7 @@ class _TeacherQuestionMakerScreenState
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: FilledButton.tonalIcon(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const TeacherSemanticCorrectionScreen(),
-                  ),
-                );
-              },
+              onPressed: _openSemanticCorrection,
               icon: const Icon(Icons.rule_rounded, size: 18),
               label: const Text('Semantic 고치기'),
             ),
@@ -220,6 +223,48 @@ class _TeacherQuestionMakerScreenState
                   icon: Icons.edit_note_outlined,
                   title: '수업 자료 기반 문제 제작',
                   subtitle: '지문을 입력하고 유형과 문항 수를 선택하면 바로 문제세트를 생성합니다.',
+                ),
+                const SizedBox(height: 12),
+                _AdminCard(
+                  child: Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.rule_rounded, color: _brandBlue),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'AI Semantic 고치기',
+                                style: TextStyle(
+                                  color: _ink,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          '지문을 분석해 안전한 어법·문맥 고치기 후보를 선택하고 문제세트로 저장합니다.',
+                          style: TextStyle(color: _muted, height: 1.4),
+                        ),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            key: const Key('semantic-correction-entry-button'),
+                            onPressed: _openSemanticCorrection,
+                            icon: const Icon(Icons.auto_fix_high_rounded),
+                            label: const Text('Semantic 고치기 열기'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 16),
                 _AdminCard(

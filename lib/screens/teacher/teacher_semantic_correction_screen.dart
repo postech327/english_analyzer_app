@@ -371,7 +371,7 @@ class _TeacherSemanticCorrectionScreenState
           const SizedBox(height: 12),
           Text.rich(
             buildGrammarVocabularyInlineSpans(
-              passage: question.corruptedPassage,
+              passage: question.markedPreviewPassage,
               specialData: question.previewSpecialData,
               baseStyle: const TextStyle(
                 color: _ink,

@@ -66,6 +66,8 @@ class CorrectionMarker {
   const CorrectionMarker({
     required this.position,
     required this.marker,
+    required this.startChar,
+    required this.endChar,
     required this.displayText,
     required this.originalText,
     required this.isCorrupted,
@@ -73,6 +75,8 @@ class CorrectionMarker {
 
   final int position;
   final String marker;
+  final int startChar;
+  final int endChar;
   final String displayText;
   final String originalText;
   final bool isCorrupted;
@@ -81,6 +85,8 @@ class CorrectionMarker {
     return CorrectionMarker(
       position: _asInt(json['marker_position']),
       marker: (json['marker'] ?? '').toString(),
+      startChar: _asInt(json['start_char']),
+      endChar: _asInt(json['end_char']),
       displayText: (json['display_text'] ?? '').toString(),
       originalText: (json['original_text'] ?? '').toString(),
       isCorrupted: json['is_corrupted'] == true,
@@ -93,6 +99,7 @@ class CorrectionGeneratedQuestion {
     required this.raw,
     required this.questionId,
     required this.stem,
+    required this.originalPassage,
     required this.corruptedPassage,
     required this.markers,
     required this.answer,
@@ -103,6 +110,7 @@ class CorrectionGeneratedQuestion {
   final JsonMap raw;
   final String questionId;
   final String stem;
+  final String originalPassage;
   final String corruptedPassage;
   final List<CorrectionMarker> markers;
   final int answer;
@@ -116,6 +124,7 @@ class CorrectionGeneratedQuestion {
       raw: JsonMap.from(data),
       questionId: (data['question_id'] ?? '').toString(),
       stem: (_asMap(data['stem'])['ko'] ?? '').toString(),
+      originalPassage: (data['original_passage'] ?? '').toString(),
       corruptedPassage: (data['corrupted_passage'] ?? '').toString(),
       markers: _asMapList(
         data['markers'],
@@ -139,6 +148,38 @@ class CorrectionGeneratedQuestion {
         },
         'max_answers': 1,
       };
+
+  String get markedPreviewPassage {
+    final spatialMarkers = [...markers]
+      ..sort((left, right) => left.startChar.compareTo(right.startChar));
+    final marked = StringBuffer();
+    final unmarked = StringBuffer();
+    var cursor = 0;
+    for (final marker in spatialMarkers) {
+      if (marker.startChar < cursor ||
+          marker.endChar > originalPassage.length ||
+          marker.startChar > marker.endChar ||
+          originalPassage.substring(marker.startChar, marker.endChar) !=
+              marker.originalText) {
+        return corruptedPassage;
+      }
+      final prefix = originalPassage.substring(cursor, marker.startChar);
+      marked
+        ..write(prefix)
+        ..write(marker.marker)
+        ..write(marker.displayText);
+      unmarked
+        ..write(prefix)
+        ..write(marker.displayText);
+      cursor = marker.endChar;
+    }
+    final suffix = originalPassage.substring(cursor);
+    marked.write(suffix);
+    unmarked.write(suffix);
+    return unmarked.toString() == corruptedPassage
+        ? marked.toString()
+        : corruptedPassage;
+  }
 }
 
 class CorrectionSaveResult {
