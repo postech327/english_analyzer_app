@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../services/teacher_api.dart';
 import 'teacher_question_hwpx_import_screen.dart';
 import 'teacher_problem_sets_screen.dart';
+import 'teacher/teacher_semantic_correction_screen.dart';
 
 enum QuestionTypeKey {
   topic,
@@ -146,6 +147,21 @@ class _TeacherQuestionMakerScreenState
           style: TextStyle(fontWeight: FontWeight.w800),
         ),
         actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: FilledButton.tonalIcon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const TeacherSemanticCorrectionScreen(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.rule_rounded, size: 18),
+              label: const Text('Semantic 고치기'),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: OutlinedButton.icon(
