@@ -5,6 +5,7 @@ import '../services/teacher_api.dart';
 import 'teacher_question_hwpx_import_screen.dart';
 import 'teacher_problem_sets_screen.dart';
 import 'teacher/teacher_semantic_correction_screen.dart';
+import 'teacher/teacher_semantic_order_screen.dart';
 
 enum QuestionTypeKey {
   topic,
@@ -16,6 +17,8 @@ enum QuestionTypeKey {
   order,
   all,
 }
+
+enum _QuestionMakerMenuAction { correction, hwpxImport, problemSets }
 
 class TeacherQuestionMakerScreen extends StatefulWidget {
   const TeacherQuestionMakerScreen({super.key});
@@ -45,6 +48,15 @@ class _TeacherQuestionMakerScreenState
       context,
       MaterialPageRoute(
         builder: (_) => const TeacherSemanticCorrectionScreen(),
+      ),
+    );
+  }
+
+  Future<void> _openSemanticOrder() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const TeacherSemanticOrderScreen(),
       ),
     );
   }
@@ -145,6 +157,8 @@ class _TeacherQuestionMakerScreenState
 
   @override
   Widget build(BuildContext context) {
+    final compactAppBar = MediaQuery.sizeOf(context).width < 900;
+
     return Scaffold(
       backgroundColor: _surface,
       appBar: AppBar(
@@ -156,7 +170,48 @@ class _TeacherQuestionMakerScreenState
           '문제 제작',
           style: TextStyle(fontWeight: FontWeight.w800),
         ),
-        actions: [
+        actions: compactAppBar
+            ? [
+                PopupMenuButton<_QuestionMakerMenuAction>(
+                  tooltip: '문제 제작 메뉴',
+                  onSelected: (action) {
+                    if (action == _QuestionMakerMenuAction.correction) {
+                      _openSemanticCorrection();
+                    } else if (action ==
+                        _QuestionMakerMenuAction.hwpxImport) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              const TeacherQuestionHwpxImportScreen(),
+                        ),
+                      );
+                    } else {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const TeacherProblemSetsScreen(),
+                        ),
+                      );
+                    }
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: _QuestionMakerMenuAction.correction,
+                      child: Text('Semantic 고치기'),
+                    ),
+                    PopupMenuItem(
+                      value: _QuestionMakerMenuAction.hwpxImport,
+                      child: Text('HWPX 문제 가져오기'),
+                    ),
+                    PopupMenuItem(
+                      value: _QuestionMakerMenuAction.problemSets,
+                      child: Text('문제세트'),
+                    ),
+                  ],
+                ),
+              ]
+            : [
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: FilledButton.tonalIcon(
@@ -209,7 +264,7 @@ class _TeacherQuestionMakerScreenState
               ),
             ),
           ),
-        ],
+              ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(18),
@@ -273,6 +328,48 @@ class _TeacherQuestionMakerScreenState
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.swap_vert_rounded, color: _brandBlue),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'AI Semantic 순서',
+                                style: TextStyle(
+                                  color: _ink,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          '지문을 분석해 순서가 하나로 확정되는 후보를 선택하고 문제세트로 저장합니다.',
+                          style: TextStyle(color: _muted, height: 1.4),
+                        ),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            key: const Key('semantic-order-entry-button'),
+                            onPressed: _openSemanticOrder,
+                            icon: const Icon(Icons.auto_awesome_rounded),
+                            label: const Text('Semantic 순서 문제 만들기'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _AdminCard(
+                  child: Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         const _SectionTitle(
                           title: '제작 설정',
                           subtitle: '출제 유형과 문항 수를 먼저 선택하세요.',
@@ -282,35 +379,32 @@ class _TeacherQuestionMakerScreenState
                           builder: (context, constraints) {
                             final stacked = constraints.maxWidth < 720;
                             final controls = [
-                              Expanded(
-                                child: _FieldShell(
-                                  label: '문제 유형',
-                                  child: DropdownButtonHideUnderline(
-                                    child: DropdownButton<QuestionTypeKey>(
-                                      value: _selectedType,
-                                      isExpanded: true,
-                                      icon: const Icon(Icons.expand_more),
-                                      items: QuestionTypeKey.values
-                                          .map(
-                                            (type) => DropdownMenuItem(
-                                              value: type,
-                                              child: Text(_labelForType(type)),
-                                            ),
-                                          )
-                                          .toList(),
-                                      onChanged: (type) {
-                                        if (type == null) return;
-                                        setState(() => _selectedType = type);
-                                      },
-                                    ),
+                              _FieldShell(
+                                label: '문제 유형',
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<QuestionTypeKey>(
+                                    value: _selectedType,
+                                    isExpanded: true,
+                                    icon: const Icon(Icons.expand_more),
+                                    items: QuestionTypeKey.values
+                                        .map(
+                                          (type) => DropdownMenuItem(
+                                            value: type,
+                                            child: Text(_labelForType(type)),
+                                          ),
+                                        )
+                                        .toList(),
+                                    onChanged: (type) {
+                                      if (type == null) return;
+                                      setState(() => _selectedType = type);
+                                    },
                                   ),
                                 ),
                               ),
-                              Expanded(
-                                child: _FieldShell(
-                                  label: '자동 생성 문항 수',
-                                  child: DropdownButtonHideUnderline(
-                                    child: DropdownButton<int>(
+                              _FieldShell(
+                                label: '자동 생성 문항 수',
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<int>(
                                       value: _numQuestions,
                                       isExpanded: true,
                                       icon: const Icon(Icons.expand_more),
@@ -340,7 +434,6 @@ class _TeacherQuestionMakerScreenState
                                         if (value == null) return;
                                         setState(() => _numQuestions = value);
                                       },
-                                    ),
                                   ),
                                 ),
                               ),
@@ -358,9 +451,9 @@ class _TeacherQuestionMakerScreenState
 
                             return Row(
                               children: [
-                                controls[0],
+                                Expanded(child: controls[0]),
                                 const SizedBox(width: 12),
-                                controls[1],
+                                Expanded(child: controls[1]),
                               ],
                             );
                           },
