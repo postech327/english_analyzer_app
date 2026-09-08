@@ -2051,6 +2051,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   }) {
     final blocks = _orderBlocks(specialData);
     final selected = orderAnswers[qId] ?? const <String>[];
+    final blockLabels = blocks.keys.join(', ');
     final fixedStart = _firstNonEmptyText([
       specialData['lead_passage'],
       specialData['base_passage'],
@@ -2089,9 +2090,9 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'A, B, C \uBE14\uB85D\uC744 \uC62C\uBC14\uB978 \uC21C\uC11C\uB300\uB85C \uB20C\uB7EC \uBC30\uC5F4\uD558\uC138\uC694.',
-              style: TextStyle(
+            Text(
+              '$blockLabels \uBE14\uB85D\uC744 \uC62C\uBC14\uB978 \uC21C\uC11C\uB300\uB85C \uB20C\uB7EC \uBC30\uC5F4\uD558\uC138\uC694.',
+              style: const TextStyle(
                 color: _muted,
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
