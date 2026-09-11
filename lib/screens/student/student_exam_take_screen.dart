@@ -2876,7 +2876,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   String _cleanStudentOptionText(String raw) {
     var normalized = raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim();
     normalized = normalized.replaceFirst(
-      RegExp(r'^\s*(?:[??????????]|[1-5][\.)]?|[A-E][\.)]?)\s*'),
+      RegExp(r'^\s*(?:[\u2460-\u2468]|[1-9][\.)]|[A-I][\.)])\s*'),
       '',
     );
 
