@@ -10,6 +10,12 @@ import '../../utils/original_underline_inline_spans.dart';
 import '../../widgets/special_question_interaction_widgets.dart';
 import 'student_exam_result_screen.dart';
 
+String studentChoiceLabel(int index) {
+  const labels = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨'];
+  if (index >= 0 && index < labels.length) return labels[index];
+  return '${index + 1}.';
+}
+
 class StudentExamTakeScreen extends StatefulWidget {
   final int problemSetId;
 
@@ -2891,9 +2897,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
   }
 
   String _circled(int index) {
-    const labels = ['①', '②', '③', '④', '⑤'];
-    if (index >= 0 && index < labels.length) return labels[index];
-    return '${index + 1}.';
+    return studentChoiceLabel(index);
   }
 
   ButtonStyle _primaryButtonStyle() {

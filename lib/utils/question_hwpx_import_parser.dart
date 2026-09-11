@@ -1518,6 +1518,9 @@ QuestionImportDraft _q4ApplyLongPassageSet(
   var clearAnswerIndex = false;
   var answerIndex = question.answerIndex;
   var choices = question.choices;
+  if (questionType == 'content_match') {
+    specialData['choice_ids'] = _q4ChoiceIds(choices.length);
+  }
   var warnings = question.warnings
       .where(
         (warning) =>
@@ -1703,7 +1706,13 @@ QuestionImportDraft _q4ApplyLongPassageSet(
         ...specialData,
         'kind': 'content_match',
         'interaction_type': isMultiSelect ? 'multi_select' : 'single_choice',
+        'choice_ids': _q4ChoiceIds(choices.length),
         if (isMultiSelect) 'answer_indices': explicitAnswerIndices,
+        if (isMultiSelect)
+          'answer_choice_ids': _q4AnswerChoiceIds(
+            explicitAnswerIndices,
+            choiceCount: choices.length,
+          ),
         if (isMultiSelect) 'max_answers': _q4MaxAnswers(compactPrompt) ?? 2,
       };
       answerText =
@@ -1867,6 +1876,26 @@ String _q4ExplicitAnswerRaw(List<String> lines) {
 
 List<int> _q4ExplicitAnswerIndices(List<String> lines) {
   return _q3AnswerIndices(_q4ExplicitAnswerRaw(lines));
+}
+
+List<String> _q4ChoiceIds(int count) {
+  const ids = 'ABCDEFGHI';
+  return List<String>.generate(
+    count.clamp(0, ids.length),
+    (index) => ids[index],
+    growable: false,
+  );
+}
+
+List<String> _q4AnswerChoiceIds(
+  List<int> answerIndices, {
+  required int choiceCount,
+}) {
+  final choiceIds = _q4ChoiceIds(choiceCount);
+  return answerIndices
+      .where((index) => index >= 0 && index < choiceIds.length)
+      .map((index) => choiceIds[index])
+      .toList(growable: false);
 }
 
 _Q4AnswerRecovery? _q4RecoverAnswerFromDocument(
@@ -3552,10 +3581,13 @@ QuestionImportDraft _qmParseQuestionBlock(
   }
 
   final rawChoices = choiceGroup?.choices ?? const <String>[];
-  final choices = rawChoices.length > 5
+  final preserveMultiSelectContentChoices =
+      (questionType == 'mismatch' || questionType == 'content') &&
+          _q4IsMultiSelectPrompt(questionText.replaceAll(RegExp(r'\s+'), ''));
+  final choices = rawChoices.length > 5 && !preserveMultiSelectContentChoices
       ? rawChoices.sublist(rawChoices.length - 5)
       : rawChoices;
-  if (rawChoices.length > 5) {
+  if (rawChoices.length > 5 && !preserveMultiSelectContentChoices) {
     debugPrint(
       '[QuestionImportParser] legacy choices corrected: ${rawChoices.length} -> ${choices.length}',
     );
@@ -5451,6 +5483,9 @@ int? _q2ChoiceNumber(String line) {
   final first = String.fromCharCode(clean.runes.first);
   final circled = _qmCircledLabels.indexOf(first);
   if (circled >= 0) return circled + 1;
+  const circledLetters = 'ⓐⓑⓒⓓⓔⓕⓖⓗⓘ';
+  final circledLetter = circledLetters.indexOf(first);
+  if (circledLetter >= 0) return circledLetter + 1;
   final numeric =
       RegExp(r'^\s*(?:[（(]?([1-9])[）)]|([1-9])[\).])').firstMatch(clean);
   final value = numeric?.group(1) ?? numeric?.group(2);

@@ -701,18 +701,12 @@ class _QuestionCard extends StatelessWidget {
               if (options.isNotEmpty)
                 _SectionBlock(
                   label: '보기',
-                  child: Column(
-                    children: [
-                      for (final entry in options.asMap().entries)
-                        _OptionRow(
-                          option: entry.value,
-                          underline: shouldUnderlineChoiceForQuestionType(type),
-                          isCorrect: (isChoiceMultiSelect &&
-                                  multiAnswerIndices.contains(entry.key)) ||
-                              entry.value == answerOption ||
-                              entry.value['is_correct'] == true,
-                        ),
-                    ],
+                  child: TeacherPreviewOptions(
+                    options: options,
+                    underline: shouldUnderlineChoiceForQuestionType(type),
+                    correctIndices:
+                        isChoiceMultiSelect ? multiAnswerIndices : const {},
+                    answerOption: answerOption,
                   ),
                 ),
             ],
@@ -945,6 +939,37 @@ class _LanguagePositionPreview extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class TeacherPreviewOptions extends StatelessWidget {
+  const TeacherPreviewOptions({
+    super.key,
+    required this.options,
+    required this.correctIndices,
+    required this.underline,
+    this.answerOption,
+  });
+
+  final List<Map<String, dynamic>> options;
+  final Set<int> correctIndices;
+  final bool underline;
+  final Map<String, dynamic>? answerOption;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        for (final entry in options.asMap().entries)
+          _OptionRow(
+            option: entry.value,
+            underline: underline,
+            isCorrect: correctIndices.contains(entry.key) ||
+                entry.value == answerOption ||
+                entry.value['is_correct'] == true,
+          ),
+      ],
     );
   }
 }
