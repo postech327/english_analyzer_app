@@ -5,6 +5,7 @@ import '../services/teacher_api.dart';
 import 'teacher_question_hwpx_import_screen.dart';
 import 'teacher_problem_sets_screen.dart';
 import 'teacher/teacher_semantic_correction_screen.dart';
+import 'teacher/teacher_semantic_content_match_screen.dart';
 import 'teacher/teacher_semantic_insertion_screen.dart';
 import 'teacher/teacher_semantic_order_screen.dart';
 
@@ -67,6 +68,14 @@ class _TeacherQuestionMakerScreenState
       context,
       MaterialPageRoute(
         builder: (_) => const TeacherSemanticInsertionScreen(),
+      ),
+    );
+  }
+
+  Future<void> _openSemanticContentMatch() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const TeacherSemanticContentMatchScreen(),
       ),
     );
   }
@@ -412,6 +421,48 @@ class _TeacherQuestionMakerScreenState
                             onPressed: _openSemanticInsertion,
                             icon: const Icon(Icons.auto_awesome_rounded),
                             label: const Text('Semantic 문장 삽입 만들기'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _AdminCard(
+                  child: Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.fact_check_outlined, color: _brandBlue),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'AI Semantic 내용 일치',
+                                style: TextStyle(
+                                  color: _ink,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          '지문을 분석해 정답 2개가 명확한 내용 일치·불일치 문제를 만들고 저장합니다.',
+                          style: TextStyle(color: _muted, height: 1.4),
+                        ),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            key: const Key('semantic-content-match-entry-button'),
+                            onPressed: _openSemanticContentMatch,
+                            icon: const Icon(Icons.auto_awesome_rounded),
+                            label: const Text('Semantic 내용 일치 만들기'),
                           ),
                         ),
                       ],
