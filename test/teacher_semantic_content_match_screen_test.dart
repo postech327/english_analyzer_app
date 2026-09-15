@@ -69,6 +69,21 @@ void main() {
     expect(find.textContaining('안전도 90%'), findsOneWidget);
   });
 
+  testWidgets('analysis and candidate load preserve the input passage', (
+    tester,
+  ) async {
+    final gateway = FakeContentMatchGateway();
+    await _pump(tester, gateway);
+    await _analyze(tester);
+
+    expect(gateway.analyzedPassage, _passage);
+    expect(_passageText(tester), _passage);
+    expect(
+      _button(tester, 'content-match-analyze-button').onPressed,
+      isNotNull,
+    );
+  });
+
   testWidgets('candidate shows semantic focus and evidence summary', (
     tester,
   ) async {
@@ -113,6 +128,37 @@ void main() {
         findsOneWidget,
       );
     }
+  });
+
+  testWidgets('candidate selection and generation preserve passage state', (
+    tester,
+  ) async {
+    await _pump(tester, FakeContentMatchGateway());
+    await _generate(tester);
+
+    expect(_passageText(tester), _passage);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('content-match-generated-preview')),
+        matching: find.text(_passage),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('generation does not overwrite newer teacher edits', (tester) async {
+    await _pump(tester, FakeContentMatchGateway());
+    await _selectCandidate(tester);
+    const edited = 'A newly edited teacher passage.';
+    await tester.enterText(
+      find.byKey(const Key('content-match-passage-input')),
+      edited,
+    );
+    await tester.pump();
+    final action = _button(tester, 'content-match-generate-button').onPressed;
+    action?.call();
+    await tester.pumpAndSettle();
+    expect(_passageText(tester), edited);
   });
 
   testWidgets('sixth product choice is visible', (tester) async {
@@ -215,6 +261,90 @@ void main() {
     expect(find.text('문제세트 저장 완료: #421'), findsOneWidget);
   });
 
+  testWidgets('save uses the passage captured for successful analysis', (
+    tester,
+  ) async {
+    final gateway = FakeContentMatchGateway();
+    await _pump(tester, gateway);
+    await _analyze(tester);
+
+    await tester.enterText(
+      find.byKey(const Key('content-match-passage-input')),
+      '',
+    );
+    await tester.pump();
+
+    final candidate = find.byKey(
+      const Key('content-match-candidate-CM-TARGET-1'),
+    );
+    await tester.ensureVisible(candidate);
+    await tester.tap(candidate);
+    await tester.pump();
+    final generate = find.byKey(const Key('content-match-generate-button'));
+    await tester.ensureVisible(generate);
+    await tester.tap(generate);
+    await tester.pumpAndSettle();
+
+    final save = find.byKey(const Key('content-match-save-button'));
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+
+    expect(gateway.analyzedPassage, _passage);
+    expect(gateway.savedPassage, _passage);
+    // A deliberate teacher edit must survive even when saving the old result.
+    expect(_passageText(tester), isEmpty);
+  });
+
+  testWidgets('failed save keeps the analyzed passage visible', (
+    tester,
+  ) async {
+    final gateway = FakeContentMatchGateway(failSave: true);
+    await _pump(tester, gateway);
+    await _generate(tester);
+
+    final save = find.byKey(const Key('content-match-save-button'));
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+
+    expect(gateway.savedPassage, _passage);
+    expect(_passageText(tester), _passage);
+    expect(find.textContaining('요청을 처리하지 못했습니다'), findsOneWidget);
+  });
+
+  testWidgets('successful save does not clear the analyzed passage', (
+    tester,
+  ) async {
+    await _pump(tester, FakeContentMatchGateway());
+    await _generate(tester);
+
+    final save = find.byKey(const Key('content-match-save-button'));
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+
+    expect(_passageText(tester), _passage);
+  });
+
+  testWidgets('changing question mode preserves the input passage', (
+    tester,
+  ) async {
+    await _pump(tester, FakeContentMatchGateway());
+    await _enterPassage(tester);
+
+    await tester.tap(find.byKey(const Key('content-match-mode-selector')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('내용과 일치하지 않는 것 두 개').last);
+    await tester.pumpAndSettle();
+
+    expect(_passageText(tester), _passage);
+    expect(
+      _button(tester, 'content-match-analyze-button').onPressed,
+      isNotNull,
+    );
+  });
+
   testWidgets('question maker always shows the body entry card', (
     tester,
   ) async {
@@ -280,6 +410,11 @@ const _passage = 'A sufficiently long English passage for content matching.';
 
 FilledButton _button(WidgetTester tester, String key) =>
     tester.widget<FilledButton>(find.byKey(Key(key)));
+
+String _passageText(WidgetTester tester) => tester
+    .widget<TextField>(find.byKey(const Key('content-match-passage-input')))
+    .controller!
+    .text;
 
 Future<void> _pump(
   WidgetTester tester,
@@ -352,6 +487,7 @@ class FakeContentMatchGateway implements ContentMatchGenerationGateway {
     this.noCandidates = false,
     this.pauseAnalysis = false,
     this.networkFailure = false,
+    this.failSave = false,
     this.failCode,
     this.failMessage = 'unsafe generated question',
   });
@@ -359,11 +495,13 @@ class FakeContentMatchGateway implements ContentMatchGenerationGateway {
   final bool noCandidates;
   final bool pauseAnalysis;
   final bool networkFailure;
+  final bool failSave;
   final String? failCode;
   final String failMessage;
   final analysisCompleter = Completer<JsonMap>();
   String? savedName;
   String? savedPassage;
+  String? analyzedPassage;
   ContentMatchGeneratedQuestion? savedQuestion;
 
   late final generated = ContentMatchGeneratedQuestion.fromJson(
@@ -372,6 +510,7 @@ class FakeContentMatchGateway implements ContentMatchGenerationGateway {
 
   @override
   Future<JsonMap> analyzePassage(String passage) {
+    analyzedPassage = passage;
     if (networkFailure) throw Exception('offline');
     return pauseAnalysis
         ? analysisCompleter.future
@@ -414,6 +553,13 @@ class FakeContentMatchGateway implements ContentMatchGenerationGateway {
     savedName = name;
     savedPassage = passage;
     savedQuestion = question;
+    if (failSave) {
+      throw const ContentMatchGenerationException(
+        code: 'HTTP_500',
+        message: 'save failed',
+        statusCode: 500,
+      );
+    }
     return const ContentMatchSaveResult(
       problemSetId: 421,
       savedQuestionCount: 1,

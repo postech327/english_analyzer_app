@@ -35,6 +35,8 @@ class _TeacherSemanticContentMatchScreenState
   );
 
   JsonMap? _semantic;
+  String _authoringPassage = '';
+  String? _analyzedPassage;
   ContentMatchCandidatesResult? _candidateResult;
   ContentMatchGenerationTarget? _selectedTarget;
   ContentMatchGeneratedQuestion? _generated;
@@ -70,11 +72,25 @@ class _TeacherSemanticContentMatchScreenState
     if (mounted) setState(() => _busy = value);
   }
 
+  void _restoreAnalyzedPassage() {
+    final passage = _authoringPassage;
+    if (!mounted || _passageController.text == passage) return;
+    final selection = _passageController.selection;
+    _passageController.value = TextEditingValue(
+      text: passage,
+      selection: selection.isValid && selection.end <= passage.length
+          ? selection
+          : TextSelection.collapsed(offset: passage.length),
+    );
+  }
+
   Future<void> _analyze() async {
     final passage = _passageController.text.trim();
     if (passage.isEmpty || _busy) return;
+    _authoringPassage = passage;
     setState(() {
       _busy = true;
+      _analyzedPassage = passage;
       _semantic = null;
       _candidateResult = null;
       _selectedTarget = null;
@@ -94,6 +110,7 @@ class _TeacherSemanticContentMatchScreenState
         _candidateResult = result;
         _noCandidate = result.selectedTarget == null;
       });
+      _restoreAnalyzedPassage();
     } on ContentMatchGenerationException catch (error) {
       if (!mounted) return;
       setState(() => _error = _messageFor(error));
@@ -105,6 +122,7 @@ class _TeacherSemanticContentMatchScreenState
   }
 
   Future<void> _generate() async {
+    _restoreAnalyzedPassage();
     final semantic = _semantic;
     final target = _selectedTarget;
     if (semantic == null || target == null || _busy) return;
@@ -118,7 +136,10 @@ class _TeacherSemanticContentMatchScreenState
         semantic: semantic,
         target: target,
       );
-      if (mounted) setState(() => _generated = generated);
+      if (mounted) {
+        setState(() => _generated = generated);
+        _restoreAnalyzedPassage();
+      }
     } on ContentMatchGenerationException catch (error) {
       if (mounted) setState(() => _error = _messageFor(error));
     } catch (_) {
@@ -129,9 +150,15 @@ class _TeacherSemanticContentMatchScreenState
   }
 
   Future<void> _save() async {
+    _restoreAnalyzedPassage();
     final generated = _generated;
     final name = _nameController.text.trim();
+    final passage = (_analyzedPassage ?? '').trim();
     if (generated == null || name.isEmpty || _busy) return;
+    if (passage.isEmpty) {
+      setState(() => _error = '분석에 사용한 영어 지문을 확인해 주세요.');
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
@@ -139,7 +166,7 @@ class _TeacherSemanticContentMatchScreenState
     try {
       final result = await _gateway.saveProblemSet(
         name: name,
-        passage: _passageController.text.trim(),
+        passage: passage,
         question: generated,
       );
       if (!mounted) return;
@@ -303,6 +330,7 @@ class _TeacherSemanticContentMatchScreenState
                       if (value == null) return;
                       setState(() {
                         _questionMode = value;
+                        _analyzedPassage = null;
                         _semantic = null;
                         _candidateResult = null;
                         _selectedTarget = null;
@@ -313,14 +341,19 @@ class _TeacherSemanticContentMatchScreenState
                     },
             ),
             const SizedBox(height: 12),
-            TextField(
-              key: const Key('content-match-passage-input'),
-              controller: _passageController,
-              minLines: 8,
-              maxLines: 16,
-              decoration: const InputDecoration(
-                hintText: '영어 지문을 입력하세요.',
-                border: OutlineInputBorder(),
+            Semantics(
+              container: true,
+              explicitChildNodes: true,
+              child: TextField(
+                key: const Key('content-match-passage-input'),
+                controller: _passageController,
+                onChanged: (value) => _authoringPassage = value,
+                minLines: 8,
+                maxLines: 16,
+                decoration: const InputDecoration(
+                  hintText: '영어 지문을 입력하세요.',
+                  border: OutlineInputBorder(),
+                ),
               ),
             ),
             const SizedBox(height: 12),
@@ -352,11 +385,14 @@ class _TeacherSemanticContentMatchScreenState
         groupValue: _selectedTarget,
         onChanged: _busy
             ? null
-            : (value) => setState(() {
+            : (value) {
+                _restoreAnalyzedPassage();
+                setState(() {
                   _selectedTarget = value;
                   _generated = null;
                   _error = null;
-                }),
+                });
+              },
         title: Text(
           '$modeLabel · 안전도 ${(target.selectionScore * 100).round()}%',
           style: const TextStyle(fontWeight: FontWeight.w800),
@@ -404,7 +440,7 @@ class _TeacherSemanticContentMatchScreenState
               style: const TextStyle(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 12),
-            _previewBlock('지문', _passageController.text.trim()),
+            _previewBlock('지문', (_analyzedPassage ?? '').trim()),
             const SizedBox(height: 10),
             for (final choice in question.choices)
               Container(
