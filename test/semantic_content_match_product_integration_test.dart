@@ -204,6 +204,35 @@ Future<Map<String, dynamic>> _submitPositions(
 }
 
 void main() {
+  for (final prompt in <String>[
+    '윗글의 내용과 일치하는 것을 모두 고르시오. (정답 최대 2개)',
+    '윗글의 내용과 일치하지 않는 것을 모두 고르시오. (정답 최대 2개)',
+    '윗글의 내용과 일치하는 것은?',
+    '윗글의 내용과 일치하지 않는 것은?',
+    '',
+  ]) {
+    testWidgets('preserves Content Match instruction: "$prompt"', (tester) async {
+      final question = _contentMatchQuestion()..['question_text'] = prompt;
+      await _withMockClient(
+        tester,
+        (request) async => _jsonResponse(_studentPayload(question)),
+        () async {
+          await _pumpStudent(tester, question);
+          expect(
+            find.text(prompt.isEmpty
+                ? '문제 지시문이 없습니다. 선생님에게 문의하세요.'
+                : prompt),
+            findsOneWidget,
+          );
+          expect(
+            find.text('윗글의 내용과 일치하거나 일치하지 않는 것을 고르세요.'),
+            findsNothing,
+          );
+        },
+      );
+    });
+  }
+
   testWidgets('detects semantic content match through the product contract', (
     tester,
   ) async {
@@ -215,7 +244,7 @@ void main() {
         await _pumpStudent(tester, question);
         expect(find.text('보기'), findsOneWidget);
         expect(
-          find.text('윗글의 내용과 일치하거나 일치하지 않는 것을 고르세요.'),
+          find.text('윗글의 내용과 일치하는 것을 모두 고르시오. (정답 최대 2개)'),
           findsOneWidget,
         );
       },

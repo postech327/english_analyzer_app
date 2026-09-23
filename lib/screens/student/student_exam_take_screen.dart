@@ -1105,6 +1105,12 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
     final rawPrompt =
         (question['question_text'] ?? question['text'] ?? '').toString().trim();
 
+    // Preserve the authored polarity and selection limit for Content Match.
+    // Generic prompt extraction cannot safely reconstruct these instructions.
+    if (questionType == 'content_match' && rawPrompt.isNotEmpty) {
+      return rawPrompt;
+    }
+
     final extracted = _extractStudentQuestionPrompt(rawPrompt);
     final fallback = _fallbackPromptForType(questionType);
     final languagePrompt = isGrammarVocabularyQuestionType(questionType)
@@ -1217,7 +1223,7 @@ class _StudentExamTakeScreenState extends State<StudentExamTakeScreen> {
       case 'reference':
         return '밑줄 친 표현이 가리키는 대상으로 가장 적절한 것은?';
       case 'content_match':
-        return '윗글의 내용과 일치하거나 일치하지 않는 것을 고르세요.';
+        return '문제 지시문이 없습니다. 선생님에게 문의하세요.';
       case 'order':
         return '\uC8FC\uC5B4\uC9C4 \uAE00 \uB2E4\uC74C\uC5D0 \uC774\uC5B4\uC9C8 \uAE00\uC758 \uC21C\uC11C\uB85C \uAC00\uC7A5 \uC801\uC808\uD55C \uAC83\uC740?';
       case 'insertion':
