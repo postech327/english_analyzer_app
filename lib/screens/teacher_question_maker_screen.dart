@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../services/teacher_api.dart';
 import 'teacher_question_hwpx_import_screen.dart';
 import 'teacher_problem_sets_screen.dart';
+import 'teacher/teacher_semantic_blank_screen.dart';
 import 'teacher/teacher_semantic_correction_screen.dart';
 import 'teacher/teacher_semantic_content_match_screen.dart';
 import 'teacher/teacher_semantic_insertion_screen.dart';
@@ -76,6 +77,14 @@ class _TeacherQuestionMakerScreenState
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => const TeacherSemanticContentMatchScreen(),
+      ),
+    );
+  }
+
+  Future<void> _openSemanticBlank() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const TeacherSemanticBlankScreen(),
       ),
     );
   }
@@ -334,6 +343,48 @@ class _TeacherQuestionMakerScreenState
                             onPressed: _openSemanticCorrection,
                             icon: const Icon(Icons.auto_fix_high_rounded),
                             label: const Text('Semantic 고치기 열기'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _AdminCard(
+                  child: Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.space_bar_rounded, color: _brandBlue),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'AI Semantic 빈칸',
+                                style: TextStyle(
+                                  color: _ink,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          '지문을 분석해 정답이 하나로 확정되는 빈칸 후보를 선택하고 문제세트로 저장합니다.',
+                          style: TextStyle(color: _muted, height: 1.4),
+                        ),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            key: const Key('semantic-blank-entry-button'),
+                            onPressed: _openSemanticBlank,
+                            icon: const Icon(Icons.auto_awesome_rounded),
+                            label: const Text('Semantic 빈칸 만들기'),
                           ),
                         ),
                       ],
